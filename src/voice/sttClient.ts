@@ -15,11 +15,28 @@ const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : und
 
 const STATUSES: readonly CommandStatus[] = ['ok', 'clarify', 'retry', 'reprompt'];
 
+/** Numbers (tenure months, asset values) arrive as numbers or strings; keep them as strings. */
+const strOrNum = (v: unknown): string | undefined => (typeof v === 'string' ? v : typeof v === 'number' && Number.isFinite(v) ? String(v) : undefined);
+
+/** `{ id, kind, label, value? }` of an on-screen chip (candidate.option / action select). */
+function parseOption(v: unknown): IntentCandidate['option'] | undefined {
+  if (!isObj(v)) return undefined;
+  const id = strOrNum(v.id);
+  const label = str(v.label);
+  if (!id || !label) return undefined;
+  const value = strOrNum(v.value);
+  return { id, kind: str(v.kind) ?? 'vehicle_model', label, ...(value !== undefined ? { value } : {}) };
+}
+
 function parseCandidates(v: unknown): IntentCandidate[] | undefined {
   if (!Array.isArray(v)) return undefined;
-  const out = v.filter(isObj).filter((c) => typeof c.intent === 'string').map((c) => ({
-    intent: String(c.intent), phrase: str(c.phrase) ?? '', score: typeof c.score === 'number' ? c.score : 0,
-  }));
+  const out = v.filter(isObj).filter((c) => typeof c.intent === 'string').map((c): IntentCandidate => {
+    const option = parseOption(c.option);
+    return {
+      intent: String(c.intent), phrase: str(c.phrase) ?? '', score: typeof c.score === 'number' ? c.score : 0,
+      ...(option ? { option } : {}),
+    };
+  });
   return out.length ? out : undefined;
 }
 
@@ -56,6 +73,10 @@ function parseAction(v: unknown): VoiceAction {
     const a = v.action;
     if (a === 'help' || a === 'list_commands' || a === 'explain_screen' || a === 'repeat' || a === 'open') return { type: 'assistant', action: a };
   }
+  if (v.type === 'select') {
+    const o = parseOption(v);
+    if (o) return { type: 'select', ...o };
+  }
   return { type: 'none' };
 }
 
@@ -85,6 +106,9 @@ export function parseResponse(body: unknown): CommandResponse {
         ...(typeof slots.downPayment === 'number' ? { downPayment: slots.downPayment } : {}),
         ...(typeof slots.tenureMonths === 'number' ? { tenureMonths: slots.tenureMonths } : {}),
         ...(typeof slots.mobileNumber === 'string' ? { mobileNumber: slots.mobileNumber } : {}),
+        ...(strOrNum(slots.assetId) ? { assetId: strOrNum(slots.assetId) } : {}),
+        ...(typeof slots.brand === 'string' ? { brand: slots.brand } : {}),
+        ...(typeof slots.model === 'string' ? { model: slots.model } : {}),
         // slots.otp is deliberately NOT read: OTP only reaches the draft through a confirmed field fill.
       },
     } : {}),
@@ -129,7 +153,7 @@ async function readCommand(res: Response): Promise<CommandResponse> {
 }
 
 /**
- * POST `${EXPO_PUBLIC_STT_URL}/command` with `{ audio, mimeType, sessionId, screen, context, expect? }`.
+ * POST `${EXPO_PUBLIC_STT_URL}/command` with `{ audio, mimeType, sessionId, screen, context, expect?, options? }`.
  * STT_TIMEOUT_MS timeout. Network / timeout / non-2xx → VoiceError('network' | 'timeout' | 'http');
  * 409 → 'busy' (Zippy still speaking); empty transcript with no fields → 'no_speech'.
  */
@@ -164,7 +188,10 @@ export async function streamCommand(pcmBase64: string, ctx: CommandContext): Pro
   const timer = setTimeout(() => ctrl.abort(), STT_TIMEOUT_MS);
   const id = ctx.sessionId;
   try {
-    const start = await postJson(streamUrl(id, 'start'), { sessionId: id, expect: ctx.expect, screen: ctx.screen, mode: 'ptt' }, ctrl);
+    const start = await postJson(streamUrl(id, 'start'), {
+      sessionId: id, expect: ctx.expect, screen: ctx.screen, mode: 'ptt',
+      ...(ctx.context ? { context: ctx.context } : {}), ...(ctx.options?.length ? { options: ctx.options } : {}),
+    }, ctrl);
     if (start.status === 409) throw new VoiceError('busy');
     if (!start.ok) throw new VoiceError('http', `stream start HTTP ${start.status}`);
     for (let i = 0; i < pcmBase64.length; i += STREAM_CHUNK_B64) {

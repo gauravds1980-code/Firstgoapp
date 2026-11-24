@@ -1,6 +1,7 @@
 import { navRef } from '../navigation/navRef';
 import type { CommandContext } from './types';
 import { expectFor } from './voiceLogic';
+import { getVoiceOptions } from './voiceOptions';
 
 function makeId(): string {
   const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
@@ -15,14 +16,16 @@ function makeId(): string {
  */
 export const VOICE_SESSION_ID: string = makeId();
 
-/** sessionId + screen + expect for the route the dealer is looking at right now. */
+/** sessionId + screen + expect + tappable options for the route the dealer is looking at right now. */
 export function currentCommandContext(): CommandContext {
   const route = navRef.isReady() ? navRef.getCurrentRoute() : undefined;
   const name = route?.name;
   const expect = expectFor(name, route?.params);
+  const options = getVoiceOptions(name);
   return {
     sessionId: VOICE_SESSION_ID,
     ...(name ? { screen: name, context: { route: name } } : {}),
     ...(expect ? { expect } : {}),
+    ...(options.length ? { options } : {}),
   };
 }

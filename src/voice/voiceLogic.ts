@@ -7,6 +7,9 @@
  */
 import type { CommandResponse, IntentCandidate, NormalizedField, VoiceExpect, VoiceSlots } from './types';
 
+/** Server intents that pick a chip on the current screen (never a navigation). */
+export const SELECT_INTENTS: ReadonlySet<string> = new Set(['SELECT_VEHICLE_MODEL', 'SELECT_OPTION']);
+
 /**
  * Client-side fallback when the server sends an intent but no usable `action` (older servers, or a
  * candidate the dealer picked from "Did you mean…?"). Mirrors firstgo-voice-local INTENT_ACTIONS.
@@ -48,7 +51,7 @@ export const INTENT_ROUTE: Readonly<Record<string, { route: string; filter?: str
 /** Navigate target for a command: the server's action first, else the intent fallback map. */
 export function resolveNavTarget(cmd: CommandResponse): { route: string; filter?: string } | null {
   if (cmd.action.type === 'navigate') return { route: cmd.action.route, ...(cmd.action.filter ? { filter: cmd.action.filter } : {}) };
-  if (cmd.action.type === 'assistant') return null;
+  if (cmd.action.type === 'assistant' || cmd.action.type === 'select') return null;
   return INTENT_ROUTE[cmd.intent] ?? null;
 }
 
@@ -57,7 +60,51 @@ export type PlanTarget =
   | { kind: 'navigate'; route: string; filter?: string }
   | { kind: 'assistant' }
   | { kind: 'fill'; fields: NormalizedField[] }
+  /** Pick a chip on the CURRENT screen (vehicle model, tenure, …). Never navigates or presses Continue. */
+  | { kind: 'select'; optionKind: string; id: string; label: string; value?: string }
   | { kind: 'none' };
+
+/** Is this a "select an on-screen option" command (by action or intent)? */
+export const isSelectCommand = (cmd: CommandResponse): boolean => cmd.action.type === 'select' || SELECT_INTENTS.has(cmd.intent);
+
+/**
+ * The select target of a command: the server's `action` first, else rebuilt from slots
+ * (assetId / vehicle → vehicle_model, tenureMonths → tenure). Null when nothing usable.
+ */
+export function selectTarget(cmd: CommandResponse): Extract<PlanTarget, { kind: 'select' }> | null {
+  const a = cmd.action;
+  if (a.type === 'select') return { kind: 'select', optionKind: a.kind, id: a.id, label: a.label, ...(a.value !== undefined ? { value: a.value } : {}) };
+  if (!SELECT_INTENTS.has(cmd.intent)) return null;
+  const s = cmd.slots ?? {};
+  if (s.assetId || s.vehicle) {
+    const id = s.assetId ?? s.vehicle!;
+    return { kind: 'select', optionKind: 'vehicle_model', id, label: s.vehicle ?? id, value: id };
+  }
+  if (s.tenureMonths) {
+    return { kind: 'select', optionKind: 'tenure', id: `tenure-${s.tenureMonths}`, label: `${s.tenureMonths} months`, value: String(s.tenureMonths) };
+  }
+  return null;
+}
+
+/** Draft slots written when a select is confirmed. The screen that owns the chips applies them. */
+export function slotsForSelect(t: Extract<PlanTarget, { kind: 'select' }>, slots?: VoiceSlots): VoiceSlots {
+  if (t.optionKind === 'vehicle_model') {
+    return {
+      assetId: t.value || t.id,
+      vehicle: t.label || slots?.vehicle,
+      ...(slots?.brand ? { brand: slots.brand } : {}),
+      ...(slots?.model ? { model: slots.model } : {}),
+    };
+  }
+  if (t.optionKind === 'tenure') {
+    const n = Number(t.value ?? (t.label.match(/\d+/)?.[0] ?? slots?.tenureMonths));
+    return Number.isFinite(n) && n > 0 ? { tenureMonths: Math.round(n) } : {};
+  }
+  return {};
+}
+
+/** Model numbers ("Xtreme 125R", "Bullet 350") must never show up as an Amount on a select. */
+export const hideFieldForSelect = (cmd: CommandResponse, f: NormalizedField): boolean => isSelectCommand(cmd) && f.type === 'AMOUNT';
 
 /**
  * clarify / retry / reprompt never get a Confirm until the dealer picks a candidate or types a value
@@ -67,6 +114,8 @@ export type PlanTarget =
 export function planTarget(cmd: CommandResponse): PlanTarget {
   const status = cmd.status ?? 'ok';
   if (status !== 'ok') return { kind: 'none' };
+  // A select stays on this screen; it wins over any navigation (these intents are not in INTENT_ROUTE).
+  if (isSelectCommand(cmd)) return selectTarget(cmd) ?? { kind: 'none' };
   if (cmd.action.type === 'assistant' && cmd.intent !== 'UNKNOWN') return { kind: 'assistant' };
   const nav = cmd.intent === 'UNKNOWN' ? null : resolveNavTarget(cmd);
   if (nav) return { kind: 'navigate', ...nav };
@@ -179,6 +228,21 @@ export function withTypedValue(cmd: CommandResponse, index: number, type: Normal
 
 /** Re-stage a clarify command with the candidate the dealer picked (Confirm still required). */
 export function withCandidate(cmd: CommandResponse, c: IntentCandidate): CommandResponse {
+  if (c.option) {
+    const o = c.option;
+    const intent = SELECT_INTENTS.has(c.intent) ? c.intent : o.kind === 'vehicle_model' ? 'SELECT_VEHICLE_MODEL' : 'SELECT_OPTION';
+    const target = { kind: 'select' as const, optionKind: o.kind, id: o.id, label: o.label, ...(o.value !== undefined ? { value: o.value } : {}) };
+    return {
+      ...cmd,
+      status: 'ok',
+      intent,
+      score: c.score,
+      matchedPhrase: c.phrase,
+      candidates: undefined,
+      action: { type: 'select', kind: o.kind, id: o.id, label: o.label, ...(o.value !== undefined ? { value: o.value } : {}) },
+      slots: slotsForSelect(target),
+    };
+  }
   const nav = INTENT_ROUTE[c.intent];
   return {
     ...cmd,

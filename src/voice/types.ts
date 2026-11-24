@@ -9,6 +9,12 @@ export interface VoiceSlots {
   downPayment?: number;
   tenureMonths?: number;
   mobileNumber?: string;
+  /** Catalogue row id picked by voice ("hero-xtreme"); the Asset screen selects that chip. */
+  assetId?: string;
+  /** Full brand from a voice select ("Hero MotoCorp"); informational. */
+  brand?: string;
+  /** Model from a voice select ("Xtreme 125R"); used as a fallback match when assetId is missing. */
+  model?: string;
   /**
    * Spoken OTP digits, written ONLY by a confirmed voice fill (never parsed from server `slots`).
    * Never display it unmasked and never log it; the OTP screens take it out of the draft on use.
@@ -18,16 +24,42 @@ export interface VoiceSlots {
 
 export type AssistantActionName = 'help' | 'list_commands' | 'explain_screen' | 'repeat' | 'open';
 
+/** Kind of an on-screen pickable chip. Kept open for forward compatibility. */
+export type VoiceOptionKind = 'vehicle_model' | 'variant' | 'colour' | 'tenure' | 'emi' | (string & {});
+
+/** One chip the dealer can tap on the focused screen, sent with POST /command as `options`. */
+export interface VoiceOption {
+  id: string;
+  kind: VoiceOptionKind;
+  /** "Hero Xtreme 125R", "24 months", … */
+  label: string;
+  brand?: string;
+  model?: string;
+  variant?: string;
+  /** Asset id, tenure months, etc. */
+  value?: string;
+}
+
+/** Server-picked chip for SELECT_VEHICLE_MODEL / SELECT_OPTION. */
+export interface SelectAction { type: 'select'; kind: VoiceOptionKind; id: string; label: string; value?: string }
+
 export type VoiceAction =
   | { type: 'navigate'; route: string; filter?: string }
   | { type: 'assistant'; action: AssistantActionName }
+  | SelectAction
   | { type: 'none' };
 
 /** How sure the server is about this utterance (local pipeline 8793). Absent on older servers = 'ok'. */
 export type CommandStatus = 'ok' | 'clarify' | 'retry' | 'reprompt';
 
 /** One of the top intents when the server wants the dealer to pick ("Did you mean…?"). */
-export interface IntentCandidate { intent: string; phrase: string; score: number }
+export interface IntentCandidate {
+  intent: string;
+  phrase: string;
+  score: number;
+  /** Present when the candidate is an on-screen chip ("Did you mean Xtreme 125R or Xtreme 160R?"). */
+  option?: { id: string; kind: VoiceOptionKind; label: string; value?: string };
+}
 
 /** PHONE / AMOUNT / OTP / DIGITS from the server; kept open for forward compatibility. */
 export type NormalizedFieldType = 'PHONE' | 'AMOUNT' | 'OTP' | 'DIGITS' | (string & {});
@@ -59,6 +91,8 @@ export interface CommandContext {
   screen?: string;
   expect?: VoiceExpect;
   context?: { route?: string };
+  /** Chips the dealer can tap on the focused screen (vehicle models, tenures, …). */
+  options?: VoiceOption[];
 }
 
 export interface CommandResponse {

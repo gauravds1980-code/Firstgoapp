@@ -2,7 +2,7 @@ import { navRef } from '../navigation/navRef';
 import type { RootStackParamList } from '../navigation/types';
 import { voiceDraft } from './voiceDraft';
 import type { AssistantActionName, CommandResponse, NormalizedField, VoiceSlots } from './types';
-import { maskOtp, planTarget, safeTranscript, slotsFromFields, validFields } from './voiceLogic';
+import { maskOtp, planTarget, safeTranscript, slotsForSelect, slotsFromFields, validFields } from './voiceLogic';
 
 /** Routes the proxy may send that take no required params (safe to navigate to by name). */
 const NAVIGABLE = new Set<keyof RootStackParamList>([
@@ -27,6 +27,8 @@ export type ApplyOutcome =
   | { kind: 'assistant'; action: AssistantActionName }
   /** Confirm writes spoken numbers into the draft for the current screen (no navigation). */
   | { kind: 'filled'; fields: NormalizedField[] }
+  /** Confirm picks a chip on the current screen via the draft (no navigation, no Continue). */
+  | { kind: 'selected'; optionKind: string; id: string; label: string; value?: string }
   | { kind: 'blocked'; reason: string }
   | { kind: 'none' };
 
@@ -38,6 +40,7 @@ export function planCommand(cmd: CommandResponse): ApplyOutcome {
   if (t.kind === 'none') return { kind: 'none' };
   if (t.kind === 'assistant') return cmd.action.type === 'assistant' ? { kind: 'assistant', action: cmd.action.action } : { kind: 'none' };
   if (t.kind === 'fill') return { kind: 'filled', fields: t.fields };
+  if (t.kind === 'select') return { kind: 'selected', optionKind: t.optionKind, id: t.id, label: t.label, ...(t.value !== undefined ? { value: t.value } : {}) };
   if (!isNavigable(t.route)) return { kind: 'blocked', reason: 'That screen isn’t available from voice yet.' };
   if (!canNavigate(t.route)) return { kind: 'blocked', reason: 'Sign in first, then try that again.' };
   return { kind: 'navigated', route: t.route };
@@ -60,6 +63,10 @@ export function applyCommand(cmd: CommandResponse, opts: { navDelayMs?: number }
     voiceDraft.set({ intent: cmd.intent, transcript, route, filter, slots: { ...cmd.slots, ...filled } });
   } else if (plan.kind === 'filled' && hasSlots(filled)) {
     voiceDraft.merge({ transcript, slots: filled });
+  } else if (target.kind === 'select') {
+    // Never an Amount from a select: "Xtreme 125R" must not become a ₹125 down payment.
+    const extra = slotsFromFields(validFields(cmd).filter((f) => f.type !== 'AMOUNT'));
+    voiceDraft.merge({ intent: cmd.intent, transcript, slots: { ...extra, ...slotsForSelect(target, cmd.slots) } });
   }
   if (plan.kind === 'navigated') {
     const go = () => { if (canNavigate(plan.route)) navRef.navigate(plan.route); };
@@ -87,6 +94,9 @@ export const SLOT_LABELS: Record<keyof VoiceSlots, string> = {
   downPayment: 'Down payment',
   tenureMonths: 'Tenure',
   mobileNumber: 'Mobile',
+  assetId: 'Model',
+  brand: 'Brand',
+  model: 'Model',
   otp: 'OTP',
 };
 

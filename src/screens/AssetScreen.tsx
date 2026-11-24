@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { ScrollView, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import { JourneyScreen } from '../components/Screen';
 import { Slider } from '../components/Slider';
 import { Banner, Button, Card, Icon, Pill, PressableScale, ReadOnlyRow, Text } from '../components/ui';
@@ -13,6 +13,8 @@ import { charges, emi, inr, maxLoan, maskMobile } from '../utils/finance';
 import { haptic } from '../utils/haptics';
 import { waiverPlan } from '../utils/waivers';
 import { NB_HYPHEN } from '../navigation/types';
+import { useVoiceDraft, voiceDraft } from '../voice/voiceDraft';
+import { clearVoiceOptions, matchVehicleRow, setVoiceOptions, vehicleLabel } from '../voice/voiceOptions';
 
 export default function AssetScreen() {
   const nav = useNavigation();
@@ -29,6 +31,37 @@ export default function AssetScreen() {
   const offerBinds = journey.offer.amount < t.ltv * journey.asset.onRoadPrice;
 
   useEffect(() => { if (journey.loan > max) update({ loan: max }); }, [max, journey.loan, update]);
+
+  // Voice: tell /command which chips are on screen while this screen is focused (cleared on blur,
+  // so a later screen never sends stale Vehicle chips).
+  const tenureOptions = p.tenureOptions;
+  useFocusEffect(useCallback(() => {
+    const token = setVoiceOptions([
+      ...catalogue.map((a) => ({ id: a.id, kind: 'vehicle_model', label: vehicleLabel(a), brand: a.brand, model: a.model, variant: a.variant, value: a.id })),
+      ...tenureOptions.map((tn) => ({ id: `tenure-${tn}`, kind: 'tenure', label: `${tn} months`, value: String(tn) })),
+    ], 'Asset');
+    return () => clearVoiceOptions(token);
+  }, [catalogue, tenureOptions]));
+
+  // Voice: a CONFIRMED select ("Select Xtreme 125R", "24 months") does exactly what the chip press
+  // does. Only the slots used here are taken; Continue is never pressed for the dealer.
+  const draft = useVoiceDraft();
+  const focused = useIsFocused();
+  useEffect(() => {
+    if (!draft || !focused) return;
+    const s = draft.slots;
+    const row = (s.assetId ? catalogue.find((a) => a.id === s.assetId) : undefined)
+      ?? matchVehicleRow(s.vehicle, catalogue) ?? matchVehicleRow(s.model, catalogue);
+    if (row) {
+      if (row.id !== journey.asset.id) update({ asset: row, loan: maxLoan(product, journey.offer.amount, row.onRoadPrice, journey.condition) });
+      voiceDraft.take('assetId'); voiceDraft.take('vehicle'); voiceDraft.take('model'); voiceDraft.take('brand');
+      haptic.select();
+    }
+    if (s.tenureMonths !== undefined && tenureOptions.includes(s.tenureMonths)) {
+      const tn = voiceDraft.take('tenureMonths');
+      if (tn !== undefined) { update({ tenure: tn }); haptic.select(); }
+    }
+  }, [draft, focused, catalogue, tenureOptions, journey.asset.id, journey.offer.amount, journey.condition, product, update]);
 
   // Shortest tenure that brings EMI under the UPI cap, to suggest a fix
   const fixTenure = p.tenureOptions.find((tn) => tn > journey.tenure && emi(loan, t.annualRate, tn) <= UPI_MANDATE_EMI_CAP);

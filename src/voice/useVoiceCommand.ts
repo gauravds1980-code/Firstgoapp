@@ -98,7 +98,7 @@ export function useVoiceCommand({ onTranscript, onNavigate, readOut }: {
     if (!p) return;
     setPreview(null);
     const out = applyCommand(p.command, { navDelayMs: 250 });
-    if (out.kind === 'navigated' || out.kind === 'filled') {
+    if (out.kind === 'navigated' || out.kind === 'filled' || out.kind === 'selected') {
       haptic.success();
       setCheer(true);
       onNavigate();
@@ -137,7 +137,7 @@ export function useVoiceCommand({ onTranscript, onNavigate, readOut }: {
   }, []);
 
   const phase: VoiceUiPhase = thinking ? 'thinking' : ptt.phase !== 'idle' ? 'listening' : 'idle';
-  const actionable = preview && (preview.plan.kind === 'navigated' || preview.plan.kind === 'assistant' || preview.plan.kind === 'filled');
+  const actionable = preview && (preview.plan.kind === 'navigated' || preview.plan.kind === 'assistant' || preview.plan.kind === 'filled' || preview.plan.kind === 'selected');
   const mood: ZippyMood | null = phase !== 'idle' ? 'thinking' : cheer ? 'cheer' : actionable ? 'happy' : null;
 
   return { phase, error, preview, mood, speaking, pressIn, pressOut, confirm, cancel, choose, editField, abort, stagePreview };

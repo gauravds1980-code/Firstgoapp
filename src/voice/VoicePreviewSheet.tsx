@@ -5,7 +5,7 @@ import { colors, radius, space, touch } from '../theme/tokens';
 import { Button, Field, Icon, Pill, Text } from '../components/ui';
 import { formatSlot, hasSlots, ROUTE_LABEL, SLOT_LABELS, VOICE_EXAMPLES, type ApplyOutcome } from './applyCommand';
 import type { CommandResponse, IntentCandidate, NormalizedField, VoiceExpect, VoiceSlots } from './types';
-import { candidateLabel, displayFields, FIELD_TYPE_FOR_EXPECT, fillLabel, safeTranscript, typedField } from './voiceLogic';
+import { candidateLabel, displayFields, FIELD_TYPE_FOR_EXPECT, fillLabel, hideFieldForSelect, safeTranscript, typedField } from './voiceLogic';
 
 const ASSISTANT_LABEL: Record<string, string> = {
   help: 'Read out help for this screen',
@@ -23,6 +23,7 @@ function confirmLabel(plan: ApplyOutcome): string {
   if (plan.kind === 'navigated') return `Open ${ROUTE_LABEL[plan.route] ?? plan.route}`;
   if (plan.kind === 'assistant') return plan.action === 'open' ? 'OK' : 'Read it out';
   if (plan.kind === 'filled') return fillLabel(plan.fields);
+  if (plan.kind === 'selected') return `Select ${plan.label}`;
   return 'Confirm';
 }
 
@@ -65,9 +66,13 @@ export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, 
   const candidates = status === 'clarify' ? (command.candidates ?? []).slice(0, 2) : [];
   const clarify = candidates.length >= 2;
   const fields = displayFields(command);
-  const actionable = plan.kind === 'navigated' || plan.kind === 'assistant' || plan.kind === 'filled';
+  // A select never shows an Amount row (a model number like 125 / 350 is not money).
+  const shownFields = fields.map((f) => !hideFieldForSelect(command, f));
+  const anyShown = shownFields.some(Boolean);
+  const actionable = plan.kind === 'navigated' || plan.kind === 'assistant' || plan.kind === 'filled' || plan.kind === 'selected';
   const pct = Math.round(Math.max(0, Math.min(1, command.score)) * 100);
-  const slots = hasSlots(command.slots) ? command.slots : undefined;
+  const slots = plan.kind !== 'selected' && hasSlots(command.slots) ? command.slots : undefined;
+  const serverText = command.responseText?.trim() || command.readBack?.trim() || '';
   const filter = command.action.type === 'navigate' ? command.action.filter : undefined;
   const firstInvalid = fields.findIndex((f) => !f.valid);
   const expectType = expect ? FIELD_TYPE_FOR_EXPECT[expect] : undefined;
@@ -80,10 +85,11 @@ export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, 
     : 'Did you say…';
   const what = plan.kind === 'navigated' ? `Go to ${ROUTE_LABEL[plan.route] ?? plan.route}${filter ? ` (${filter.replace(/_/g, ' ')})` : ''}`
     : plan.kind === 'assistant' ? ASSISTANT_LABEL[plan.action] ?? 'Zippy help'
+    : plan.kind === 'selected' ? `Select ${plan.label}`
     : plan.kind === 'filled' ? `Fill the ${fieldLabel(plan.fields[0]?.type ?? '').toLowerCase()} on this screen (you still tap Verify / Continue yourself)`
     : plan.kind === 'blocked' ? plan.reason
     : clarify ? 'Pick one, then confirm.'
-    : status === 'retry' ? 'Hold the mic and try one of these:'
+    : status === 'retry' ? (serverText || 'Hold the mic and try one of these:')
     : status === 'reprompt' ? (fields[firstInvalid]?.error ?? 'I did not catch the whole number.')
     : 'I’m not sure what to do with that. Cancel and hold the mic to try again.';
 
@@ -121,7 +127,10 @@ export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, 
                 <Row label="Match" value={`${pct}%${command.matchedPhrase ? ` · “${command.matchedPhrase}”` : ''}`} />
               </>
             )}
-            {status === 'retry' && VOICE_EXAMPLES.map((ex) => (
+            {plan.kind === 'selected' && (
+              <Text variant="caption" color={colors.textSecondary}>Selects this option on the current screen. You still tap Continue yourself.</Text>
+            )}
+            {status === 'retry' && !serverText && VOICE_EXAMPLES.map((ex) => (
               <Text key={ex} variant="body" color={colors.textSecondary}>• “{ex}”</Text>
             ))}
           </View>
@@ -132,10 +141,10 @@ export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, 
               ))}
             </View>
           )}
-          {fields.length > 0 && (
+          {anyShown && (
             <View style={{ padding: space.sm, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, gap: space.xs }}>
               <Text variant="overline" color={colors.textSecondary}>NUMBERS I HEARD</Text>
-              {fields.map((f, i) => (
+              {fields.map((f, i) => !shownFields[i] ? null : (
                 <View key={i} style={{ gap: space.xxs }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.sm }}>
                     <Text variant="caption" color={colors.textSecondary}>{fieldLabel(f.type)}</Text>
