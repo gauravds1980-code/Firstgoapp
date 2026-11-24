@@ -44,8 +44,8 @@ type Edit = { index: number; type: NormalizedField['type'] };
  * get no Confirm (Cancel only) until the dealer picks a candidate or types the value.
  *
  * OTP: rows come from `displayFields` (the server's masked copy, re-masked here) so digits are never
- * shown; typing an OTP uses a secure input. Drawn as an overlay inside the assistant sheet's Modal
- * (no nested native modals on iOS).
+ * shown; typing an OTP uses a secure input. Drawn as an absolute overlay by VoiceHost (inside
+ * VoiceHost's own transparent Modal while Zippy's help sheet is open).
  */
 export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, onChoose, onEditField }: {
   command: CommandResponse | null; plan: ApplyOutcome | null; expect?: VoiceExpect;

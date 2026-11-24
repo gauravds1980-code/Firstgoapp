@@ -1,30 +1,19 @@
 import { useSyncExternalStore } from 'react';
-import type { ZippyMood } from '../components/assistant/zippyStore';
-import type { AssistantActionName, IntentCandidate, NormalizedField } from './types';
+import type { IntentCandidate, NormalizedField, VoiceUiPhase } from './types';
 import type { VoicePreview } from './useVoiceCommand';
-import type { VoiceUiPhase } from './VoiceMicButton';
 
 /**
  * The single app-wide voice session, published by VoiceHost (which owns the one recorder via
- * useVoiceCommand). Every mic — the docked header badge, the floating Zippy badge and the sheet's large
- * VoiceMicButton — reads this state and calls these actions, so there is never a second recorder.
+ * useVoiceCommand). The standalone header mic (HeaderVoiceMic) reads this state and calls these actions,
+ * so there is never a second recorder. The session is independent of Zippy: it does not drive Zippy's
+ * mood or lips, and it never opens the help sheet by itself.
  */
 export type VoiceSessionState = {
   phase: VoiceUiPhase;
   error: string | null;
   preview: VoicePreview | null;
-  /** Zippy mood while voice is active (listening/thinking → 'thinking', preview → 'happy', confirmed → 'cheer'); null = route default. */
-  mood: ZippyMood | null;
-  speaking: boolean;
-  /** The assistant sheet is open and attached: it shows errors / the preview itself and receives transcripts. */
+  /** Zippy's help sheet (a Modal) is visible: VoiceHost then lifts its overlay into its own Modal so it stays on top. */
   sheetOpen: boolean;
-};
-
-/** Sheet-side hooks, used only while the sheet is open (thread bubbles, contextual read-outs, close-on-navigate). */
-export type SheetVoiceHandlers = {
-  onTranscript: (text: string) => void;
-  readOut: (action: AssistantActionName) => string | null;
-  onNavigate: () => void;
 };
 
 type Actions = {
@@ -37,9 +26,8 @@ type Actions = {
 
 const noop = () => {};
 let actions: Actions = { pressIn: noop, pressOut: noop, confirm: noop, cancel: noop, abort: noop, choose: noop, editField: noop };
-let sheet: { current: SheetVoiceHandlers } | null = null;
 
-let snap: VoiceSessionState = { phase: 'idle', error: null, preview: null, mood: null, speaking: false, sheetOpen: false };
+let snap: VoiceSessionState = { phase: 'idle', error: null, preview: null, sheetOpen: false };
 const listeners = new Set<() => void>();
 const emit = (next: Partial<VoiceSessionState>) => {
   let changed = false;
@@ -57,7 +45,7 @@ export function useVoiceSession(): VoiceSessionState {
 
 export const voiceSession = {
   get state() { return snap; },
-  // ---- Mic controls (any mic) ----
+  // ---- Mic controls ----
   pressIn: () => actions.pressIn(),
   pressOut: () => actions.pressOut(),
   confirm: () => actions.confirm(),
@@ -69,22 +57,11 @@ export const voiceSession = {
   /** VoiceHost binds the live hook callbacks every render. */
   bind(a: Actions) { actions = a; },
   publish(next: Omit<VoiceSessionState, 'sheetOpen'>) { emit(next); },
-  /** Current sheet handlers, or null when the sheet is closed. */
-  sheet(): SheetVoiceHandlers | null { return sheet?.current ?? null; },
 
   // ---- AssistantSheet only ----
   /**
-   * Attach while the sheet is visible (pass a ref so read-outs see the latest thread). Detaching (sheet
-   * closed) aborts any recording / request / preview in flight and stops speech.
+   * Visibility flag only. The sheet does not receive transcripts or results, and opening / closing it
+   * never aborts a recording, a request, a preview or a Piper read-out.
    */
-  attachSheet(handlers: { current: SheetVoiceHandlers }) {
-    sheet = handlers;
-    emit({ sheetOpen: true });
-    return () => {
-      if (sheet !== handlers) return;
-      sheet = null;
-      actions.abort();
-      emit({ sheetOpen: false });
-    };
-  },
+  setSheetOpen(open: boolean) { emit({ sheetOpen: open }); },
 };

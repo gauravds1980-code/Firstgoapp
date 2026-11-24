@@ -15,8 +15,6 @@ import { ZippyCharacter } from './ZippyCharacter';
 import { useRouteHelp } from './zippySection';
 import { measureActiveSlot, useRouteMood, useZippyStore, zippyDock, zippyTip } from './zippyStore';
 import { useApp } from '../../state/AppState';
-import { VoiceMicBadge } from '../../voice/VoiceMicBadge';
-import { useVoiceSession } from '../../voice/voiceSession';
 
 const SIZE = 60;
 /** The vehicle mount hangs below the orb box; keep it clear of CTAs too. */
@@ -51,6 +49,8 @@ const MINI_SCALE = DOCK_MINI_SIZE / SIZE;
  *    floating orb (or use the sheet menu) to dock it.
  * Floating (opt-in, persisted as `firstgo.zippy.float`): drag anywhere → snaps to the nearest side edge;
  * vertical position is clamped above the sticky footer + tip zone and the Scan QR FAB.
+ * v1.2.8: no mic on the orb and no voice-driven mood / lips. The push-to-talk mic is the standalone
+ * HeaderVoiceMic, which stays in the header whether Zippy is docked or floating.
  */
 export function ZippyBubble({ route }: { route?: string }) {
   const { width: W, height: H } = useWindowDimensions();
@@ -61,8 +61,7 @@ export function ZippyBubble({ route }: { route?: string }) {
   phaseRef.current = phase;
   const context = ROUTE_CONTEXT[route ?? ''] ?? 'home';
   const routeMood = useRouteMood(route);
-  const voice = useVoiceSession();
-  const mood = voice.mood ?? routeMood;
+  const mood = routeMood;
   const { session, product } = useApp();
   // Signed in → Zippy rides the dealer's (Home-selected) product; auth screens show the bare character.
   const rideProduct = session ? product : undefined;
@@ -155,7 +154,7 @@ export function ZippyBubble({ route }: { route?: string }) {
   /** Centre of the focused header slot in this overlay's coordinates (both measured in window space, so offsets cancel). */
   const measureTarget = (cb: (p: { cx: number; cy: number }) => void) => {
     const g = geo.current;
-    const fallback = { cx: g.W - gutter.screen - touch.min - space.xs - DOCK_SLOT_SIZE / 2, cy: g.top + 32 };
+    const fallback = { cx: g.W - gutter.screen - touch.min * 2 - space.xs - DOCK_SLOT_SIZE / 2, cy: g.top + 32 }; // dock slot sits left of the mic + Home
     measureActiveSlot((r) => {
       if (!r) { cb(fallback); return; }
       const o = origin.current;
@@ -271,16 +270,10 @@ export function ZippyBubble({ route }: { route?: string }) {
               onAccessibilityAction={(e) => { if (e.nativeEvent.actionName === 'longpress') dock(); }}
               style={[{ width: SIZE, height: SIZE, borderRadius: SIZE / 2, alignItems: 'center', justifyContent: 'center' }, { cursor: 'grab' } as object]}>
               {rideProduct && floating
-                ? <ZippyRide size={SIZE} product={rideProduct} mood={mood} speaking={!!tip || open || voice.speaking} tapKey={tapKey} moving={moving} driveKey={driveKey} />
-                : <ZippyCharacter size={SIZE} mood={mood} speaking={!!tip || open || voice.speaking} tapKey={tapKey} />}
+                ? <ZippyRide size={SIZE} product={rideProduct} mood={mood} speaking={!!tip || open} tapKey={tapKey} moving={moving} driveKey={driveKey} />
+                : <ZippyCharacter size={SIZE} mood={mood} speaking={!!tip || open} tapKey={tapKey} />}
             </View>
           </Animated.View>
-          {/* Push-to-talk badge: a sibling of the pan view (not a child), so tap = sheet / long-press = dock still
-              belong to the orb. Sits on the inward side so it stays visible when Zippy peeks behind the edge. */}
-          {floating && (
-            <VoiceMicBadge style={{ bottom: -2, ...(side === 'right' ? { left: -2 } : { right: -2 }) }}
-              onPressIn={() => { clearPeek(); peek.value = withSpring(0, { damping: 16 }); }} onPressOut={() => schedulePeek()} />
-          )}
         </Animated.View>
       )}
       <AssistantSheet visible={open} onClose={() => setOpen(false)} context={context} route={route} product={rideProduct}

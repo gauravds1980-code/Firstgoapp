@@ -114,7 +114,7 @@ export default function RootNavigator() {
         )}
       </Stack.Navigator>
       <ZippyBubble route={route} />
-      {/* One voice session for the whole app (header badge, floating badge and sheet mic share it). */}
+      {/* One voice session for the whole app, driven by the standalone header mic (HeaderVoiceMic); independent of Zippy. */}
       <VoiceHost route={route} />
     </NavigationContainer>
   );

@@ -4,8 +4,6 @@ import { useIsFocused, useRoute } from '@react-navigation/native';
 import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { ASSISTANT_NAME } from '../../config/brand';
 import { haptic } from '../../utils/haptics';
-import { VoiceMicBadge } from '../../voice/VoiceMicBadge';
-import { useVoiceSession } from '../../voice/voiceSession';
 import { ZippyCharacter } from './ZippyCharacter';
 import { registerDockSlot, useRouteMood, useZippyStore, zippyDock, ZippyMood } from './zippyStore';
 
@@ -17,7 +15,7 @@ export const DOCK_MINI_SIZE = 36;
 let landedAt = 0;
 export const markZippyLanded = () => { landedAt = Date.now(); };
 
-function DockedFace({ mood, speaking, disabled }: { mood: ZippyMood; speaking: boolean; disabled: boolean }) {
+function DockedFace({ mood, disabled }: { mood: ZippyMood; disabled: boolean }) {
   const reduce = useReducedMotion();
   const settle = useSharedValue(1);
   useEffect(() => {
@@ -39,17 +37,16 @@ function DockedFace({ mood, speaking, disabled }: { mood: ZippyMood; speaking: b
       onAccessibilityAction={(e) => { if (e.nativeEvent.actionName === 'longpress') zippyDock.requestUndock(); }}
       style={({ pressed }) => [{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.8 : 1 }, { cursor: 'pointer' } as object]}
     >
-      <Animated.View style={a}><ZippyCharacter size={DOCK_MINI_SIZE} mood={mood} speaking={speaking} /></Animated.View>
+      <Animated.View style={a}><ZippyCharacter size={DOCK_MINI_SIZE} mood={mood} /></Animated.View>
     </Pressable>
   );
 }
 
 /**
- * Fixed-size header slot Zippy docks into. Used by BrandHeader, Home, AuthScaffold and ScanQr.
+ * Fixed-size header slot Zippy docks into. Used by BrandHeader, Home, AuthScaffold, Scan QR and Face e-KYC.
  * Docked (the default) → this slot draws the mini face: tap = help sheet, long-press = float on screen.
- * A small mic badge sits on the lower-right corner (on top of the face, so the face's own gestures are
- * untouched): press-and-hold it to talk to Zippy without opening the sheet. Voice mood (listening /
- * thinking / happy / cheer) overrides the route mood on the face.
+ * Zippy only: no mic here (the standalone HeaderVoiceMic is a sibling slot), and the face shows the
+ * route mood — voice commands never animate it.
  * Floating → empty placeholder (same footprint), so there is only ever one face. While its screen is focused the slot
  * registers a measurer, so ZippyBubble flies to its real on-screen position.
  */
@@ -60,8 +57,6 @@ export function HeaderDockSlot({ size = DOCK_SLOT_SIZE, style }: { size?: number
   const route = useRoute().name;
   const { phase } = useZippyStore();
   const routeMood = useRouteMood(route);
-  const voice = useVoiceSession();
-  const mood = voice.mood ?? routeMood;
 
   useEffect(() => {
     if (!focused) return;
@@ -81,8 +76,7 @@ export function HeaderDockSlot({ size = DOCK_SLOT_SIZE, style }: { size?: number
       accessibilityElementsHidden={!showFace}
       style={[{ width: size, height: size, flexShrink: 0, alignItems: 'center', justifyContent: 'center' }, style]}
     >
-      {showFace && <DockedFace mood={mood} speaking={voice.speaking} disabled={phase !== 'docked'} />}
-      {showFace && <VoiceMicBadge disabled={phase !== 'docked'} style={{ right: -2, bottom: -2 }} />}
+      {showFace && <DockedFace mood={routeMood} disabled={phase !== 'docked'} />}
     </View>
   );
 }

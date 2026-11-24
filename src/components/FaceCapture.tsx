@@ -6,6 +6,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import Svg, { Defs, Ellipse, Mask, Rect } from 'react-native-svg';
 import { APP_NAME } from '../config/brand';
 import { HeaderDockSlot } from './assistant/HeaderDockSlot';
+import { HeaderVoiceMic } from '../voice/HeaderVoiceMic';
 import { Button, Icon, PressableScale, Text } from './ui';
 import { colors, radius, space, touch } from '../theme/tokens';
 
@@ -150,11 +151,14 @@ export function FaceCapture({ phase, error, onBlink, onClose, onRetry }: {
           <PressableScale onPress={onClose} accessibilityRole="button" accessibilityLabel="Close face capture" style={{ width: touch.min, height: touch.min, alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="close" size={28} color="#fff" />
           </PressableScale>
+          {/* Left spacer balances the two right-hand slots (Zippy + mic), so the title stays centred. */}
+          <View style={{ width: touch.min }} />
           <View style={{ flex: 1, alignItems: 'center' }}>
             <Text variant="h3" color="#fff">Face e-KYC</Text>
             <Text variant="caption" color="rgba(255,255,255,0.75)" numberOfLines={1}>IDFC FIRST Bank · Aadhaar liveness check</Text>
           </View>
           <HeaderDockSlot size={touch.min} />
+          <HeaderVoiceMic onDark />
         </View>
 
         {needsPermission && (

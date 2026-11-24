@@ -126,7 +126,7 @@ export function usePushToTalk() {
     return finish();
   }, [finish]);
 
-  /** Abort without sending (sheet closed mid-hold). */
+  /** Abort without sending. */
   const cancel = useCallback(async () => {
     held.current = false;
     const p = starting.current;

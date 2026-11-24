@@ -17,6 +17,7 @@ import { colors, elevation, fontScaleCap, gutter, radius, space, touch } from '.
 import { inr } from '../utils/finance';
 import { haptic } from '../utils/haptics';
 import { HeaderDockSlot } from '../components/assistant/HeaderDockSlot';
+import { HeaderVoiceMic } from '../voice/HeaderVoiceMic';
 import { ZIPPY_RIGHT_LANE } from '../components/assistant/ZippyBubble';
 import { BrandLockup } from '../components/BrandMarks';
 import { ZippyTipSlot } from '../components/assistant/ZippyTipSlot';
@@ -88,11 +89,12 @@ export default function HomeScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }}>
       {/* Header: the shared bank lockup (IDFC mark + one-line "IDFC FIRST Bank" + "» FIRSTgo"), Zippy's dock,
-          bell, avatar → Profile & settings. Only the lockup's text column shrinks; the trailing controls keep
+          the standalone hold-to-talk mic, bell, avatar → Profile & settings. Only the lockup's text column shrinks; the trailing controls keep
           their 48dp boxes. A little extra top padding keeps the wordmark off the status bar / notch. */}
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: gutter.screen, paddingTop: space.xs, minHeight: 64 }}>
         <BrandLockup markSize={44} style={{ flex: 1, marginRight: space.xxs }} />
         <HeaderDockSlot />
+        <HeaderVoiceMic />
         <PressableScale accessibilityRole="button" accessibilityLabel={`Notifications, ${data?.unread ?? 0} unread`} style={iconBtn}>
           <Icon name="bell-outline" size={26} color={colors.text} />
           <Badge count={data?.unread ?? 0} style={{ position: 'absolute', top: 4, right: 2 }} />

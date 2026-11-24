@@ -22,6 +22,9 @@ export interface VoiceSlots {
   otp?: string;
 }
 
+/** Push-to-talk UI phase shared by the header mic and the voice overlay. */
+export type VoiceUiPhase = 'idle' | 'listening' | 'thinking';
+
 export type AssistantActionName = 'help' | 'list_commands' | 'explain_screen' | 'repeat' | 'open';
 
 /** Kind of an on-screen pickable chip. Kept open for forward compatibility. */
@@ -155,16 +158,16 @@ export class VoiceError extends Error {
   }
 }
 
-/** Short, dealer-facing copy for each error (shown inside the assistant sheet). */
+/** Short, dealer-facing copy for each error (shown as a VoiceHost banner). */
 export function voiceErrorMessage(e: unknown): string {
   const code: VoiceErrorCode = e instanceof VoiceError ? e.code : 'network';
   switch (code) {
-    case 'permission_denied': return 'Microphone permission is needed to talk to Zippy. Enable it in Settings.';
+    case 'permission_denied': return 'Microphone permission is needed for voice commands. Enable it in Settings.';
     case 'not_configured': return 'Voice is not configured on this build yet.';
     case 'provider_not_configured': return e instanceof VoiceError && e.message !== code ? e.message : 'This voice provider is not configured yet.';
     case 'no_speech': return 'I didn’t catch that. Try again.';
     case 'recording': return 'Couldn’t record just now. Try again.';
-    case 'busy': return 'Zippy is still speaking. Wait until the read-out finishes, then hold the mic.';
+    case 'busy': return 'Still speaking. Wait until the read-out finishes, then hold the mic.';
     case 'network':
     case 'timeout':
     case 'http':

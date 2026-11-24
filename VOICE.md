@@ -1,7 +1,7 @@
 # Zippy voice commands (push-to-talk)
 
-Dealers hold the mic — the small badge on Zippy's docked header face (or on the floating Zippy), or the
-large mic in the assistant sheet — say a command, and let go. The app records a short
+Dealers hold the **header mic** — a standalone microphone button in the top header bar, next to (but separate
+from) Zippy — say a command, and let go. The app records a short
 clip, sends it to the **FIRSTgo STT proxy**, and shows a **staged preview** (what Zippy heard, the
 matched intent, the score and any details). Nothing happens until the dealer taps **Confirm**.
 
@@ -38,37 +38,48 @@ matched intent, the score and any details). Nothing happens until the dealer tap
 **Secrets stay on the proxy.** The app only knows the proxy URL. Never add a Google service account,
 API key or Sarvam key to the app, `app.json`, or any `EXPO_PUBLIC_*` variable (those ship in the bundle).
 
-## Where the mic lives
+## Where the mic lives (v1.2.8)
 
-- **Docked Zippy (default)** — a 28 px mic badge on the lower-right of the header slot (`HeaderDockSlot`).
-  It sits on top of the face as a separate control: tapping the face still opens the help sheet and
-  long-pressing it still floats Zippy; only presses on the badge record.
-- **Floating Zippy** — the same badge on the orb's inward lower corner (stays visible when Zippy peeks).
-  Tap = sheet / drag / long-press = dock still belong to the orb.
-- **Assistant sheet** — the large `VoiceMicButton`.
+The mic is **`HeaderVoiceMic`** (`src/voice/HeaderVoiceMic.tsx`): a compact 44 dp icon button in its own header
+slot, a sibling of Zippy's `HeaderDockSlot`. It is in every header that has a dock slot:
 
-All three drive **one** session: `VoiceHost` (mounted once next to `ZippyBubble` in `RootNavigator`) owns
-`useVoiceCommand` → the only `expo-audio` recorder, and publishes state through `src/voice/voiceSession.ts`.
-With the sheet closed, VoiceHost shows a "Listening…" pill under the header, short error / read-out banners,
-and the staged preview. With the sheet open, the sheet attaches (`voiceSession.attachSheet`) and shows errors,
-transcript bubbles and the preview itself; closing the sheet aborts anything in flight. The voice mood
-overrides the route mood on the docked face and the floating orb.
+- Home: `BrandLockup | HeaderDockSlot (Zippy) | HeaderVoiceMic | bell | GP avatar`
+- `BrandHeader` (journey + other main-stack screens): `[back]? | mark + title | [help]? | HeaderDockSlot | HeaderVoiceMic | [Home]`
+- `AuthScaffold`: `lockup | [top]? | HeaderVoiceMic | HeaderDockSlot`
+- Scan QR / Face e-KYC top bars: `close | (spacer) | title | HeaderDockSlot | HeaderVoiceMic`
+
+Press-and-hold records; while listening the button turns solid and shows an elapsed timer (`0:03`); while the
+request is in flight it shows a spinner and ignores new holds. Labels: "Hold to talk", "Listening, let go to send",
+"Working it out". Shipped in release builds.
+
+**Zippy and the mic are independent.** There is no mic on Zippy's docked face, on the floating orb, or in the
+help sheet. The mic never opens the sheet, never docks / undocks Zippy and does not look at Zippy's dock phase;
+`firstgo.zippy.float` only moves Zippy — the mic stays in the header. Voice no longer drives Zippy's mood or
+lips (no listening / thinking / happy / cheer from a voice command); Zippy shows its route mood only.
+
+One session: `VoiceHost` (mounted once in `RootNavigator`) owns `useVoiceCommand` → the only `expo-audio`
+recorder, and publishes state through `src/voice/voiceSession.ts`. VoiceHost always draws the results itself —
+"Listening…" pill, error / read-out banners, the auto-act toast + Undo, and the staged preview (Confirm /
+clarify / say again) — whether or not the help sheet is open (when the sheet's Modal is up, the overlay is lifted
+into its own transparent Modal so it stays on top). Heard transcripts are never added to the sheet thread, and
+opening / closing the sheet never aborts a recording or a Piper read-out. The spoken "open Zippy" command still
+opens the help sheet (`zippyDock.requestSheet()`); a raw mic press never does.
 
 ## Flow
 
-| Step | What happens | Zippy mood |
+| Step | What happens | Header mic |
 | --- | --- | --- |
-| Press & hold mic | Mic permission asked on first use, then recording (AAC .m4a, 16 kHz mono) | `thinking` (mic turns brand red) |
+| Press & hold mic | Mic permission asked on first use, then recording (AAC .m4a, 16 kHz mono) | solid brand red + timer |
 | Release < 250 ms | Treated as a tap; nothing is sent ("Hold the mic while you speak") | idle |
-| Release | `POST ${EXPO_PUBLIC_STT_URL}/command` `{ audio: <base64>, mimeType: "audio/mp4", sessionId, screen, context: { route }, expect? }`, 45 s timeout. Recording file is deleted right after reading. | `thinking` |
-| Response | Transcript appended as a user bubble; preview sheet opens | `happy` |
-| Confirm | `navigate` → sheet closes and `navRef.navigate(route)`; slots/filter saved to `voiceDraft`. `assistant` → answer added to the thread and spoken with **Piper** (`POST /tts`) | `cheer` |
+| Release | `POST ${EXPO_PUBLIC_STT_URL}/command` `{ audio: <base64>, mimeType: "audio/mp4", sessionId, screen, context: { route }, expect? }`, 45 s timeout. Recording file is deleted right after reading. | spinner |
+| Response | Preview opens in VoiceHost's overlay (or auto-act + toast for high confidence) | idle |
+| Confirm | `navigate` → `navRef.navigate(route)`; slots/filter saved to `voiceDraft`. `assistant` → answer shown as a banner and spoken with **Piper** (`POST /tts`) | idle |
 | Cancel | Preview closes; nothing changes | idle |
 
 Max hold is 15 s (auto-sends). `UNKNOWN` intents still show the preview, with Cancel only.
 
-Errors are short messages (inline in the sheet, or a banner under the header when it's closed), never crashes:
-- permission denied → "Microphone permission is needed to talk to Zippy. Enable it in Settings."
+Errors are short banners under the header (VoiceHost), never crashes:
+- permission denied → "Microphone permission is needed for voice commands. Enable it in Settings."
 - `EXPO_PUBLIC_STT_URL` explicitly set to empty → "Voice is not configured on this build yet." (unset defaults to `http://127.0.0.1:8793`)
 - network / timeout / non-2xx → "Could not reach the voice service. Check your connection and try again."
 - `no_speech` / empty transcript → "I didn't catch that. Try again."
@@ -90,10 +101,10 @@ and on native (`src/voice/voiceDemo.ts`).
 - `src/voice/permissions.ts` — mic permission helpers.
 - `src/voice/usePushToTalk.ts` — press-in / press-out recorder hook.
 - `src/voice/useVoiceCommand.ts` — the whole voice flow (record → send → preview → confirm).
-- `src/voice/VoiceHost.tsx` — owns the one session; pill / banners / preview when the sheet is closed.
-- `src/voice/voiceSession.ts` — shared store + actions every mic uses; sheet attach/detach.
-- `src/voice/VoiceMicBadge.tsx` — compact PTT badge on docked / floating Zippy.
-- `src/voice/VoiceMicButton.tsx`, `src/voice/VoicePreviewSheet.tsx` — sheet mic and preview UI.
+- `src/voice/VoiceHost.tsx` — owns the one session; pill / banners / toast / preview (always, sheet open or not).
+- `src/voice/voiceSession.ts` — shared store + actions the header mic uses; sheet-visible flag only.
+- `src/voice/HeaderVoiceMic.tsx` — the standalone header push-to-talk button (v1.2.8).
+- `src/voice/VoicePreviewSheet.tsx` — preview UI (Confirm / clarify / say again).
 - `src/voice/applyCommand.ts` — plan / apply a confirmed command, read-outs, slot formatting.
 - `src/voice/voiceDraft.ts` — in-memory draft of spoken slots (see below).
 - `src/navigation/navRef.ts` — `navRef` moved here (still re-exported from `RootNavigator`) to avoid a require cycle.
@@ -117,8 +128,8 @@ draft; Cases / Offer don't apply them yet.
 - Screens don't consume `voiceDraft` / `filter` yet.
 - No streaming / partial transcripts (the proxy does batch recognize).
 - Screen-reader users: hold-to-talk needs a hold gesture; a tap-to-toggle mode would help VoiceOver/TalkBack.
-  The header badge is small (28 px + hit slop) by design so the header doesn't grow; the sheet mic is the large target.
-- Sheet closed + "help / explain screen" read-outs use the screen tip (the sheet's section-aware text needs it open).
+  The header mic is a 44 dp target so the header doesn't grow.
+- "help / explain screen" read-outs use the screen tip (the sheet's section-aware text is not used by voice).
 - Use dummy customers only while prototyping; recordings aren't stored on the device.
 
 ## v1.2.6 contract and behaviour
@@ -131,8 +142,8 @@ draft; Cases / Offer don't apply them yet.
   `readBack`, `reference`, `offerKeyboard`, `repromptCount`, `hasOtpField`. Parsing lives in `sttClient.parseResponse`;
   pure helpers in `voiceLogic.ts` (tested by `npm run test:voice`).
 - **Read-back**: the preview plays the Piper WAV from the `/command` response (no second `/tts`). The mic ignores holds
-  while Zippy is speaking ("Wait until Zippy finishes speaking."); playback end or stop posts `/tts/done`. HTTP 409 shows
-  "Zippy is still speaking…".
+  while a Piper read-out is playing ("Wait until the read-out finishes, then hold the mic."); playback end or stop posts `/tts/done`. HTTP 409 shows
+  "Still speaking. Wait until the read-out finishes…".
 - **Preview**: `clarify` → "Did you mean…?" with two candidate buttons; `retry` → "Sorry, say that again." with examples;
   `reprompt` → field error + "Type it instead" (prominent when `offerKeyboard` or `repromptCount >= 2`); a digit-only
   utterance → "Use this number / amount / OTP". OTP rows are always masked; typed OTPs use a secure input.

@@ -48,8 +48,8 @@ export function planCommand(cmd: CommandResponse): ApplyOutcome {
 
 /**
  * Run a CONFIRMED command. Writes the voice draft (slots / filter) first so the target screen can
- * read it on mount, then navigates. `navigate` is deferred by `navDelayMs` so the assistant sheet
- * can slide away first. Assistant actions are returned for the sheet to handle (speak / show).
+ * read it on mount, then navigates. `navigate` is deferred by `navDelayMs` so the preview
+ * can slide away first. Assistant actions are returned for VoiceHost to handle (speak / show).
  */
 export function applyCommand(cmd: CommandResponse, opts: { navDelayMs?: number } = {}): ApplyOutcome {
   const plan = planCommand(cmd);

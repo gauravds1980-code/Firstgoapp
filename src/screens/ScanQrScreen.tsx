@@ -11,6 +11,7 @@ import { useApp } from '../state/AppState';
 import { colors, radius, space, touch } from '../theme/tokens';
 import { haptic, hapticMoment } from '../utils/haptics';
 import { HeaderDockSlot } from '../components/assistant/HeaderDockSlot';
+import { HeaderVoiceMic } from '../voice/HeaderVoiceMic';
 import { ZippyTipSlot } from '../components/assistant/ZippyTipSlot';
 
 const FRAME = 260;
@@ -77,9 +78,11 @@ export default function ScanQrScreen() {
         <PressableScale onPress={() => nav.goBack()} accessibilityRole="button" accessibilityLabel="Close scanner" style={{ width: touch.min, height: touch.min, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="close" size={28} color="#fff" />
         </PressableScale>
-        <Text variant="h3" color="#fff" style={{ flex: 1, textAlign: 'center' }}>Scan Customer QR</Text>
-        {/* Right-hand spacer doubles as Zippy's dock slot (keeps the title centred). */}
+        {/* Left spacer balances the two right-hand slots, so the title stays centred. */}
+        <View style={{ width: touch.min }} />
+        <Text variant="h3" color="#fff" numberOfLines={1} style={{ flex: 1, textAlign: 'center' }}>Scan Customer QR</Text>
         <HeaderDockSlot size={touch.min} />
+        <HeaderVoiceMic onDark />
       </View>
 
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.lg, paddingHorizontal: space.lg }}>

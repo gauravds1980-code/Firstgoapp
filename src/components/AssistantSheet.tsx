@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { APP_NAME, ASSISTANT_NAME } from '../config/brand';
 import { ZippyCharacter } from './assistant/ZippyCharacter';
 import { RIDE_EXTRA, ZippyRide } from './assistant/ZippyRide';
@@ -12,11 +12,7 @@ import type { AssistantContext } from '../navigation/types';
 import { colors, radius, space, touch, type } from '../theme/tokens';
 import { Icon, PressableScale, Text } from './ui';
 import { SHOW_DEV_UI } from '../config/devFlags';
-import { useVoiceSession, voiceSession, type SheetVoiceHandlers } from '../voice/voiceSession';
-import { VoiceMicButton } from '../voice/VoiceMicButton';
-import { VoicePreviewSheet } from '../voice/VoicePreviewSheet';
-import { VOICE_EXAMPLES } from '../voice/applyCommand';
-import type { AssistantActionName } from '../voice/types';
+import { voiceSession } from '../voice/voiceSession';
 
 /**
  * PLACEHOLDER — assistant (chatbot layer for dealer staff who get stuck).
@@ -129,33 +125,18 @@ export function AssistantSheet({ visible, onClose, context, route, product, dock
   const asked = new Set(thread.filter((m) => m.from === 'user').map((m) => m.text));
   const ask = (f: Faq) => setThread((t) => [...t, { from: 'user', text: f.q }, { from: 'bot', text: f.a }]);
   const act = (p: ZippyPending) => { if (!route) return; onClose(); setTimeout(() => runPendingAction(route, p.id), 250); };
-  // Voice: push-to-talk → staged preview → Confirm. Read-outs are added to the thread and spoken.
-  const onTranscript = useCallback((text: string) => setThread((t) => [...t, { from: 'user', text }]), []);
-  const readOut = (action: AssistantActionName): string | null => {
-    const lastBot = [...thread].reverse().find((m) => m.from === 'bot')?.text;
-    const text = action === 'list_commands' ? `You can say things like: ${VOICE_EXAMPLES.join(', ')}.`
-      : action === 'explain_screen' ? `This is ${CONTEXT_LABEL[context]}${sec ? `, ${sec.label}` : ''}. ${nudge ? `Still needed here: ${nudge.label}. ` : ''}${TIPS[context]}`
-      : action === 'repeat' ? lastBot ?? greetingText
-      : action === 'open' ? `I’m here. Hold the mic and tell me what you need.`
-      : `${TIPS[context]} You can also hold the mic and say "what can I say".`;
-    setThread((t) => [...t, { from: 'bot', text }]);
-    return text;
-  };
-  // One shared session (VoiceHost): the header / floating badges and this mic drive the same recorder.
-  const voice = useVoiceSession();
-  const handlers = useRef<SheetVoiceHandlers>({ onTranscript, readOut, onNavigate: onClose });
-  handlers.current = { onTranscript, readOut, onNavigate: onClose };
-  useEffect(() => { if (!visible) return; return voiceSession.attachSheet(handlers); }, [visible]);
-  const mood = voice.mood ?? 'idle';
-  const talking = speaking || voice.speaking;
+  // Voice is separate (header mic + VoiceHost): the sheet has no mic, gets no transcripts / previews, and
+  // voice never drives this Zippy's mood or lips. It only tells VoiceHost it is visible, so voice results
+  // can be drawn above this Modal. Opening / closing never aborts a recording or a Piper read-out.
+  useEffect(() => { if (!visible) return; voiceSession.setSheetOpen(true); return () => voiceSession.setSheetOpen(false); }, [visible]);
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={voice.preview ? voiceSession.cancel : onClose} onShow={() => setThread([greeting])}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} onShow={() => setThread([greeting])}>
       <Pressable style={{ flex: 1, backgroundColor: colors.scrim }} onPress={onClose} accessibilityLabel="Close assistant" />
       <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, paddingHorizontal: space.lg, paddingTop: space.sm, paddingBottom: space.md + insets.bottom, maxHeight: '85%', gap: space.md }}>
         <View style={{ alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: colors.borderStrong }} />
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
           <View style={{ width: 52, height: product ? 52 * (1 + RIDE_EXTRA) : 52 }}>
-            {product ? <ZippyRide size={52} product={product} mood={mood} speaking={talking} /> : <ZippyCharacter size={52} mood={mood} speaking={talking} />}
+            {product ? <ZippyRide size={52} product={product} mood="idle" speaking={speaking} /> : <ZippyCharacter size={52} mood="idle" speaking={speaking} />}
           </View>
           <View style={{ flex: 1 }}>
             <Text variant="h3">{ASSISTANT_NAME}</Text>
@@ -209,8 +190,6 @@ export function AssistantSheet({ visible, onClose, context, route, product, dock
             <Text variant="label" color={colors.primary}>{docked ? `Show ${ASSISTANT_NAME} on screen` : `Hide ${ASSISTANT_NAME} in the header`}</Text>
           </PressableScale>
         )}
-        {/* Push-to-talk: shipped in release builds too (not prototype chrome). */}
-        <VoiceMicButton phase={voice.phase} error={voice.error} onPressIn={voiceSession.pressIn} onPressOut={voiceSession.pressOut} />
         {/* Prototype chrome (disabled chat box, "canned answers" note): tester builds only. */}
         {SHOW_DEV_UI && (
           <>
@@ -223,8 +202,6 @@ export function AssistantSheet({ visible, onClose, context, route, product, dock
           </>
         )}
       </View>
-      <VoicePreviewSheet command={voice.preview?.command ?? null} plan={voice.preview?.plan ?? null} expect={voice.preview?.expect}
-        onConfirm={voiceSession.confirm} onCancel={voiceSession.cancel} onChoose={voiceSession.choose} onEditField={voiceSession.editField} />
     </Modal>
   );
 }

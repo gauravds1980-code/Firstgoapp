@@ -7,6 +7,7 @@ import { Text } from './ui';
 import { BrandLockup } from './BrandMarks';
 import { ZippyTipSlot } from './assistant/ZippyTipSlot';
 import { HeaderDockSlot } from './assistant/HeaderDockSlot';
+import { HeaderVoiceMic } from '../voice/HeaderVoiceMic';
 
 /**
  * Auth layout: maroon hero header with the shared bank lockup (IDFC mark + one-line "IDFC FIRST Bank"
@@ -24,6 +25,7 @@ export function AuthScaffold({ title, subtitle, children, footer, top }: { title
           <BrandLockup onDark appSuffix=" · Dealer app" style={{ flexShrink: 1 }} />
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: space.xs, flexShrink: 0, marginLeft: space.sm }}>
             {top}
+            <HeaderVoiceMic onDark />
             <HeaderDockSlot />
           </View>
         </View>

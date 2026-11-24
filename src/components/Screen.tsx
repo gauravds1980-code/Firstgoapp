@@ -14,11 +14,13 @@ import { BrandWordmark } from './BrandWordmark';
 import { ZippyTipSlot } from './assistant/ZippyTipSlot';
 import { StepProgress } from './StepProgress';
 import { HeaderDockSlot } from './assistant/HeaderDockSlot';
+import { HeaderVoiceMic } from '../voice/HeaderVoiceMic';
 import { Icon, PressableScale, Text } from './ui';
 
 /**
  * Compact header used by every main-stack screen except Home and Scan QR.
- *   [‹ back]? [IDFC mark] [IDFC FIRST Bank / title] … [help]? [Zippy dock] [home]
+ *   [‹ back]? [IDFC mark] [IDFC FIRST Bank / title] … [help]? [Zippy dock] [mic] [home]
+ * The mic (HeaderVoiceMic) is its own slot, independent of Zippy. No dealer avatar here (Home only).
  * `title` is the screen's own name ("Payouts", "RC pendency") on non-journey screens, or the product
  * ("Two-wheeler loan") on journey screens. Everything is ONE line (wordmark and title both), so the
  * header height never changes from screen to screen. Same logo-mark tile as login and Home.
@@ -49,8 +51,9 @@ export function BrandHeader({ showHome = true, title, subtitle, back = false, on
           <Icon name="creation" size={22} color={colors.accent} />
         </PressableScale>
       )}
-      {/* Zippy docks here (fixed footprint, so the header never shifts). */}
-      <HeaderDockSlot style={showHome ? { marginRight: space.xxs } : undefined} />
+      {/* Zippy docks here; the hold-to-talk mic is its own slot beside it (both fixed footprints, so the header never shifts). */}
+      <HeaderDockSlot />
+      <HeaderVoiceMic style={showHome ? { marginRight: space.xxs } : undefined} />
       {showHome && (
         <PressableScale accessibilityRole="button" accessibilityLabel="Go to home"
           onPress={() => nav.navigate('Home')}
