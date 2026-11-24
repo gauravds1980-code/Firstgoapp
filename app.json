@@ -2,7 +2,7 @@
   "expo": {
     "name": "FIRSTgo",
     "slug": "boom-dealer",
-    "version": "1.2.4",
+    "version": "1.2.5",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -14,7 +14,8 @@
       "infoPlist": {
         "NSCameraUsageDescription": "FIRSTgo uses the camera to scan the customer's IDFC FIRST offer QR code, photograph RCs, and run the customer's face e-KYC (front camera liveness check).",
         "NSPhotoLibraryUsageDescription": "FIRSTgo needs access to your photos to upload the customer's RC.",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSMicrophoneUsageDescription": "FIRSTgo uses the microphone so you can talk to Zippy."
       }
     },
     "android": {
@@ -26,7 +27,10 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "versionCode": 7
+      "versionCode": 8,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -46,8 +50,8 @@
         "expo-camera",
         {
           "cameraPermission": "FIRSTgo uses the camera to scan the customer's IDFC FIRST offer QR code, photograph RCs, and run the customer's face e-KYC (front camera liveness check).",
-          "microphonePermission": false,
-          "recordAudioAndroid": false
+          "microphonePermission": "FIRSTgo uses the microphone so you can talk to Zippy.",
+          "recordAudioAndroid": true
         }
       ],
       [
@@ -64,7 +68,16 @@
         {
           "photosPermission": "FIRSTgo needs access to your photos to upload the customer's RC.",
           "cameraPermission": "FIRSTgo uses the camera to scan the customer's IDFC FIRST offer QR code, photograph RCs, and run the customer's face e-KYC (front camera liveness check).",
-          "microphonePermission": false
+          "microphonePermission": "FIRSTgo uses the microphone so you can talk to Zippy."
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "FIRSTgo uses the microphone so you can talk to Zippy.",
+          "recordAudioAndroid": true,
+          "enableBackgroundRecording": false,
+          "enableBackgroundPlayback": false
         }
       ]
     ]

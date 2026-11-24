@@ -24,8 +24,9 @@ import PortfolioScreen from '../screens/PortfolioScreen';
 import CasesScreen from '../screens/CasesScreen';
 import RcPendencyScreen from '../screens/RcPendencyScreen';
 import TaInfScreen from '../screens/TaInfScreen';
-import { createNavigationContainerRef } from '@react-navigation/native';
+import { navRef } from './navRef';
 import { ZippyBubble } from '../components/assistant/ZippyBubble';
+import { VoiceHost } from '../voice/VoiceHost';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -37,7 +38,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 const SCAN_OPTIONS = Platform.OS === 'ios'
   ? { animation: 'slide_from_bottom', presentation: 'card', gestureDirection: 'vertical' } as const
   : { animation: 'slide_from_bottom', presentation: 'fullScreenModal' } as const;
-export const navRef = createNavigationContainerRef<RootStackParamList>();
+export { navRef };
 
 /** Deep links (also give each screen a URL on web, used for screenshots). */
 const linking: LinkingOptions<RootStackParamList> = {
@@ -113,6 +114,8 @@ export default function RootNavigator() {
         )}
       </Stack.Navigator>
       <ZippyBubble route={route} />
+      {/* One voice session for the whole app (header badge, floating badge and sheet mic share it). */}
+      <VoiceHost route={route} />
     </NavigationContainer>
   );
 }

@@ -15,6 +15,8 @@ import { ZippyCharacter } from './ZippyCharacter';
 import { useRouteHelp } from './zippySection';
 import { measureActiveSlot, useRouteMood, useZippyStore, zippyDock, zippyTip } from './zippyStore';
 import { useApp } from '../../state/AppState';
+import { VoiceMicBadge } from '../../voice/VoiceMicBadge';
+import { useVoiceSession } from '../../voice/voiceSession';
 
 const SIZE = 60;
 /** The vehicle mount hangs below the orb box; keep it clear of CTAs too. */
@@ -58,7 +60,9 @@ export function ZippyBubble({ route }: { route?: string }) {
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
   const context = ROUTE_CONTEXT[route ?? ''] ?? 'home';
-  const mood = useRouteMood(route);
+  const routeMood = useRouteMood(route);
+  const voice = useVoiceSession();
+  const mood = voice.mood ?? routeMood;
   const { session, product } = useApp();
   // Signed in → Zippy rides the dealer's (Home-selected) product; auth screens show the bare character.
   const rideProduct = session ? product : undefined;
@@ -267,10 +271,16 @@ export function ZippyBubble({ route }: { route?: string }) {
               onAccessibilityAction={(e) => { if (e.nativeEvent.actionName === 'longpress') dock(); }}
               style={[{ width: SIZE, height: SIZE, borderRadius: SIZE / 2, alignItems: 'center', justifyContent: 'center' }, { cursor: 'grab' } as object]}>
               {rideProduct && floating
-                ? <ZippyRide size={SIZE} product={rideProduct} mood={mood} speaking={!!tip || open} tapKey={tapKey} moving={moving} driveKey={driveKey} />
-                : <ZippyCharacter size={SIZE} mood={mood} speaking={!!tip || open} tapKey={tapKey} />}
+                ? <ZippyRide size={SIZE} product={rideProduct} mood={mood} speaking={!!tip || open || voice.speaking} tapKey={tapKey} moving={moving} driveKey={driveKey} />
+                : <ZippyCharacter size={SIZE} mood={mood} speaking={!!tip || open || voice.speaking} tapKey={tapKey} />}
             </View>
           </Animated.View>
+          {/* Push-to-talk badge: a sibling of the pan view (not a child), so tap = sheet / long-press = dock still
+              belong to the orb. Sits on the inward side so it stays visible when Zippy peeks behind the edge. */}
+          {floating && (
+            <VoiceMicBadge size={22} style={{ bottom: -2, ...(side === 'right' ? { left: -2 } : { right: -2 }) }}
+              onPressIn={() => { clearPeek(); peek.value = withSpring(0, { damping: 16 }); }} onPressOut={() => schedulePeek()} />
+          )}
         </Animated.View>
       )}
       <AssistantSheet visible={open} onClose={() => setOpen(false)} context={context} route={route} product={rideProduct}

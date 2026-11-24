@@ -30,8 +30,13 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
-.env*.local
+# local env files and credentials (Google service-account keys stay off the repo)
+.env
+.env.*
+!.env.example
+*service-account*.json
+*serviceAccount*.json
+credentials.json
 
 # typescript
 *.tsbuildinfo
