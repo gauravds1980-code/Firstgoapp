@@ -37,6 +37,11 @@ const GEO: Record<ProductId, { wheels: [number, number][]; r: number; riderX: nu
   cv: { wheels: [[20, 46], [80, 46]], r: 9, riderX: 0.32, riderTop: 0.15 },
 };
 
+/** Vertical centre of the rider's body inside a `size` box (not the wheels), e.g. to align side badges. */
+export const riderCenterY = (product: ProductId, size: number) => size * (GEO[product].riderTop + 0.45);
+/** How far the vehicle overhangs each side of the `size` box. */
+export const rideOverhang = (size: number) => (size * 1.25 - size) / 2;
+
 /** Parts drawn behind the rider (seat backs, cab rear). */
 function BackLayer({ kind }: { kind: ProductId }) {
   switch (kind) {

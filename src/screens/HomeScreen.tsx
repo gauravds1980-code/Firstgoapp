@@ -28,7 +28,7 @@ type HomeData = Awaited<ReturnType<typeof fetchDealerHome>>;
 export default function HomeScreen() {
   const nav = useNavigation();
   const insets = useSafeAreaInsets();
-  const { product, setProduct, condition, setCondition, categories, conditions, profile, phase, session } = useApp();
+  const { product, setProduct, condition, setCondition, categories, conditions, profile, session } = useApp();
   const [data, setData] = useState<HomeData | null>(null);
   const [error, setError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -100,10 +100,7 @@ export default function HomeScreen() {
           style={[{ borderRadius: radius.xl, padding: space.lg, gap: space.md, overflow: 'hidden' }, IOS ? null : elevation.raised as object]}>
           <View pointerEvents="none" style={{ position: 'absolute', right: -32, top: -40, width: 170, height: 170, borderRadius: 85, backgroundColor: 'rgba(255,255,255,0.07)' }} />
           <View pointerEvents="none" style={{ position: 'absolute', right: 40, bottom: -60, width: 140, height: 140, borderRadius: 70, backgroundColor: 'rgba(0,0,0,0.10)' }} />
-          <View style={{ gap: space.xxs }}>
-            <Text variant="overline" color="rgba(255,255,255,0.8)">START A</Text>
-            <Text variant="h1" color={colors.onPrimary}>Pre-Qualified {USED_VEHICLES_ENABLED ? `${CONDITION_LABEL[condition]} ` : ''}{p.label} Journey</Text>
-          </View>
+          <Text variant="h1" color={colors.onPrimary} accessibilityRole="header">{heroTitle(product, condition)}</Text>
           {/* Category switch when the dealer has more than one of 2W / Car / CV; single-product dealers get a chip (e.g. "Commercial Vehicle only") */}
           {categories.length > 1 && (
             <Segmented<ProductId> inverse value={product} onChange={setProduct}
@@ -195,17 +192,6 @@ export default function HomeScreen() {
           </Card>
         </Section>
 
-        {/* MVP 5 placeholder — intentionally NOT built */}
-        <View accessibilityLabel="Reserved slot: cross-sell shelf, coming in MVP 5"
-          style={{ borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.borderStrong, borderRadius: radius.lg, padding: space.md, flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 72 }}>
-          <View style={{ width: 40, height: 40, borderRadius: radius.sm, borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="plus" size={20} color={colors.textMuted} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text variant="bodyStrong" color={colors.textMuted}>Cross-sell shelf</Text>
-            <Text variant="caption" color={colors.textMuted}>Business loan · credit card — coming in MVP 5 (now: MVP {phase})</Text>
-          </View>
-        </View>
       </ScrollView>
 
       <LinearGradient pointerEvents="none" colors={['rgba(253,244,239,0)', colors.bg]} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 120 + insets.bottom }} />
@@ -304,6 +290,13 @@ function LoanRow({ app, last }: { app: RecentApp | null; last: boolean }) {
       ) : (<><Skeleton w={44} h={44} r={radius.md} /><View style={{ flex: 1, gap: 6 }}><Skeleton w="50%" /><Skeleton w="70%" h={12} /></View><Skeleton w={72} h={20} /></>)}
     </View>
   );
+}
+
+/** Plain, product-aware hero title in sentence case; mentions "used" only when used vehicles are enabled. */
+const HERO_NOUN: Record<ProductId, string> = { twoWheeler: 'two-wheeler', car: 'car', cv: 'commercial vehicle' };
+function heroTitle(product: ProductId, condition: Condition): string {
+  const used = USED_VEHICLES_ENABLED && condition === 'used' ? 'used ' : '';
+  return `Start a pre-qualified ${used}${HERO_NOUN[product]} loan`;
 }
 
 function HeroChip({ icon, label }: { icon: IconName; label: string }) {

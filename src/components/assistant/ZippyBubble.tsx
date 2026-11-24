@@ -11,7 +11,7 @@ import { AssistantSheet } from '../AssistantSheet';
 import { Icon, Text } from '../ui';
 import { DOCK_MINI_SIZE, DOCK_SLOT_SIZE, markZippyLanded } from './HeaderDockSlot';
 import { getTipOverride, ROUTE_CONTEXT, TIPS } from './tips';
-import { RIDE_EXTRA, ZippyRide } from './ZippyRide';
+import { RIDE_EXTRA, rideOverhang, riderCenterY, ZippyRide } from './ZippyRide';
 import { ZippyCharacter } from './ZippyCharacter';
 import { useRouteHelp } from './zippySection';
 import { measureActiveSlot, useRouteMood, useZippyStore, zippyDock } from './zippyStore';
@@ -24,8 +24,19 @@ const MARGIN = 8;
 /** Keep clear of the header (top) and of sticky CTA bars + the bottom-centre Scan QR FAB (bottom). */
 const TOP_CLEAR = 76;
 const BOTTOM_CLEAR = 216;
-/** Close badge: 26dp visual + hitSlop ≈ 46dp touch target. Sits on the orb's inner top corner. */
+/** Close badge: 26dp visual + hitSlop 10 = 46dp touch target. Sits BESIDE Zippy on the inner side, vertically centred on the body. */
 const CLOSE = 26;
+const CLOSE_SLOP = 10;
+/** Gap between the badge and Zippy's silhouette (plus the vehicle overhang when riding). */
+const CLOSE_GAP = 8;
+/**
+ * The overlay box is widened by SIDE_EXT on both sides so the side badge (and its hitSlop) stays inside
+ * the touchable bounds — Android does not hit-test children outside their parent. Symmetric, so the
+ * scale origin (dock flight) and the x / y maths (Zippy's box) are unchanged.
+ */
+const SIDE_EXT = Math.ceil(CLOSE_GAP + rideOverhang(SIZE) + CLOSE + CLOSE_SLOP);
+/** Same idea vertically: the badge's hitSlop can dip below the box when riding (rider sits lower in the car). */
+const V_EXT = 8;
 const DOCK_MS = 560;
 const RETURN_MS = 650;
 const MINI_SCALE = DOCK_MINI_SIZE / SIZE;
@@ -214,15 +225,23 @@ export function ZippyBubble({ route }: { route?: string }) {
   });
 
   const floating = phase === 'floating';
+  const riding = !!rideProduct && floating;
+  // Close badge: inner side (left of Zippy when snapped right, right when snapped left), centred on the body — not the hood or the wheels.
+  const closeInset = CLOSE_GAP + (riding ? rideOverhang(SIZE) : 0);
+  const closeTop = V_EXT + (riding && rideProduct ? riderCenterY(rideProduct, SIZE) : SIZE / 2) - CLOSE / 2;
+  const closeLeft = side === 'right' ? SIDE_EXT - closeInset - CLOSE : SIDE_EXT + SIZE + closeInset;
+  /** The tip sits beyond the close badge so the two never overlap. */
+  const tipInset = SIZE + closeInset + CLOSE + 8;
   const showOverlay = floating || phase === 'docking' || phase === 'returning';
   return (
     <>
       <View ref={origin} collapsable={false} pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, width: 1, height: 1 }} />
       {showOverlay && (
-        <Animated.View pointerEvents={floating ? 'box-none' : 'none'} style={[{ position: 'absolute', left: 0, top: 0, width: SIZE, height: SIZE, zIndex: 50 }, wrap]}>
+        <Animated.View pointerEvents={floating ? 'box-none' : 'none'} style={[{ position: 'absolute', left: -SIDE_EXT, top: -V_EXT, width: SIZE + SIDE_EXT * 2, height: SIZE + V_EXT * 2, zIndex: 50, overflow: 'visible' }, wrap]}>
+          <View pointerEvents="box-none" style={{ position: 'absolute', left: SIDE_EXT, top: V_EXT, width: SIZE, height: SIZE, overflow: 'visible' }}>
           {tip && floating && (
             <Animated.View entering={reduce ? undefined : ZoomIn.springify().damping(14)} exiting={FadeOut.duration(180)}
-              style={[{ position: 'absolute', top: -4, width: Math.min(236, W - SIZE - MARGIN * 4), [side === 'right' ? 'right' : 'left']: SIZE + 10 }]}>
+              style={[{ position: 'absolute', top: -4, width: Math.min(236, W - tipInset - MARGIN * 4), [side === 'right' ? 'right' : 'left']: tipInset }]}>
               <Pressable onPress={openSheet} accessibilityRole="button" accessibilityLabel={`${ASSISTANT_NAME} says: ${tip} Tap to ask more`}
                 style={[{ backgroundColor: colors.surface, borderRadius: radius.lg, padding: space.sm, paddingRight: space.lg, borderWidth: 1.5, borderColor: colors.accent }, elevation.raised as object]}>
                 <Text variant="label" color={colors.primary}>{ASSISTANT_NAME}</Text>
@@ -242,11 +261,12 @@ export function ZippyBubble({ route }: { route?: string }) {
                 : <ZippyCharacter size={SIZE} mood={mood} speaking={!!tip || open} tapKey={tapKey} />}
             </View>
           </Animated.View>
-          {/* Close ✕ — a sibling of the pan view (not a child), so the drag responder never steals its tap. On the inner corner so it stays visible when peeking. */}
+          </View>
+          {/* Close ✕ — a sibling of the pan view (not a child), so the drag responder never steals its tap. Beside Zippy on the inner side, so it stays visible when peeking and never covers the face. */}
           {floating && (
-            <Pressable onPress={dock} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Hide ${ASSISTANT_NAME}`} accessibilityHint="Docks the assistant to the header. Tap it there to bring it back"
+            <Pressable onPress={dock} hitSlop={CLOSE_SLOP} accessibilityRole="button" accessibilityLabel="Close Zippy" accessibilityHint="Docks the assistant to the header. Tap it there to bring it back"
               style={({ pressed }) => [{
-                position: 'absolute', top: -2, [side === 'right' ? 'left' : 'right']: -2, width: CLOSE, height: CLOSE, borderRadius: CLOSE / 2,
+                position: 'absolute', top: closeTop, left: closeLeft, width: CLOSE, height: CLOSE, borderRadius: CLOSE / 2,
                 backgroundColor: colors.surface, borderWidth: 1.5, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center',
                 transform: [{ scale: pressed ? 0.9 : 1 }],
               }, elevation.card as object, { cursor: 'pointer' } as object]}>
