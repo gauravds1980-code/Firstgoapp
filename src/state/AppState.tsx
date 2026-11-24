@@ -2,7 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import type { DealerSession } from '../services/auth';
 import { secureStorage } from '../utils/secureStorage';
 import { DEFAULT_PHASE, FeatureFlags, Phase, featuresFor, USED_VEHICLES_ENABLED } from '../config/phases';
-import { Asset, catalogueFor, Condition, ProductId } from '../config/products';
+import { Asset, catalogueFor, Condition, PRODUCT_IDS, ProductId } from '../config/products';
 import { DealerProfile, enabledCategories, enabledConditions, mockDealerProfile } from '../services/dealer';
 import { mockOffer } from '../services/offers';
 import type { DisbursalDocType, DisbursalResult, EkycResponse, MandateResponse, PreQualifiedOffer } from '../services/types';
@@ -48,6 +48,12 @@ function freshJourney(product: ProductId, condition: Condition, oem: string | un
   };
 }
 
+/** First category the dealer can originate (a CV-only dealer starts on 'cv', never on twoWheeler). */
+function defaultProduct(p: DealerProfile | null | undefined): ProductId {
+  return (p ? enabledCategories(p)[0] : undefined) ?? 'twoWheeler';
+}
+const oemOf = (p: DealerProfile | null | undefined) => (p && p.type !== 'multiBrand' ? p.oem : undefined);
+
 /** Sessions saved before v1.1 have no profile — derive it from the mock dealer master. */
 function withProfile(s: DealerSession): DealerSession {
   return s.profile && 'hasTaInf' in s.profile ? s : { ...s, profile: mockDealerProfile(s.mobile).profile };
@@ -92,14 +98,20 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     secureStorage.get(SESSION_KEY)
-      .then((raw) => { if (raw) setSession(withProfile(JSON.parse(raw) as DealerSession)); })
+      .then((raw) => {
+        if (!raw) return;
+        const s = withProfile(JSON.parse(raw) as DealerSession);
+        const p = defaultProduct(s.profile);
+        setProductRaw(p); setConditionRaw('new'); setJourney(freshJourney(p, 'new', oemOf(s.profile)));
+        setSession(s);
+      })
       .catch(() => {})
       .finally(() => setSessionRestored(true));
   }, []);
 
   // Keep product/condition inside what the dealer is enabled for.
-  const categories = useMemo(() => (profile ? enabledCategories(profile) : (['twoWheeler', 'car'] as ProductId[])), [profile]);
-  const effProduct: ProductId = categories.includes(product) ? product : categories[0] ?? 'twoWheeler';
+  const categories = useMemo(() => (profile ? enabledCategories(profile) : PRODUCT_IDS), [profile]);
+  const effProduct: ProductId = categories.includes(product) ? product : categories[0] ?? defaultProduct(profile);
   const conditions = useMemo(() => (!USED_VEHICLES_ENABLED ? (['new'] as Condition[]) : profile ? enabledConditions(profile, effProduct) : (['new', 'used'] as Condition[])), [profile, effProduct]);
   const effCondition: Condition = conditions.includes(condition) ? condition : conditions[0] ?? 'new';
   useEffect(() => {
@@ -112,14 +124,19 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const signIn = useCallback(async (s: DealerSession) => {
     const full = withProfile(s);
     await secureStorage.set(SESSION_KEY, JSON.stringify(full));
+    // Start on a product this dealer can originate (CV-only dealer → 'cv').
+    const p = defaultProduct(full.profile);
+    setProductRaw(p); setConditionRaw('new'); setJourney(freshJourney(p, 'new', oemOf(full.profile)));
     setSession(full);
   }, []);
   const signOut = useCallback(async () => {
     await secureStorage.remove(SESSION_KEY);
+    // Signed out there is no dealer profile; the next signIn picks that dealer's first category.
+    const p = defaultProduct(null);
     setSession(null);
-    setProductRaw('twoWheeler');
+    setProductRaw(p);
     setConditionRaw('new');
-    setJourney(freshJourney('twoWheeler', 'new', undefined)); // drop any in-flight customer data on logout
+    setJourney(freshJourney(p, 'new', undefined)); // drop any in-flight customer data on logout
   }, []);
 
   const setProduct = useCallback((p: ProductId) => {

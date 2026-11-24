@@ -1,5 +1,5 @@
 /** Dealer profile + dashboard data (mock). */
-import { DEALER_PRODUCTS, DealerProduct, ProductId, Condition } from '../config/products';
+import { DEALER_PRODUCTS, DealerProduct, PRODUCT_IDS, ProductId, Condition } from '../config/products';
 import { delay } from './mock';
 
 /* ---------------- Dealer profile ---------------- */
@@ -23,6 +23,7 @@ export interface DealerProfile {
  * Mock dealer master, keyed by the dealer login mobile:
  *   ends 1111 → Multi-brand dealer · New TW + New Car · has TA/INF
  *   ends 2222 → Sub-dealer · Maruti Suzuki · New Car only · no TA/INF
+ *   ends 3333 → Dealer · Tata Motors · New Commercial Vehicle only · has TA/INF ("Tata CV Hub", v1.2.2)
  *   anything else → Dealer · Hero MotoCorp · New TW only · has TA/INF (default, "ABC Motors")
  */
 export function mockDealerProfile(mobile: string): { dealerId: string; name: string; profile: DealerProfile } {
@@ -30,12 +31,15 @@ export function mockDealerProfile(mobile: string): { dealerId: string; name: str
     return { dealerId: 'DLR-PUN-0918', name: 'Shree Auto Mall', profile: { type: 'multiBrand', products: ['newTw', 'newCar'], branch: 'Baner, Pune', hasTaInf: true } };
   if (mobile.endsWith('2222'))
     return { dealerId: 'DLR-THN-1203', name: 'Sai Motors', profile: { type: 'subDealer', oem: 'Maruti Suzuki', products: ['newCar'], branch: 'Thane West', hasTaInf: false } };
+  if (mobile.endsWith('3333'))
+    // CV dealers stock fleets on trade advance / inventory funding, so TA/INF is on.
+    return { dealerId: 'DLR-PUN-3307', name: 'Tata CV Hub', profile: { type: 'dealer', oem: 'Tata Motors', products: ['newCv'], branch: 'Chakan, Pune', hasTaInf: true } };
   return { dealerId: 'DLR-MUM-0457', name: 'ABC Motors', profile: { type: 'dealer', oem: 'Hero MotoCorp', products: ['newTw'], branch: 'Andheri East', hasTaInf: true } };
 }
 
-/** Product categories (2W / Car) the dealer can originate, in display order. */
+/** Product categories (2W / Car / CV) the dealer can originate, in display order. */
 export function enabledCategories(p: DealerProfile): ProductId[] {
-  return (['twoWheeler', 'car'] as ProductId[]).filter((c) => DEALER_PRODUCTS.some((d) => d.product === c && p.products.includes(d.key)));
+  return PRODUCT_IDS.filter((c) => DEALER_PRODUCTS.some((d) => d.product === c && p.products.includes(d.key)));
 }
 /** New / Used options the dealer has for a category. */
 export function enabledConditions(p: DealerProfile, product: ProductId): Condition[] {
@@ -50,17 +54,20 @@ export function initials(name: string): string {
 }
 
 export interface Stat { key: string; label: string; value: string; delta: string; up: boolean; tone: 'blue' | 'mint' | 'peach' | 'rose'; icon: string }
-export interface RecentApp { id: string; when: string; status: 'APPROVED' | 'PENDING' | 'DISBURSED'; amount: number; product: 'twoWheeler' | 'car' }
+export interface RecentApp { id: string; when: string; status: 'APPROVED' | 'PENDING' | 'DISBURSED'; amount: number; product: ProductId }
 export interface QuickAction { key: 'reports' | 'dashboard' | 'rc' | 'tainf'; label: string; icon: string; count: number }
 
-export interface Payout { utr: string; lan: string; amount: number; when: string; product: 'twoWheeler' | 'car' }
+export interface Payout { utr: string; lan: string; amount: number; when: string; product: ProductId }
 
-export async function fetchDealerHome(): Promise<{ stats: Stat[]; recent: RecentApp[]; actions: QuickAction[]; unread: number; payouts: Payout[]; payoutsToday: number }> {
+/** Home dashboard. Callers filter `recent` / `payouts` to the dealer's enabled categories (see HomeScreen). */
+export async function fetchDealerHome(): Promise<{ stats: Stat[]; recent: RecentApp[]; actions: QuickAction[]; unread: number; payouts: Payout[] }> {
   await delay(900);
   return {
     unread: 2,
-    payoutsToday: 306000,
     payouts: [
+      { utr: 'IDFBR817262893752611', lan: 'CV-30218', amount: 512000, when: 'Today, 9:58 AM', product: 'cv' },
+      { utr: 'IDFBR817262893744406', lan: 'CV-30211', amount: 748000, when: 'Today, 9:05 AM', product: 'cv' },
+      { utr: 'IDFBR817262893736015', lan: 'CR-20409', amount: 662000, when: 'Today, 8:40 AM', product: 'car' },
       { utr: 'IDFBR817262893749220', lan: 'TW-184392', amount: 135000, when: 'Today, 9:43 AM', product: 'twoWheeler' },
       { utr: 'IDFBR817262893741108', lan: 'TW-184388', amount: 66500, when: 'Today, 8:52 AM', product: 'twoWheeler' },
       { utr: 'IDFBR817262893739912', lan: 'TW-184371', amount: 104500, when: 'Today, 8:21 AM', product: 'twoWheeler' },
@@ -75,6 +82,8 @@ export async function fetchDealerHome(): Promise<{ stats: Stat[]; recent: Recent
       { id: 'TW-184392', when: 'Today, 9:43 AM', status: 'DISBURSED', amount: 135000, product: 'twoWheeler' },
       { id: 'TW-184401', when: 'Today, 10:05 AM', status: 'APPROVED', amount: 96000, product: 'twoWheeler' },
       { id: 'CR-20417', when: 'Today, 10:31 AM', status: 'PENDING', amount: 726000, product: 'car' },
+      { id: 'CV-30218', when: 'Today, 9:58 AM', status: 'DISBURSED', amount: 527000, product: 'cv' },
+      { id: 'CV-30226', when: 'Today, 10:40 AM', status: 'PENDING', amount: 1255000, product: 'cv' },
     ],
     actions: [
       { key: 'reports', label: 'Reports', icon: 'chart-bar', count: 4 },
@@ -87,7 +96,8 @@ export async function fetchDealerHome(): Promise<{ stats: Stat[]; recent: Recent
 
 export type ListKind = QuickAction['key'] | 'loans' | 'payouts';
 
-export const QUICK_LISTS: Record<ListKind, { title: string; subtitle: string; rows: { title: string; meta: string; tag?: string }[] }> = {
+/** Rows with a `product` are only shown to dealers enabled for that product (QuickListScreen filters). */
+export const QUICK_LISTS: Record<ListKind, { title: string; subtitle: string; rows: { title: string; meta: string; tag?: string; product?: ProductId }[] }> = {
   reports: {
     title: 'Reports', subtitle: 'Downloadable MIS for your dealership',
     rows: [
@@ -103,7 +113,7 @@ export const QUICK_LISTS: Record<ListKind, { title: string; subtitle: string; ro
       { title: 'Approval rate', meta: '82% · ▲ 4 pts' },
       { title: 'Disbursed', meta: '₹71.4 L · 52 loans' },
       { title: 'Avg. TAT (scan → disbursal)', meta: '1m 57s' },
-      { title: 'Two Wheeler / Car mix', meta: '46 / 6 loans' },
+      { title: 'Product mix', meta: 'Two Wheeler 46 · Car 6 · Commercial Vehicle 4 loans' },
     ],
   },
   rc: {
@@ -119,19 +129,24 @@ export const QUICK_LISTS: Record<ListKind, { title: string; subtitle: string; ro
   loans: {
     title: 'Loans', subtitle: 'All applications and their status',
     rows: [
-      { title: 'TW-184392 · Rahul S. · ₹1,50,000', meta: 'Royal Enfield Bullet 350 · Today 9:41 AM', tag: 'Disbursed' },
-      { title: 'TW-184401 · Priya K. · ₹96,000', meta: 'TVS Apache RTR 160 · Today 10:05 AM', tag: 'Approved' },
-      { title: 'CR-20417 · Amit P. · ₹7,26,000', meta: 'Tata Nexon · awaiting e-sign', tag: 'Pending' },
-      { title: 'TW-184371 · Neha D. · ₹1,10,000', meta: 'Ather 450X · Today 8:19 AM', tag: 'Disbursed' },
-      { title: 'TW-184350 · Vikram R. · ₹70,000', meta: 'Honda Activa 6G · Yesterday', tag: 'Disbursed' },
+      { title: 'TW-184392 · Rahul S. · ₹1,50,000', meta: 'Royal Enfield Bullet 350 · Today 9:41 AM', tag: 'Disbursed', product: 'twoWheeler' },
+      { title: 'TW-184401 · Priya K. · ₹96,000', meta: 'TVS Apache RTR 160 · Today 10:05 AM', tag: 'Approved', product: 'twoWheeler' },
+      { title: 'CR-20417 · Amit P. · ₹7,26,000', meta: 'Tata Nexon · awaiting e-sign', tag: 'Pending', product: 'car' },
+      { title: 'CV-30226 · Sanjay P. · ₹12,55,000', meta: 'Tata 407 Gold SFC · awaiting e-sign', tag: 'Pending', product: 'cv' },
+      { title: 'CV-30218 · Manoj V. · ₹5,27,000', meta: 'Tata Ace Gold · Today 9:58 AM', tag: 'Disbursed', product: 'cv' },
+      { title: 'TW-184371 · Neha D. · ₹1,10,000', meta: 'Ather 450X · Today 8:19 AM', tag: 'Disbursed', product: 'twoWheeler' },
+      { title: 'TW-184350 · Vikram R. · ₹70,000', meta: 'Honda Activa 6G · Yesterday', tag: 'Disbursed', product: 'twoWheeler' },
     ],
   },
   payouts: {
-    title: 'Payouts & Disbursals', subtitle: "Loan amounts credited to ABC Motors' settlement account",
+    title: 'Payouts & Disbursals', subtitle: 'Loan amounts credited to your settlement account',
     rows: [
-      { title: '₹1,35,000 · TW-184392', meta: 'UTR IDFBR817262893749220 · Today 9:43 AM', tag: 'Credited' },
-      { title: '₹66,500 · TW-184388', meta: 'UTR IDFBR817262893741108 · Today 8:52 AM', tag: 'Credited' },
-      { title: '₹1,04,500 · TW-184371', meta: 'UTR IDFBR817262893739912 · Today 8:21 AM', tag: 'Credited' },
+      { title: '₹5,12,000 · CV-30218', meta: 'UTR IDFBR817262893752611 · Today 9:58 AM', tag: 'Credited', product: 'cv' },
+      { title: '₹1,35,000 · TW-184392', meta: 'UTR IDFBR817262893749220 · Today 9:43 AM', tag: 'Credited', product: 'twoWheeler' },
+      { title: '₹7,48,000 · CV-30211', meta: 'UTR IDFBR817262893744406 · Today 9:05 AM', tag: 'Credited', product: 'cv' },
+      { title: '₹66,500 · TW-184388', meta: 'UTR IDFBR817262893741108 · Today 8:52 AM', tag: 'Credited', product: 'twoWheeler' },
+      { title: '₹6,62,000 · CR-20409', meta: 'UTR IDFBR817262893736015 · Today 8:40 AM', tag: 'Credited', product: 'car' },
+      { title: '₹1,04,500 · TW-184371', meta: 'UTR IDFBR817262893739912 · Today 8:21 AM', tag: 'Credited', product: 'twoWheeler' },
       { title: '₹38,400 · Incentive (INF) Oct', meta: 'UTR IDFBR817262890012345 · 05 Nov', tag: 'Credited' },
     ],
   },

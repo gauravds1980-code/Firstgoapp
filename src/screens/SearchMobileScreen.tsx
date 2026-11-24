@@ -3,6 +3,7 @@ import { View } from 'react-native';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { JourneyScreen } from '../components/Screen';
 import { useZippyMood } from '../components/assistant/zippyStore';
+import { useSectionTracker, useZippyPending } from '../components/assistant/zippySection';
 import { Banner, Button, ErrorState, Field, Icon, OtpInput, PressableScale, Text } from '../components/ui';
 import { AVAILABLE_FROM } from '../config/phases';
 import { PRODUCTS } from '../config/products';
@@ -10,7 +11,7 @@ import type { RootStackParamList } from '../navigation/types';
 import { offers } from '../services';
 import { useApp } from '../state/AppState';
 import { colors, radius, space, touch } from '../theme/tokens';
-import { haptic } from '../utils/haptics';
+import { haptic, hapticMoment } from '../utils/haptics';
 
 type Stage = 'enter' | 'otp' | 'none';
 
@@ -37,7 +38,17 @@ export default function SearchMobileScreen() {
   // Customer mobile is never pre-filled from the dealer session; typing the dealer's own number is blocked.
   const isDealerOwn = !!session && mobile === session.mobile;
   const valid = /^[6-9]\d{9}$/.test(mobile) && !isDealerOwn;
-  const mobileErr = isDealerOwn ? "This is your dealer login number, not the customer's" : touched && !valid ? (mobile.length < 10 ? 'Enter all 10 digits' : 'Indian mobile numbers start with 6, 7, 8 or 9') : undefined;
+  // Inline validation: a wrong first digit shows at once; a short number shows once 10 digits are typed or on blur.
+  const badStart = mobile.length > 0 && !/^[6-9]/.test(mobile);
+  const mobileErr = isDealerOwn ? "This is your dealer login number, not the customer's"
+    : badStart ? 'Indian mobile numbers start with 6, 7, 8 or 9'
+    : touched && !valid ? (mobile.length < 10 ? `Enter all 10 digits (${mobile.length}/10)` : 'Indian mobile numbers start with 6, 7, 8 or 9') : undefined;
+  const otpErr = err; // partial OTPs get a live digit counter, not an error
+
+  const sec = useSectionTracker<'mobile' | 'otp'>('mobile');
+  useEffect(() => { sec.set(stage === 'otp' ? 'otp' : 'mobile'); }, [stage, sec]);
+  useZippyPending(stage === 'enter' && !valid ? [{ id: 'mobile', label: "Customer's 10-digit mobile", detail: mobileErr ?? 'The number registered with IDFC FIRST Bank.' }]
+    : stage === 'otp' && otp.length < 6 ? [{ id: 'otp', label: 'Customer consent OTP', detail: `${otp.length}/6 digits — the customer reads it out.` }] : []);
 
   const sendOtp = async () => {
     setTouched(true);
@@ -46,7 +57,8 @@ export default function SearchMobileScreen() {
     const r = await offers.sendConsentOtp(mobile);
     setLoading(false);
     if (!r.ok) { haptic.error(); setNetErr(r.message); return; }
-    setOtp(''); setResendIn(30); setStage('otp');
+    hapticMoment.offerSent(); // consent OTP is on its way to the customer
+    setOtp(''); setTouched(false); setResendIn(30); setStage('otp');
   };
 
   const verify = async (code = otp) => {
@@ -62,7 +74,7 @@ export default function SearchMobileScreen() {
 
   if (netErr) {
     return (
-      <JourneyScreen assistant="search" footer={<Button label="Back to Home" variant="secondary" onPress={() => nav.navigate('Home')} />}>
+      <JourneyScreen assistant="search" footer={<Button label="Go to Home" variant="secondary" onPress={() => nav.navigate('Home')} />}>
         <ErrorState title="Something went wrong" body={netErr} onRetry={sendOtp} />
       </JourneyScreen>
     );
@@ -73,7 +85,7 @@ export default function SearchMobileScreen() {
       <JourneyScreen assistant="search" footer={
         <View style={{ gap: space.xs }}>
           <Button label="Try another number" onPress={() => { setStage('enter'); setMobile(''); setTouched(false); }} />
-          <Button label="Back to Home" variant="ghost" onPress={() => nav.navigate('Home')} />
+          <Button label="Go to Home" variant="ghost" onPress={() => nav.navigate('Home')} />
         </View>}>
         <View style={{ alignItems: 'center', gap: space.sm, paddingTop: space.lg }}>
           <View style={{ width: 88, height: 88, borderRadius: 44, backgroundColor: colors.warningSoft, alignItems: 'center', justifyContent: 'center' }}>
@@ -91,7 +103,7 @@ export default function SearchMobileScreen() {
 
   if (stage === 'otp') {
     return (
-      <JourneyScreen assistant="search" footer={<Button label="Verify & check offers" iconRight="arrow-right" onPress={() => verify()} loading={loading} disabled={otp.length !== 6} />}>
+      <JourneyScreen assistant="search" footer={<Button label="Verify OTP & check offer" iconRight="arrow-right" onPress={() => verify()} loading={loading} disabled={otp.length !== 6} />}>
         <Illustration icon="shield-check-outline" />
         <View style={{ gap: space.xs }}>
           <Text variant="h1" style={{ textAlign: 'center' }}>Customer consent</Text>
@@ -99,8 +111,9 @@ export default function SearchMobileScreen() {
             We've sent a 6-digit OTP to <Text variant="bodyStrong">+91 ••••••{mobile.slice(-4)}</Text>. Ask the customer to read it out to confirm they consent to checking their offer.
           </Text>
         </View>
-        <OtpInput value={otp} onChange={(v) => { setOtp(v); setErr(null); if (v.length === 6 && !loading) verify(v); /* auto-submit */ }} error={!!err} />
-        {err && <Text variant="caption" color={colors.danger} accessibilityLiveRegion="polite">{err}</Text>}
+        <OtpInput value={otp} onChange={(v) => { setOtp(v); setErr(null); if (v.length === 6 && !loading) verify(v); /* auto-submit */ }} error={!!otpErr} />
+        {otpErr ? <Text variant="caption" color={colors.danger} accessibilityLiveRegion="polite">{otpErr}</Text>
+          : <Text variant="caption" color={colors.textSecondary}>{otp.length ? `${otp.length}/6 digits` : 'Checks the offer automatically at the 6th digit.'}</Text>}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <PressableScale onPress={() => setStage('enter')} accessibilityRole="button" style={{ minHeight: touch.min, justifyContent: 'center' }}>
             <Text variant="label" color={colors.primary}>Change number</Text>
@@ -117,7 +130,7 @@ export default function SearchMobileScreen() {
   return (
     <JourneyScreen assistant="search" footer={
       <View style={{ gap: space.xs }}>
-        <Button label="Proceed to check offers" iconRight="arrow-right" onPress={sendOtp} loading={loading} disabled={isDealerOwn} />
+        <Button label="Send consent OTP" iconRight="arrow-right" onPress={sendOtp} loading={loading} disabled={isDealerOwn} />
         <PressableScale onPress={() => nav.navigate('ScanQr')} accessibilityRole="button" accessibilityLabel="Scan customer QR instead"
           style={{ minHeight: touch.min, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs }}>
           <Icon name="qrcode-scan" size={20} color={colors.primary} />
@@ -132,7 +145,7 @@ export default function SearchMobileScreen() {
       <Field
         label="Customer's Mobile Number" prefix="+91" placeholder="Enter 10-digit mobile number" keyboardType="number-pad" maxLength={10}
         value={mobile} onChangeText={(t) => setMobile(t.replace(/\D/g, ''))} onBlur={() => setTouched(true)} error={mobileErr}
-        hint="Demo: ends 0000 → no offer · 9999 → network error · ETB on file: 5555 KYC, 6666 mandate, 7777 both"
+        hint={`${mobile.length}/10 digits · Demo: ends 0000 → no offer · 9999 → network error · ETB on file: 5555 KYC, 6666 mandate, 7777 both`}
         right={valid ? <Icon name="check-circle" size={22} color={colors.successBright} style={{ marginRight: space.md }} /> : undefined}
       />
       {isDealerOwn && (

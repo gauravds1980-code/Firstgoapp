@@ -9,7 +9,7 @@ import { PRODUCTS } from '../config/products';
 import { offers } from '../services';
 import { useApp } from '../state/AppState';
 import { colors, radius, space, touch } from '../theme/tokens';
-import { haptic } from '../utils/haptics';
+import { haptic, hapticMoment } from '../utils/haptics';
 import { HeaderDockSlot } from '../components/assistant/HeaderDockSlot';
 
 const FRAME = 260;
@@ -51,7 +51,7 @@ export default function ScanQrScreen() {
     locked.current = true; setBusy(true); setErr(null);
     const r = await offers.resolveOfferFromQr(payload, product, condition);
     setBusy(false);
-    if (r.ok) { haptic.success(); startJourney(r.data); nav.navigate('Asset'); setTimeout(() => { locked.current = false; }, 800); return; }
+    if (r.ok) { hapticMoment.qrSuccess(); startJourney(r.data); nav.navigate('Asset'); setTimeout(() => { locked.current = false; }, 800); return; }
     haptic.error(); setErr(r.message);
     setTimeout(() => { locked.current = false; }, 1500); // let the dealer re-aim
   };

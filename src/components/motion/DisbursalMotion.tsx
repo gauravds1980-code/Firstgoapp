@@ -4,7 +4,7 @@ import Animated, { Easing, interpolate, useAnimatedStyle, useReducedMotion, useS
 import Svg from 'react-native-svg';
 import { colors, space } from '../../theme/tokens';
 import { fmtDuration } from '../../utils/finance';
-import { haptic } from '../../utils/haptics';
+import { haptic, hapticMoment } from '../../utils/haptics';
 import { Icon, Text } from '../ui';
 import { ArcRing, BRAND, DrawPath, Particle, PulseRing, seeded } from './primitives';
 
@@ -27,7 +27,7 @@ export function DisbursalHero({ totalSec }: { totalSec: number }) {
   const [shown, setShown] = useState(reduce ? totalSec : 0);
 
   useEffect(() => {
-    haptic.success();
+    hapticMoment.disbursalComplete();
     if (reduce) return;
     seal.value = withSpring(1, { damping: 9, stiffness: 160, mass: 0.9 });
     check.value = withDelay(250, withTiming(1, { duration: 380, easing: Easing.out(Easing.cubic) }));

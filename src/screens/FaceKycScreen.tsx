@@ -4,6 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useSwipeBack } from '../navigation/useSwipeBack';
 import { useZippyTip } from '../components/assistant/tips';
 import { useZippyMood } from '../components/assistant/zippyStore';
+import { useSectionTracker, useZippyPending } from '../components/assistant/zippySection';
 import { JourneyScreen } from '../components/Screen';
 import { Banner, Button, Card, Icon, Pill, PressableScale, ReadOnlyRow, Text } from '../components/ui';
 import { AVAILABLE_FROM } from '../config/phases';
@@ -53,24 +54,31 @@ export default function FaceKycScreen() {
   useZippyTip(kycOnFile && !journey.ekyc ? '' : null); // quiet during the auto-advancing waiver beat
   useZippyMood(stage === 'capturing' || stage === 'verifying' ? 'thinking' : stage === 'done' ? 'happy' : null);
   useSwipeBack(!(kycOnFile && !journey.ekyc)); // iOS: no swipe-back mid waiver animation
+  const sec = useSectionTracker<'method' | 'capture'>('capture');
+  const needsCapture = !kycOnFile && stage !== 'done' && stage !== 'capturing' && stage !== 'verifying';
+  useZippyPending(needsCapture ? [{
+    id: 'faceKyc', label: stage === 'error' ? 'Face capture failed — retry needed' : 'Customer consent + face capture',
+    detail: 'Read the consent line to the customer, then start the capture.', actionLabel: stage === 'error' ? 'Retry capture' : 'Start capture',
+    onAction: () => { setConsent(true); start(); },
+  }] : []);
   if (kycOnFile && !journey.ekyc) {
     const both = plan.mandate && !journey.mandate;
     const mdt = journey.offer.waivers.mandateOnFile;
-    // Auto-advance, no tap. If the mandate is also on file, one combined beat and straight to KFS.
+    // Auto-advance, no tap. If the mandate is also on file, one combined beat and straight to e-sign (KFS goes with the link).
     const finish = () => {
       if (advanced.current) return; advanced.current = true;
       update({
         ekyc: { txn: rid('BKR'), uidToken: rid('UIDT', 16), name: journey.offer.customerName, dob: '14-08-1991', gender: 'M', addressLine: 'Andheri East, Mumbai 400069', fromBankRecords: true },
         ...(both && mdt ? { mandate: { umn: mdt.umn, status: 'ACTIVE' as const, payerVpa: mdt.payerVpa, mode: 'upi' as const, existing: true } } : {}),
       });
-      nav.navigate(both ? 'Kfs' : 'Mandate');
+      nav.navigate(both ? 'Esign' : 'Mandate');
     };
     const items: WaiverItem[] = [{ icon: 'shield-account', title: 'KYC verified from bank records', detail: `${kycOnFile.source} · ${kycOnFile.verifiedOn}` }];
     if (both && mdt) items.push({ icon: 'bank-check', title: 'AutoPay mandate already active', detail: `UMN ••${mdt.umn.split('@')[0]!.slice(-4)} · up to ${'\u20B9'}${mdt.maxAmount.toLocaleString('en-IN')}/month` });
     return (
       <JourneyScreen step={both ? 'mandate' : 'kyc'} assistant="kyc" showTerms={false}>
         <WaiverMotion title={both ? 'KYC + mandate verified' : 'KYC verified from bank records'}
-          subtitle={`${journey.offer.customerName.split(' ')[0]} is an existing IDFC FIRST customer. ${both ? 'Face e-KYC and the AutoPay step aren\'t needed.' : 'Face e-KYC isn\'t needed.'}`}
+          subtitle={`${journey.offer.customerName.split(' ')[0]} is an existing IDFC FIRST customer. ${both ? 'Face e-KYC and the AutoPay step aren\'t needed — the KFS + e-sign link goes to them next.' : 'Face e-KYC isn\'t needed.'}`}
           items={items} onDone={finish} />
       </JourneyScreen>
     );
@@ -78,24 +86,25 @@ export default function FaceKycScreen() {
 
   const ringColor = stage === 'done' ? colors.successBright : stage === 'error' ? colors.danger : colors.primary;
   const footer = stage === 'done'
-    ? <Button label="Continue to AutoPay mandate" iconRight="arrow-right" onPress={() => nav.navigate('Mandate')} />
-    : <Button label={stage === 'capturing' ? 'Capturing face…' : stage === 'verifying' ? 'Verifying with UIDAI…' : stage === 'error' ? 'Retry face capture' : 'Customer consents · start face capture'}
+    ? <Button label="Continue to mandate" iconRight="arrow-right" onPress={() => nav.navigate('Mandate')} />
+    : <Button label={stage === 'capturing' ? 'Capturing face…' : stage === 'verifying' ? 'Verifying with UIDAI…' : stage === 'error' ? 'Retry face capture' : 'Start face capture'}
+        accessibilityHint="Confirms the customer consented to Aadhaar face authentication, then opens the capture"
         icon="face-recognition" onPress={() => { setConsent(true); start(); }} loading={stage === 'capturing' || stage === 'verifying'} />;
 
   return (
-    <JourneyScreen step="kyc" assistant="kyc" footer={footer}>
+    <JourneyScreen step="kyc" assistant="kyc" footer={footer} onScroll={sec.onScroll}>
       <View style={{ gap: space.xs }}>
         <Text variant="h2">Aadhaar face e-KYC</Text>
         <Text variant="body" color={colors.textSecondary}>Point the camera at the customer. UIDAI's Face RD app checks liveness and returns their verified KYC.</Text>
       </View>
 
-      <View style={{ flexDirection: 'row', gap: space.sm }}>
+      <View style={{ flexDirection: 'row', gap: space.sm }} onLayout={sec.at('method')}>
         <MethodCard on={method === 'face'} icon="face-recognition" title="Face" sub="UIDAI Face RD" onPress={() => setMethod('face')} />
         <MethodCard on={method === 'finger'} icon="fingerprint" title="Fingerprint" sub={features.fingerprintKyc ? 'RD device' : `Coming in MVP ${AVAILABLE_FROM.fingerprintKyc}`}
           disabled={!features.fingerprintKyc} onPress={() => setMethod('finger')} />
       </View>
 
-      <View style={{ alignItems: 'center', paddingVertical: space.md }}>
+      <View style={{ alignItems: 'center', paddingVertical: space.md }} onLayout={sec.at('capture')}>
         <Animated.View style={{ width: 200, height: 200, borderRadius: 100, borderWidth: 4, borderColor: ringColor, borderStyle: stage === 'idle' ? 'dashed' : 'solid', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, transform: [{ scale: pulse }] }}
           accessibilityLabel={`Face capture ${stage}`}>
           <Icon name={stage === 'done' ? 'check-bold' : stage === 'error' ? 'alert' : 'face-man-outline'} size={96} color={ringColor} />

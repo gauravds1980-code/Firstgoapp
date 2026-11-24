@@ -11,10 +11,15 @@ import { AssistantSheet } from '../AssistantSheet';
 import { Icon, Text } from '../ui';
 import { DOCK_MINI_SIZE, DOCK_SLOT_SIZE, markZippyLanded } from './HeaderDockSlot';
 import { getTipOverride, ROUTE_CONTEXT, TIPS } from './tips';
-import { Zippy } from './Zippy';
+import { RIDE_EXTRA, ZippyRide } from './ZippyRide';
+import { ZippyCharacter } from './ZippyCharacter';
+import { useRouteHelp } from './zippySection';
 import { measureActiveSlot, useRouteMood, useZippyStore, zippyDock } from './zippyStore';
+import { useApp } from '../../state/AppState';
 
 const SIZE = 60;
+/** The vehicle mount hangs below the orb box; keep it clear of CTAs too. */
+const RIDE_H = Math.round(SIZE * RIDE_EXTRA);
 const MARGIN = 8;
 /** Keep clear of the header (top) and of sticky CTA bars + the bottom-centre Scan QR FAB (bottom). */
 const TOP_CLEAR = 76;
@@ -42,8 +47,16 @@ export function ZippyBubble({ route }: { route?: string }) {
   phaseRef.current = phase;
   const context = ROUTE_CONTEXT[route ?? ''] ?? 'home';
   const mood = useRouteMood(route);
+  const { session, product } = useApp();
+  // Signed in → Zippy rides the dealer's (Home-selected) product; auth screens show the bare character.
+  const rideProduct = session ? product : undefined;
+  const { footer } = useRouteHelp(route);
   const minY = insets.top + TOP_CLEAR;
-  const maxY = Math.max(minY, H - insets.bottom - BOTTOM_CLEAR - SIZE);
+  // Never cover the primary CTA: stay above the measured sticky footer (and the Home Scan QR FAB zone).
+  const bottomClear = Math.max(insets.bottom + BOTTOM_CLEAR, footer + space.md);
+  const maxY = Math.max(minY, H - bottomClear - SIZE - (rideProduct ? RIDE_H : 0));
+  const [moving, setMoving] = useState(false);
+  const [driveKey, setDriveKey] = useState(0);
   const rightX = W - SIZE - MARGIN;
   const x = useSharedValue(rightX);
   const y = useSharedValue(maxY); // rests low on the right, just above the CTA / Scan QR zone
@@ -155,7 +168,7 @@ export function ZippyBubble({ route }: { route?: string }) {
       setSide('right'); sideRef.current = 'right';
       zippyDock.persist(false);
       zippyDock.setPhase('returning');
-      const done = () => { if (phaseRef.current === 'returning') { zippyDock.setPhase('floating'); if (!reduce) setTapKey((k) => k + 1); } };
+      const done = () => { if (phaseRef.current === 'returning') { zippyDock.setPhase('floating'); setDriveKey((k) => k + 1); if (!reduce) setTapKey((k) => k + 1); } };
       if (reduce) { x.value = g.rightX; y.value = g.maxY; dockScale.value = 1; done(); return; }
       x.value = withSpring(g.rightX, { damping: 16, stiffness: 120 });
       y.value = withSpring(g.maxY, { damping: 14, stiffness: 110 });
@@ -172,10 +185,11 @@ export function ZippyBubble({ route }: { route?: string }) {
     onStartShouldSetPanResponder: () => phaseRef.current === 'floating',
     onMoveShouldSetPanResponder: (_, g) => phaseRef.current === 'floating' && Math.abs(g.dx) + Math.abs(g.dy) > 4,
     onPanResponderGrant: () => { clearPeek(); peek.value = withSpring(0, { damping: 16 }); start.current = { x: x.value, y: y.value }; lift.value = withSpring(1.12, { damping: 12 }); },
-    onPanResponderMove: (_, g) => { x.value = start.current.x + g.dx; y.value = start.current.y + g.dy; },
-    onPanResponderRelease: (_, g) => { lift.value = withSpring(1, { damping: 12 }); release(g.dx, g.dy, g.moveX); },
-    onPanResponderTerminate: (_, g) => { lift.value = withSpring(1, { damping: 12 }); release(g.dx, g.dy, g.moveX); },
+    onPanResponderMove: (_, g) => { x.value = start.current.x + g.dx; y.value = start.current.y + g.dy; if (Math.abs(g.dx) + Math.abs(g.dy) > 6) movingRef.current(true); },
+    onPanResponderRelease: (_, g) => { lift.value = withSpring(1, { damping: 12 }); movingRef.current(false); release(g.dx, g.dy, g.moveX); },
+    onPanResponderTerminate: (_, g) => { lift.value = withSpring(1, { damping: 12 }); movingRef.current(false); release(g.dx, g.dy, g.moveX); },
   })).current;
+  const movingRef = useRef((m: boolean) => setMoving(m)); // setState is stable; wheels roll while dragged
   const tapRef = useRef(openSheet);
   tapRef.current = openSheet;
   const peekRef = useRef(schedulePeek);
@@ -219,11 +233,13 @@ export function ZippyBubble({ route }: { route?: string }) {
               </Pressable>
             </Animated.View>
           )}
-          <Animated.View style={[{ position: 'absolute', bottom: -10, left: 16, width: SIZE - 32, height: 6, borderRadius: 6, backgroundColor: '#000' }, shadow]} />
+          <Animated.View style={[{ position: 'absolute', bottom: rideProduct ? -RIDE_H - 4 : -10, left: rideProduct ? 4 : 16, width: rideProduct ? SIZE - 8 : SIZE - 32, height: 6, borderRadius: 6, backgroundColor: '#000' }, shadow]} />
           <Animated.View style={body}>
             <View {...pan.panHandlers} accessible accessibilityRole="button" accessibilityLabel={`${ASSISTANT_NAME}, your assistant. Tap for help, drag to move`}
               style={[{ width: SIZE, height: SIZE, borderRadius: SIZE / 2, alignItems: 'center', justifyContent: 'center' }, { cursor: 'grab' } as object]}>
-              <Zippy size={SIZE} mood={mood} speaking={!!tip || open} tapKey={tapKey} />
+              {rideProduct && floating
+                ? <ZippyRide size={SIZE} product={rideProduct} mood={mood} speaking={!!tip || open} tapKey={tapKey} moving={moving} driveKey={driveKey} />
+                : <ZippyCharacter size={SIZE} mood={mood} speaking={!!tip || open} tapKey={tapKey} />}
             </View>
           </Animated.View>
           {/* Close ✕ — a sibling of the pan view (not a child), so the drag responder never steals its tap. On the inner corner so it stays visible when peeking. */}
@@ -239,7 +255,7 @@ export function ZippyBubble({ route }: { route?: string }) {
           )}
         </Animated.View>
       )}
-      <AssistantSheet visible={open} onClose={() => setOpen(false)} context={context} />
+      <AssistantSheet visible={open} onClose={() => setOpen(false)} context={context} route={route} product={rideProduct} />
     </>
   );
 }

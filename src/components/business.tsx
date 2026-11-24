@@ -55,12 +55,13 @@ export function DateRangeSheet({ visible, initial, onClose, onApply }: { visible
   const quick = (days: number) => { const f = new Date(TODAY); f.setDate(f.getDate() - days + 1); setFrom(f); setTo(new Date(TODAY)); };
   return (
     <Sheet visible={visible} onClose={onClose} title="Custom date range" subtitle="Applies to Payouts, Portfolio and Cases"
-      footer={<Button label={invalid ? 'From date is after To date' : 'Apply'} icon="check" disabled={invalid} onPress={() => onApply({ preset: 'custom', from, to })} />}>
+      footer={<Button label="Apply date range" icon="check" disabled={invalid} onPress={() => onApply({ preset: 'custom', from, to })} />}>
       <View style={{ flexDirection: 'row', gap: space.xs, flexWrap: 'wrap' }}>
         {[7, 30, 90].map((n) => <Chip key={n} label={`Last ${n} days`} on={false} onPress={() => quick(n)} />)}
       </View>
       <DateStepper label="From" value={from} onChange={setFrom} />
       <DateStepper label="To" value={to} onChange={setTo} max={TODAY} />
+      {invalid && <Text variant="caption" color={colors.danger} accessibilityLiveRegion="polite">From date is after To date — move one of them to apply.</Text>}
     </Sheet>
   );
 }

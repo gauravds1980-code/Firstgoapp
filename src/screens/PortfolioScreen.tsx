@@ -2,7 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { View } from 'react-native';
 import { JourneyScreen } from '../components/Screen';
 import { Chip, DateFilterBar, ExampleTag, inrShort, StatCard } from '../components/business';
-import { Card, Icon, Pill, Text } from '../components/ui';
+import { Card, EmptyState, Icon, Pill, Text } from '../components/ui';
+import { presetRange } from '../state/stores';
 import { PRODUCTS } from '../config/products';
 import { Bucket, BUCKETS, bucketOf, casesFor, fmtDate } from '../services/business';
 import { useApp } from '../state/AppState';
@@ -15,7 +16,7 @@ const BUCKET_COLOR: Record<Bucket, string> = { Current: colors.successBright, '1
 /** Active portfolio sourced by the dealer: count, POS, DPD bucket split and cases (example data). */
 export default function PortfolioScreen() {
   const { profile } = useApp();
-  const [range] = useDateRange();
+  const [range, setRange] = useDateRange();
   const [bucket, setBucket] = useState<Bucket | 'All'>('All');
   const cases = useMemo(() => casesFor(profile), [profile]).filter((c) => inRange(c.disbursedOn, range));
   const pos = cases.reduce((t, c) => t + c.pos, 0);
@@ -52,7 +53,11 @@ export default function PortfolioScreen() {
         {split.filter((s) => s.n > 0).map((s) => <Chip key={s.b} label={s.b} on={bucket === s.b} onPress={() => setBucket(s.b)} count={String(s.n)} />)}
       </View>
       <Card style={{ padding: 0 }}>
-        {shown.length === 0 && <View style={{ padding: space.md }}><Text variant="body" color={colors.textSecondary}>No loans in this range.</Text></View>}
+        {shown.length === 0 && (cases.length === 0
+          ? <EmptyState icon="chart-donut" title="No active loans in this range" body="Loans you source appear here after disbursal. Widen the date range to see older loans."
+              action={range.preset === 'thisMonth' ? { label: 'Show last month', icon: 'calendar-arrow-left', onPress: () => setRange(presetRange('lastMonth')) } : undefined} />
+          : <EmptyState tone="success" icon="check-decagram-outline" title={`No loans in ${bucket} DPD`} body="Nobody in this bucket right now. Tap All to see every loan."
+              action={{ label: 'Show all loans', icon: 'filter-off-outline', onPress: () => setBucket('All') }} />)}
         {shown.map((c, i) => (
           <View key={c.lan} style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.md, borderBottomWidth: i === shown.length - 1 ? 0 : 1, borderBottomColor: colors.border }}>
             <View style={{ width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.primaryTint, alignItems: 'center', justifyContent: 'center' }}>

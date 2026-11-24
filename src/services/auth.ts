@@ -7,7 +7,8 @@
  *
  * Demo rules: OTP is always 123456; a mobile ending 9999 simulates a network error;
  * a mobile ending 0000 is "not a registered dealer". Dealer profiles by number: see
- * mockDealerProfile in ./dealer (default Hero dealer; ends 1111 multi-brand; ends 2222 Maruti sub-dealer).
+ * mockDealerProfile in ./dealer (default Hero dealer; ends 1111 multi-brand;
+ * ends 2222 Maruti sub-dealer; ends 3333 Tata Motors commercial-vehicle dealer, new CV only).
  */
 import { DealerProfile, mockDealerProfile } from './dealer';
 import { delay, rid } from './mock';

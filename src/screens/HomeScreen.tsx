@@ -7,7 +7,8 @@ import { casesFor, invoicesFor, rcCasesFor, taInfFor } from '../services/busines
 import { useRcCases } from '../state/stores';
 import { inrShort } from '../components/business';
 import type { RootStackParamList } from '../navigation/types';
-import { Badge, ButtonLabel, Card, ErrorState, Icon, IconName, Pill, PressableScale, Segmented, Skeleton, Text } from '../components/ui';
+import { Badge, ButtonLabel, Card, EmptyState, ErrorState, Icon, IconName, Pill, PressableScale, Segmented, Skeleton, Text } from '../components/ui';
+import { useSectionTracker } from '../components/assistant/zippySection';
 import { Condition, CONDITION_LABEL, PRODUCTS, ProductId } from '../config/products';
 import { dealerTagline, fetchDealerHome, initials, RecentApp } from '../services/dealer';
 import { useApp } from '../state/AppState';
@@ -50,6 +51,13 @@ export default function HomeScreen() {
     return t;
   }, [profile, rc]);
 
+  // Section-aware Zippy help: which Home block is in view.
+  const sec = useSectionTracker<'start' | 'today' | 'loans' | 'actions' | 'payouts'>('start');
+  // Only this dealer's products (a CV-only dealer never sees two-wheeler rows).
+  const recent = data ? data.recent.filter((r) => categories.includes(r.product)) : null;
+  const payouts = data ? data.payouts.filter((po) => categories.includes(po.product)) : null;
+  const payoutsToday = payouts ? payouts.reduce((t, po) => t + po.amount, 0) : 0;
+
   const load = useCallback(async () => {
     setError(false);
     try { setData(await fetchDealerHome()); } catch { setError(true); }
@@ -82,11 +90,12 @@ export default function HomeScreen() {
 
       <ScrollView
         contentContainerStyle={{ paddingHorizontal: gutter.screen, paddingTop: space.xs, gap: space.lg, paddingBottom: 140 + insets.bottom }}
+        onScroll={sec.onScroll} scrollEventThrottle={64}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
       >
         {/* HERO — dominant one-tap start */}
         {/* iOS clips shadows on overflow:'hidden' views, so on iOS the shadow lives on a wrapper (Android/web unchanged). */}
-        <View style={IOS ? [{ borderRadius: radius.xl, backgroundColor: colors.primary }, elevation.raised as object] : undefined}>
+        <View onLayout={sec.at('start')} style={IOS ? [{ borderRadius: radius.xl, backgroundColor: colors.primary }, elevation.raised as object] : undefined}>
         <LinearGradient colors={['#B43140', colors.primary, colors.primaryDark]} locations={[0, 0.48, 1]} start={{ x: 0.2, y: 0 }} end={{ x: 0.8, y: 1 }}
           style={[{ borderRadius: radius.xl, padding: space.lg, gap: space.md, overflow: 'hidden' }, IOS ? null : elevation.raised as object]}>
           <View pointerEvents="none" style={{ position: 'absolute', right: -32, top: -40, width: 170, height: 170, borderRadius: 85, backgroundColor: 'rgba(255,255,255,0.07)' }} />
@@ -95,7 +104,7 @@ export default function HomeScreen() {
             <Text variant="overline" color="rgba(255,255,255,0.8)">START A</Text>
             <Text variant="h1" color={colors.onPrimary}>Pre-Qualified {USED_VEHICLES_ENABLED ? `${CONDITION_LABEL[condition]} ` : ''}{p.label} Journey</Text>
           </View>
-          {/* Category switch only when the dealer is enabled for both 2W and Car */}
+          {/* Category switch when the dealer has more than one of 2W / Car / CV; single-product dealers get a chip (e.g. "Commercial Vehicle only") */}
           {categories.length > 1 && (
             <Segmented<ProductId> inverse value={product} onChange={setProduct}
               options={categories.map((id) => ({ value: id, label: PRODUCTS[id].label, icon: PRODUCTS[id].icon }))} />
@@ -125,11 +134,11 @@ export default function HomeScreen() {
         </View>
 
         {/* Today */}
-        <Section title="Today">
+        <Section title="Today" onLayout={sec.at('today')}>
           {error ? <Card><ErrorState title="Couldn't load today's numbers" body="Pull down to refresh or try again." onRetry={load} /></Card> : (
             <View style={{ flexDirection: 'row', gap: space.sm }}>
               {data ? (
-                [['3', 'Applications'], ['3', 'Approved'], ['₹3.06L', 'Disbursed']].map(([v, l]) => (
+                [[String(recent?.length ?? 0), 'Applications'], [String(recent?.filter((r) => r.status !== 'PENDING').length ?? 0), 'Approved'], [inrShort(payoutsToday).replace(' ', ''), 'Disbursed']].map(([v, l]) => (
                   <Card key={l} style={{ flex: 1, padding: space.md, gap: space.xxs }}>
                     <Text variant="h2">{v}</Text>
                     <Text variant="caption" color={colors.textSecondary}>{l}</Text>
@@ -141,14 +150,18 @@ export default function HomeScreen() {
         </Section>
 
         {/* Loans */}
-        <Section title="Loans" link="View all" onLink={() => nav.navigate('QuickList', { kind: 'loans' })}>
+        <Section title="Loans" link="View all" onLink={() => nav.navigate('QuickList', { kind: 'loans' })} onLayout={sec.at('loans')}>
           <Card style={{ padding: 0 }}>
-            {(data ? data.recent.filter((r) => categories.includes(r.product)) : [null, null]).map((r, i, arr) => <LoanRow key={r?.id ?? i} app={r} last={i === arr.length - 1} />)}
+            {recent && recent.length === 0 ? (
+              <EmptyState icon="file-document-plus-outline" title="No loans yet today"
+                body={`Start one with Scan QR below, or search the customer's mobile number for a ${p.label.toLowerCase()} offer.`}
+                action={{ label: 'Search by mobile number', icon: 'cellphone-text', onPress: () => nav.navigate('SearchMobile', { stage: 'enter' }) }} />
+            ) : (recent ?? [null, null]).map((r, i, arr) => <LoanRow key={r?.id ?? i} app={r} last={i === arr.length - 1} />)}
           </Card>
         </Section>
 
         {/* Actions — 2x2 coloured tiles with count badges */}
-        <Section title="Actions">
+        <Section title="Actions" onLayout={sec.at('actions')}>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
             {(data ? tiles : [null, null, null, null]).map((a, i) => <ActionTile key={a?.route ?? i} action={a} onPress={() => a && nav.navigate(a.route as never)} />)}
           </View>
@@ -156,7 +169,7 @@ export default function HomeScreen() {
         </Section>
 
         {/* Payouts / disbursals (formerly the Pay tab) */}
-        <Section title="Payouts" link="View all" onLink={() => nav.navigate('Payouts')}>
+        <Section title="Payouts" link="View all" onLink={() => nav.navigate('Payouts')} onLayout={sec.at('payouts')}>
           <Card style={{ gap: space.sm }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
               <View style={{ width: 44, height: 44, borderRadius: radius.md, backgroundColor: colors.successSoft, alignItems: 'center', justifyContent: 'center' }}>
@@ -164,10 +177,13 @@ export default function HomeScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text variant="caption" color={colors.textSecondary}>Credited today · settlement a/c ••4321</Text>
-                {data ? <Text variant="h2">{inr(data.payoutsToday)}</Text> : <Skeleton w={120} h={24} />}
+                {data ? <Text variant="display" color={colors.text}>{inr(payoutsToday)}</Text> : <Skeleton w={120} h={32} />}
               </View>
             </View>
-            {data?.payouts.slice(0, 2).map((po) => (
+            {payouts && payouts.length === 0 && (
+              <Text variant="caption" color={colors.textSecondary}>No credits yet today. Payouts land here minutes after each disbursal.</Text>
+            )}
+            {payouts?.slice(0, 2).map((po) => (
               <View key={po.utr} style={{ flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: colors.border, paddingTop: space.sm, gap: space.sm }}>
                 <View style={{ flex: 1 }}>
                   <Text variant="label">{inr(po.amount)} · {po.lan}</Text>
@@ -228,9 +244,9 @@ function LogoMark() {
   );
 }
 
-function Section({ title, link, onLink, children }: { title: string; link?: string; onLink?: () => void; children: React.ReactNode }) {
+function Section({ title, link, onLink, children, onLayout }: { title: string; link?: string; onLink?: () => void; children: React.ReactNode; onLayout?: React.ComponentProps<typeof View>['onLayout'] }) {
   return (
-    <View style={{ gap: space.xs }}>
+    <View style={{ gap: space.xs }} onLayout={onLayout}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: touch.min }}>
         <Text variant="h2" accessibilityRole="header">{title}</Text>
         {link && (

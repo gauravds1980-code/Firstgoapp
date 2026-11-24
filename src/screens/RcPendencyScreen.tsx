@@ -5,12 +5,13 @@ import * as ImagePicker from 'expo-image-picker';
 import { JourneyScreen } from '../components/Screen';
 import { Sheet } from '../components/Sheet';
 import { Chip, ExampleTag } from '../components/business';
-import { Banner, Button, Card, Field, Icon, Pill, PressableScale, Text } from '../components/ui';
+import { Banner, Button, Card, EmptyState, Field, Icon, Pill, PressableScale, Text } from '../components/ui';
+import { useSectionTracker, useZippyPending } from '../components/assistant/zippySection';
 import { casesFor, fmtDate, normaliseReg, ocrRegFromPhoto, prettyReg, RcCase, rcCasesFor, REG_REGEX, regSuggestions, TODAY } from '../services/business';
 import { useApp } from '../state/AppState';
 import { useRcCases } from '../state/stores';
 import { colors, radius, space, touch } from '../theme/tokens';
-import { haptic } from '../utils/haptics';
+import { haptic, hapticMoment } from '../utils/haptics';
 
 const ageTone = (d: number) => (d > 30 ? colors.danger : d > 15 ? colors.cta : colors.successBright);
 const ageLabel = (d: number) => (d > 30 ? 'Overdue' : d > 15 ? 'Due soon' : 'On time');
@@ -30,6 +31,9 @@ export default function RcPendencyScreen() {
   const submitted = cases.filter((c) => c.status === 'Submitted');
   const list = tab === 'Pending' ? pending : submitted;
   const selecting = selected.length > 0;
+
+  useSectionTracker('list');
+  useZippyPending(pending.length ? [{ id: 'rc', label: `${pending.length} RC${pending.length === 1 ? '' : 's'} still to share`, detail: `Oldest is ${pending[0]!.daysPending} days — over 30 days counts as overdue.`, actionLabel: 'Share oldest RC', onAction: () => openSheet([pending[0]!.lan]) }] : []);
 
   const toggle = (lan: string) => { haptic.select(); setSelected((s) => (s.includes(lan) ? s.filter((x) => x !== lan) : [...s, lan])); };
   const openSheet = (lans: string[]) => { setDrafts((d) => { const n = { ...d }; lans.forEach((l) => { n[l] = n[l] ?? { reg: '' }; }); return n; }); setEditing(lans); };
@@ -57,7 +61,7 @@ export default function RcPendencyScreen() {
       const uri = res.assets[0].uri;
       setDraft(lan, { photo: uri, reading: true });
       const o = await ocrRegFromPhoto(uri, lan);
-      haptic.success();
+      hapticMoment.rcCaptured();
       setDraft(lan, { reg: prettyReg(o.regNo), ocr: true, reading: false });
     } catch { haptic.error(); setDraft(lan, { reading: false }); }
   };
@@ -78,7 +82,7 @@ export default function RcPendencyScreen() {
   return (
     <JourneyScreen assistant="docs" showTerms={false} footer={selecting ? (
       <View style={{ flexDirection: 'row', gap: space.xs }}>
-        <Button label="Clear" variant="secondary" onPress={() => setSelected([])} style={{ flex: 1 }} />
+        <Button label="Clear all" variant="secondary" onPress={() => setSelected([])} style={{ flex: 1 }} />
         <Button label={`Share ${selected.length} RC${selected.length > 1 ? 's' : ''}`} icon="share-variant" onPress={() => openSheet(selected)} style={{ flex: 2 }} />
       </View>
     ) : undefined}>
@@ -94,7 +98,16 @@ export default function RcPendencyScreen() {
       {tab === 'Pending' && pending.length > 0 && (
         <Text variant="caption" color={colors.textSecondary}>Tap a case to add its RC · long-press or tick boxes to share several at once</Text>
       )}
-      {tab === 'Pending' && pending.length === 0 && <Banner tone="success" title="All RCs shared" body="Nothing pending. Nice work!" />}
+      {tab === 'Pending' && pending.length === 0 && (
+        <Card><EmptyState tone="success" icon="card-account-details-star-outline" title="All RCs shared"
+          body="Nothing pending. New loans appear here a couple of days after disbursal — snap the RC as soon as registration is done."
+          action={submitted.length ? { label: 'View submitted RCs', icon: 'history', onPress: () => setTab('Submitted') } : undefined} /></Card>
+      )}
+      {tab === 'Submitted' && submitted.length === 0 && (
+        <Card><EmptyState icon="send-clock-outline" title="No RCs submitted yet"
+          body="Tap a pending case, then type the registration number or snap the RC — we'll read the number for you."
+          action={pending.length ? { label: 'Go to pending RCs', icon: 'arrow-left', onPress: () => setTab('Pending') } : undefined} /></Card>
+      )}
 
       <View style={{ gap: space.sm }}>
         {list.map((c, i) => {

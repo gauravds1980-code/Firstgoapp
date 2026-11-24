@@ -4,15 +4,22 @@
  */
 import { delay } from './mock';
 import type { ProductId } from '../config/products';
-import type { DealerProfile } from './dealer';
+import { DealerProfile, enabledCategories } from './dealer';
 
 export const TODAY = new Date(2026, 10, 24); // demo "today" (24 Nov 2026), keeps example data stable
 
 const CUSTOMERS = ['Rahul Sharma', 'Priya Kulkarni', 'Amit Patil', 'Neha Deshmukh', 'Vikram Rao', 'Sneha Joshi', 'Arjun Mehta', 'Kavya Nair', 'Rohan Gupta', 'Pooja Iyer', 'Sanjay Pawar', 'Anita Shah', 'Manoj Verma', 'Ritu Singh', 'Karan Malhotra', 'Divya Menon', 'Suresh Yadav', 'Meera Pillai'];
 const MODELS: Record<string, Record<ProductId, string[]>> = {
-  'Hero MotoCorp': { twoWheeler: ['Hero Splendor+', 'Hero Xtreme 125R', 'Hero Vida V2'], car: [] },
-  'Maruti Suzuki': { twoWheeler: [], car: ['Maruti Swift', 'Maruti Baleno', 'Maruti Brezza'] },
-  all: { twoWheeler: ['Honda Activa 6G', 'TVS Apache RTR 160', 'Bajaj Pulsar N250', 'Hero Splendor+', 'Ather 450X'], car: ['Tata Nexon', 'Hyundai Creta', 'Maruti Swift'] },
+  'Hero MotoCorp': { twoWheeler: ['Hero Splendor+', 'Hero Xtreme 125R', 'Hero Vida V2'], car: [], cv: [] },
+  'Maruti Suzuki': { twoWheeler: [], car: ['Maruti Swift', 'Maruti Baleno', 'Maruti Brezza'], cv: [] },
+  'Tata Motors': { twoWheeler: [], car: ['Tata Nexon'], cv: ['Tata Ace Gold', 'Tata Intra V30', 'Tata Yodha 2.0', 'Tata 407 Gold SFC', 'Tata Ultra T.7'] },
+  all: { twoWheeler: ['Honda Activa 6G', 'TVS Apache RTR 160', 'Bajaj Pulsar N250', 'Hero Splendor+', 'Ather 450X'], car: ['Tata Nexon', 'Hyundai Creta', 'Maruti Swift'], cv: ['Tata Ace Gold', 'Tata Intra V30', 'Tata Yodha 2.0'] },
+};
+/** Per-product mock data shape: LAN prefix, example ticket size and example dealer payout rate. */
+const CASE_SHAPE: Record<ProductId, { prefix: string; base: number; steps: number; step: number; payoutPct: number }> = {
+  twoWheeler: { prefix: 'TW', base: 60000, steps: 90, step: 1000, payoutPct: 1.5 },
+  car: { prefix: 'CR', base: 450000, steps: 70, step: 10000, payoutPct: 0.75 },
+  cv: { prefix: 'CV', base: 500000, steps: 120, step: 10000, payoutPct: 0.6 },
 };
 
 function rnd(i: number, s = 1) { const x = Math.sin(i * 91.7 * s + 13.3) * 10000; return x - Math.floor(x); }
@@ -29,19 +36,21 @@ export interface Case {
 
 /** ~70 cases across the last ~100 days, filtered to the dealer's products and OEM. */
 export function casesFor(profile: DealerProfile | null): Case[] {
-  const cats: ProductId[] = profile ? (['twoWheeler', 'car'] as ProductId[]).filter((c) => profile.products.some((p) => (c === 'car' ? p.endsWith('Car') : p.endsWith('Tw')))) : ['twoWheeler'];
+  const enabled = profile ? enabledCategories(profile) : [];
+  const cats: ProductId[] = enabled.length ? enabled : ['twoWheeler'];
   const pool = profile && profile.type !== 'multiBrand' && profile.oem ? MODELS[profile.oem] ?? MODELS.all! : MODELS.all!;
   const out: Case[] = [];
   for (let i = 0; i < 72; i++) {
     const product = cats[i % cats.length]!;
     const models = pool[product].length ? pool[product] : MODELS.all![product];
-    const amount = product === 'car' ? 450000 + Math.round(rnd(i, 2) * 70) * 10000 : 60000 + Math.round(rnd(i, 2) * 90) * 1000;
+    const shape = CASE_SHAPE[product];
+    const amount = shape.base + Math.round(rnd(i, 2) * shape.steps) * shape.step;
     const days = Math.floor(rnd(i, 3) * 100);
     const paid = Math.min(0.9, days / 900 + rnd(i, 4) * 0.05);
     const dpdRoll = rnd(i, 5);
     const dpd = days < 35 ? 0 : dpdRoll > 0.93 ? 75 + Math.floor(rnd(i, 6) * 40) : dpdRoll > 0.86 ? 35 + Math.floor(rnd(i, 6) * 25) : dpdRoll > 0.75 ? 3 + Math.floor(rnd(i, 6) * 26) : 0;
     out.push({
-      lan: `${product === 'car' ? 'CR' : 'TW'}-${(184000 + i * 7).toString()}`, customer: CUSTOMERS[i % CUSTOMERS.length]!,
+      lan: `${shape.prefix}-${(184000 + i * 7).toString()}`, customer: CUSTOMERS[i % CUSTOMERS.length]!,
       vehicle: models[i % models.length]!, product, amount, disbursedOn: dayOffset(days), pos: Math.round(amount * (1 - paid)), dpd, status: 'Active',
     });
   }
@@ -68,7 +77,7 @@ export function invoicesFor(cases: Case[]): Invoice[] {
   let n = 0;
   return [...byWeek.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1)).map(([k, cs]) => {
     const date = new Date(k); date.setDate(date.getDate() + 6);
-    const lines = cs.map((c) => { const ratePct = c.product === 'car' ? 0.75 : 1.5; return { lan: c.lan, customer: c.customer, loan: c.amount, ratePct, payout: Math.round((c.amount * ratePct) / 100) }; });
+    const lines = cs.map((c) => { const ratePct = CASE_SHAPE[c.product].payoutPct; return { lan: c.lan, customer: c.customer, loan: c.amount, ratePct, payout: Math.round((c.amount * ratePct) / 100) }; });
     const age = (TODAY.getTime() - date.getTime()) / 864e5;
     const status: InvoiceStatus = age > 30 ? 'Paid' : age > 12 ? 'Claimed' : 'Not claimed';
     n++;

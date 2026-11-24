@@ -48,7 +48,7 @@ export default function DealerLoginScreen() {
           For authorised dealer staff only. Your login is separate from your customers' details — never use a customer's number here.
         </Text>
       </View>
-      <Text variant="caption" color={colors.textMuted}>Demo: OTP 123456 · ends 0000 = not a dealer · ends 9999 = network error</Text>
+      <Text variant="caption" color={colors.textMuted}>Demo: OTP 123456 · ends 1111 multi-brand · 2222 Maruti sub-dealer · 3333 Tata CV dealer · 0000 not a dealer · 9999 network error</Text>
     </AuthScaffold>
   );
 }

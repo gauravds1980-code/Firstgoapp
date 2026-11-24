@@ -42,8 +42,9 @@ export function inr(n: number, decimals = 0): string {
   return `${neg ? '-' : ''}₹${s}${d ? '.' + d : ''}`;
 }
 
+/** Customer mobile for display, Indian 5+5 grouping with the last 4 visible: 9912347777 -> "+91 XXXXX X7777". */
 export function maskMobile(m: string): string {
-  return m.length === 10 ? `+91 ${m.slice(0, 2)}XXXXXX${m.slice(-2)}` : m;
+  return m.length === 10 ? `+91 XXXXX X${m.slice(-4)}` : m;
 }
 
 export const PRODUCTS_DEFAULT_TENURE = (product: ProductId) => PRODUCTS[product].defaultTenure;

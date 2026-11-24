@@ -14,7 +14,6 @@ export type RootStackParamList = {
   Asset: undefined;
   FaceKyc: undefined;
   Mandate: undefined;
-  Kfs: undefined;
   Esign: undefined;
   Docs: undefined;
   Disbursal: undefined;
@@ -26,16 +25,16 @@ export type RootStackParamList = {
   TaInf: undefined;
 };
 
-export type JourneyStep = 'offer' | 'asset' | 'kyc' | 'mandate' | 'kfs' | 'esign' | 'docs' | 'disbursal';
+export type JourneyStep = 'offer' | 'asset' | 'kyc' | 'mandate' | 'esign' | 'docs' | 'disbursal';
 export type AssistantContext = JourneyStep | 'search' | 'scan' | 'home' | 'login' | 'payouts' | 'portfolio' | 'cases' | 'rc' | 'tainf' | 'profile';
 
 export const JOURNEY_STEPS: { key: JourneyStep; label: string }[] = [
   // Offer is shown on the Vehicle & EMI screen since v1.2 (one screen less).
+  // v1.2.2: no dealer KFS step — the KFS goes to the customer with the e-sign link (consent on their phone).
   { key: 'asset', label: 'Offer, vehicle & EMI' },
   { key: 'kyc', label: 'Face KYC' },
   { key: 'mandate', label: 'AutoPay mandate' },
-  { key: 'kfs', label: 'KFS & charges' },
-  { key: 'esign', label: 'E-sign' },
+  { key: 'esign', label: 'KFS consent & e-sign' },
   { key: 'docs', label: 'Documents' },
   { key: 'disbursal', label: 'Disbursal' },
 ];

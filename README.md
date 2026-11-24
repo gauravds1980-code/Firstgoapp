@@ -2,17 +2,23 @@
 
 Dealer first go app.
 
-FIRSTgo v1.2.1 is the IDFC FIRST Bank dealer-side two-wheeler and car loan origination prototype. Dealers log in, pull a pre-qualified offer (scan the customer’s QR or search by mobile), and walk a new-vehicle journey through KYC, mandate, agreement, and disbursal. All data is mock. There are no real bank APIs — the integrations in `src/services/` are typed stubs.
+FIRSTgo v1.2.2 is the IDFC FIRST Bank dealer-side two-wheeler and car loan origination prototype. Dealers log in, pull a pre-qualified offer (scan the customer’s QR or search by mobile), and walk a new-vehicle journey through KYC, mandate, agreement, and disbursal. All data is mock. There are no real bank APIs — the integrations in `src/services/` are typed stubs.
 
 ## Download the Android APK
 
-[FIRSTgo-v1.2.1-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.1-arm64.apk) (arm64, v1.2.1).
+[FIRSTgo-v1.2.2-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.2-arm64.apk) (arm64, v1.2.2).
 
-Direct link: https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.1-arm64.apk
+Direct link: https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.2-arm64.apk
 
-v1.2.1: Android text and button alignment fixes, font-scale safety, Zippy with moods, and a close button that docks it in the header.
+What's new in v1.2.2:
 
-The previous build is still available: [FIRSTgo-v1.2.0-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.0-arm64.apk).
+- Furry Zippy riding a scooter, car, or mini-truck by dealer type
+- CV dealer test login ending 3333 for Tata CV Hub
+- KFS screen replaced by a "KFS sent to customer" chip
+- Section-aware Zippy help
+- 10 mobile design practices
+
+Previous builds: [FIRSTgo-v1.2.1-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.1-arm64.apk) and [FIRSTgo-v1.2.0-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.0-arm64.apk).
 
 ## Features in v1.2
 
@@ -40,6 +46,7 @@ Dealer mobile (10 digits, starting 6–9):
 | Any other number | Hero MotoCorp dealer (ABC Motors) — new two-wheeler, TA/INF |
 | Ends in `1111` | Multi-brand dealer — new two-wheeler and new car, TA/INF |
 | Ends in `2222` | Maruti Suzuki sub-dealer — new car only, no TA/INF |
+| Ends in `3333` | Tata Motors dealer (Tata CV Hub) — new commercial vehicle, TA/INF |
 | Ends in `0000` | Not a registered dealer |
 | Ends in `9999` | Network error |
 
@@ -75,7 +82,7 @@ npx expo prebuild -p android
 cd android && ./gradlew assembleRelease
 ```
 
-The published arm64 build for this version is checked in at `releases/FIRSTgo-v1.2.1-arm64.apk`. `android/` and `ios/` are generated and gitignored.
+The published arm64 build for this version is checked in at `releases/FIRSTgo-v1.2.2-arm64.apk`. `android/` and `ios/` are generated and gitignored.
 
 ## iOS
 

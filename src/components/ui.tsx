@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator, Animated, Platform, Pressable, PressableProps, StyleProp, StyleSheet, Text as RNText,
   TextInput, TextInputProps, TextProps, TextStyle, View, ViewStyle,
@@ -23,7 +23,7 @@ export function Text({ variant = 'body', color = colors.text, style, ...rest }: 
  */
 export function ButtonLabel({ children, color, style }: { children: React.ReactNode; color: string; style?: StyleProp<TextStyle> }) {
   return (
-    <Text variant="h3" color={color} numberOfLines={2} maxFontSizeMultiplier={fontScaleCap.control} style={[s.btnLabel, style]}>
+    <Text variant="h3" color={color} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.85} maxFontSizeMultiplier={fontScaleCap.control} style={[s.btnLabel, style]}>
       {children}
     </Text>
   );
@@ -31,43 +31,78 @@ export function ButtonLabel({ children, color, style }: { children: React.ReactN
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-/** Pressable with scale-down press feedback + haptic tick. The pressable itself carries layout so absolute FABs stay hittable. */
-export function PressableScale({ style, children, onPress, disabled, haptics = true, ...rest }: PressableProps & { style?: StyleProp<ViewStyle>; haptics?: boolean; children?: React.ReactNode }) {
+/**
+ * Pressable with scale-down press feedback + haptic tick. The pressable itself carries layout so absolute FABs stay hittable.
+ * `pressedStyle` is merged while the finger is down (e.g. a darker CTA fill).
+ */
+export function PressableScale({ style, pressedStyle, children, onPress, disabled, haptics = true, ...rest }: PressableProps & { style?: StyleProp<ViewStyle>; pressedStyle?: StyleProp<ViewStyle>; haptics?: boolean; children?: React.ReactNode }) {
   const scale = useRef(new Animated.Value(1)).current;
+  const [pressed, setPressed] = useState(false);
   const to = (v: number) => Animated.timing(scale, { toValue: v, duration: motion.fast, useNativeDriver: true }).start();
   return (
     <AnimatedPressable
       {...rest}
       disabled={disabled}
-      onPressIn={() => to(motion.pressScale)}
-      onPressOut={() => to(1)}
+      onPressIn={() => { to(motion.pressScale); if (pressedStyle) setPressed(true); }}
+      onPressOut={() => { to(1); if (pressedStyle) setPressed(false); }}
       onPress={(e) => { if (haptics) haptic.tap(); onPress?.(e); }}
       accessibilityState={{ disabled: !!disabled, ...(rest.accessibilityState ?? {}) }}
-      style={[style, { transform: [{ scale }] }, disabled ? { opacity: 0.5 } : null]}
+      style={[style, pressed ? pressedStyle : null, { transform: [{ scale }] }, disabled ? { opacity: 0.5 } : null]}
     >
       {children}
     </AnimatedPressable>
   );
 }
 
-export function Button({ label, onPress, variant = 'primary', icon, iconRight, loading, disabled, style, accessibilityHint, fg: fgOverride }: {
-  fg?: string; label: string; onPress?: () => void; variant?: 'primary' | 'brand' | 'secondary' | 'ghost'; icon?: IconName; iconRight?: IconName;
-  loading?: boolean; disabled?: boolean; style?: StyleProp<ViewStyle>; accessibilityHint?: string;
+/** Ignore a second tap on the same CTA within this window (double-tap protection). */
+const PRESS_LOCK_MS = 700;
+
+/**
+ * Primary CTA. States: pressed (scale + darker fill), disabled (50% + a11y disabled), loading (spinner,
+ * label kept for screen readers, taps ignored), success (green fill + check). Double-tap protection:
+ * taps are ignored while loading, while an async onPress is pending, and for PRESS_LOCK_MS after a tap.
+ * Labels are verb-led, centred, at most 2 lines (never clipped) — see ButtonLabel.
+ */
+export function Button({ label, onPress, variant = 'primary', icon, iconRight, loading, disabled, success, style, accessibilityHint, fg: fgOverride }: {
+  fg?: string; label: string; onPress?: () => void | Promise<unknown>; variant?: 'primary' | 'brand' | 'secondary' | 'ghost'; icon?: IconName; iconRight?: IconName;
+  loading?: boolean; disabled?: boolean; success?: boolean; style?: StyleProp<ViewStyle>; accessibilityHint?: string;
 }) {
+  const lastTap = useRef(0);
+  const [pending, setPending] = useState(false);
+  const mounted = useRef(true);
+  useEffect(() => () => { mounted.current = false; }, []);
+  const busy = !!loading || pending;
   // primary = brand gold CTA (ink text for AA contrast); brand = maroon; secondary = outlined
-  const bg = variant === 'primary' ? colors.cta : variant === 'brand' ? colors.primary : variant === 'secondary' ? colors.surface : 'transparent';
-  const fg = fgOverride ?? (variant === 'primary' ? colors.onCta : variant === 'brand' ? colors.onPrimary : colors.primary);
+  const bg = success ? colors.successBright : variant === 'primary' ? colors.cta : variant === 'brand' ? colors.primary : variant === 'secondary' ? colors.surface : 'transparent';
+  const pressedBg = variant === 'primary' ? colors.ctaPressed : variant === 'brand' ? colors.primaryPressed : variant === 'secondary' ? colors.primaryTint : colors.surfaceMuted;
+  const fg = success ? colors.onPrimary : fgOverride ?? (variant === 'primary' ? colors.onCta : variant === 'brand' ? colors.onPrimary : colors.primary);
+  const press = () => {
+    const now = Date.now();
+    if (busy || success || now - lastTap.current < PRESS_LOCK_MS) return;
+    lastTap.current = now;
+    const r = onPress?.();
+    if (r && typeof (r as Promise<unknown>).then === 'function') {
+      setPending(true);
+      (r as Promise<unknown>).finally(() => { if (mounted.current) setPending(false); });
+    }
+  };
   return (
     <PressableScale
       accessibilityRole="button" accessibilityLabel={label} accessibilityHint={accessibilityHint}
-      onPress={onPress} disabled={disabled || loading}
-      style={[s.btn, { backgroundColor: bg }, variant === 'secondary' && s.btnSecondary, variant === 'ghost' && s.btnGhost, style]}
+      accessibilityState={{ busy, disabled: !!disabled || busy, checked: success ? true : undefined }}
+      onPress={press} disabled={disabled || busy} pressedStyle={success ? undefined : { backgroundColor: pressedBg }}
+      style={[s.btn, { backgroundColor: bg }, variant === 'secondary' && s.btnSecondary, variant === 'ghost' && s.btnGhost, success && { borderColor: colors.successBright }, style]}
     >
-      {loading ? <ActivityIndicator color={fg} /> : (
+      {busy ? (
         <>
-          {icon && <Icon name={icon} size={20} color={fg} style={s.btnIcon} />}
+          <ActivityIndicator color={fg} style={s.btnIcon} />
+          <ButtonLabel color={fg} style={{ opacity: 0.85 }}>{label}</ButtonLabel>
+        </>
+      ) : (
+        <>
+          {success ? <Icon name="check-circle" size={20} color={fg} style={s.btnIcon} /> : icon && <Icon name={icon} size={20} color={fg} style={s.btnIcon} />}
           <ButtonLabel color={fg}>{label}</ButtonLabel>
-          {iconRight && <Icon name={iconRight} size={20} color={fg} style={s.btnIcon} />}
+          {!success && iconRight && <Icon name={iconRight} size={20} color={fg} style={s.btnIcon} />}
         </>
       )}
     </PressableScale>
@@ -128,6 +163,19 @@ export function Banner({ tone, icon, title, body, style }: { tone: 'info' | 'war
         <Text variant="bodyStrong" color={fg}>{title}</Text>
         {body ? <Text variant="caption" color={colors.text} style={{ marginTop: 2 }}>{body}</Text> : null}
       </View>
+    </View>
+  );
+}
+
+/** Helpful empty state: icon, short title, what to do next, optional action. */
+export function EmptyState({ icon, title, body, action, tone = 'neutral' }: { icon: IconName; title: string; body: string; action?: { label: string; icon?: IconName; onPress: () => void }; tone?: 'neutral' | 'success' }) {
+  const [bg, fg] = tone === 'success' ? [colors.successSoft, colors.success] : [colors.primaryTint, colors.primary];
+  return (
+    <View style={{ alignItems: 'center', paddingVertical: space.lg, paddingHorizontal: space.md, gap: space.xs }} accessibilityRole="summary">
+      <View style={[s.circle, { backgroundColor: bg }]}><Icon name={icon} size={28} color={fg} /></View>
+      <Text variant="h3" style={{ textAlign: 'center' }}>{title}</Text>
+      <Text variant="body" color={colors.textSecondary} style={{ textAlign: 'center' }}>{body}</Text>
+      {action && <Button label={action.label} icon={action.icon} variant="secondary" onPress={action.onPress} style={{ alignSelf: 'stretch', marginTop: space.xs }} />}
     </View>
   );
 }

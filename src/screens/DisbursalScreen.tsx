@@ -5,6 +5,7 @@ import { DisbursalHero } from '../components/motion/DisbursalMotion';
 import { GoldShimmer } from '../components/motion/primitives';
 import { useNavigation } from '@react-navigation/native';
 import { JourneyScreen } from '../components/Screen';
+import { useSectionTracker } from '../components/assistant/zippySection';
 import { Button, Card, Icon, IconName, PressableScale, Text } from '../components/ui';
 import { Milestone, useApp } from '../state/AppState';
 import { colors, radius, space, touch } from '../theme/tokens';
@@ -41,9 +42,10 @@ export default function DisbursalScreen() {
 
   const reduce = useReducedMotion();
   const [cardW, setCardW] = useState(320);
+  const sec = useSectionTracker<'receipt' | 'timeline'>('receipt');
 
   return (
-    <JourneyScreen step="disbursal" assistant="disbursal" showTerms={false} footer={
+    <JourneyScreen step="disbursal" assistant="disbursal" showTerms={false} onScroll={sec.onScroll} footer={
       <View style={{ gap: space.xs }}>
         <Button label="Start next loan" icon="qrcode-scan" onPress={() => nav.navigate('Home')} />
         <Button label="View all applications" variant="ghost" onPress={() => nav.navigate('QuickList', { kind: 'loans' })} />
@@ -55,13 +57,14 @@ export default function DisbursalScreen() {
         </Text>
       </Animated.View>
 
+      <View onLayout={sec.at('receipt')}>
       <Card style={{ backgroundColor: colors.primaryTint, borderColor: colors.primarySoft, gap: space.sm, alignItems: 'center', overflow: Platform.OS === 'ios' ? 'visible' : 'hidden' }}>
         {/* iOS: clip the shimmer layer itself so the card keeps its shadow (overflow:'hidden' drops iOS shadows). */}
         <View onLayout={(e) => setCardW(e.nativeEvent.layout.width)} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, ...(Platform.OS === 'ios' ? { overflow: 'hidden' as const, borderRadius: radius.lg } : null) }} pointerEvents="none">
           {!reduce && <GoldShimmer width={cardW} height={220} delay={1500} />}
         </View>
         <Text variant="label" color={colors.textSecondary}>CREDITED TO DEALER</Text>
-        <Text variant="display" color={colors.primary}>{inr(d.netAmount)}</Text>
+        <Text variant="display" color={colors.primary} style={{ fontSize: 36, lineHeight: 44, fontVariant: ['tabular-nums'] }}>{inr(d.netAmount)}</Text>
         <Text variant="caption" color={colors.textSecondary} style={{ textAlign: 'center' }}>{d.creditedTo} · net of {inr(journey.loan - d.netAmount)} customer charges · loan {inr(journey.loan)}</Text>
         <View style={{ height: 1, alignSelf: 'stretch', backgroundColor: colors.primarySoft }} />
         <View style={{ alignSelf: 'stretch' }}>
@@ -71,7 +74,9 @@ export default function DisbursalScreen() {
           </PressableScale>
         </View>
       </Card>
+      </View>
       {/* Timeline */}
+      <View onLayout={sec.at('timeline')}>
       <Card style={{ gap: 0, paddingVertical: space.md }}>
         {STEPS.map((s, i) => {
           const last = i === STEPS.length - 1;
@@ -92,6 +97,7 @@ export default function DisbursalScreen() {
           );
         })}
       </Card>
+      </View>
 
       <View style={{ borderRadius: radius.md, padding: space.sm, backgroundColor: colors.ctaTint, flexDirection: 'row', gap: space.xs }}>
         <Icon name="card-account-details-outline" size={20} color={colors.ctaDark} />

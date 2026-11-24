@@ -3,10 +3,13 @@ import { View } from 'react-native';
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
 import { JourneyScreen } from '../components/Screen';
 import { Chip, DateFilterBar, ExampleTag, inrShort, StatCard } from '../components/business';
-import { Card, Icon, Pill, PressableScale, Text } from '../components/ui';
+import { Card, EmptyState, Icon, Pill, PressableScale, Text } from '../components/ui';
+import { useSectionTracker, useZippyPending } from '../components/assistant/zippySection';
+import { presetRange } from '../state/stores';
 import { casesFor, claimInvoice, fmtDate, Invoice, invoicesFor, InvoiceStatus, TODAY } from '../services/business';
 import { useApp } from '../state/AppState';
 import { inRange, useDateRange } from '../state/stores';
+import { useNavigation } from '@react-navigation/native';
 import { colors, radius, space, touch } from '../theme/tokens';
 import { inr } from '../utils/finance';
 import { haptic } from '../utils/haptics';
@@ -17,7 +20,8 @@ const TONE: Record<InvoiceStatus, 'warning' | 'info' | 'success'> = { 'Not claim
 /** Payout invoices with status filter chips, totals per status, per-case lines and a Claim action (example data). */
 export default function PayoutsScreen() {
   const { profile, session } = useApp();
-  const [range] = useDateRange();
+  const nav = useNavigation();
+  const [range, setRange] = useDateRange();
   const base = useMemo(() => invoicesFor(casesFor(profile)), [profile]);
   const [overrides, setOverrides] = useState<Record<string, Partial<Invoice>>>({});
   const [filter, setFilter] = useState<InvoiceStatus | 'All'>('All');
@@ -29,18 +33,28 @@ export default function PayoutsScreen() {
   const months = [2, 1, 0].map((k) => { const d = new Date(TODAY.getFullYear(), TODAY.getMonth() - k, 1); const inv = base.filter((i) => i.date.getMonth() === d.getMonth() && i.date.getFullYear() === d.getFullYear()); return { label: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()], amt: inv.reduce((t, i) => t + i.amount, 0) }; });
   const maxM = Math.max(1, ...months.map((m) => m.amt));
 
+  const toClaim = totals.find((t) => t.s === 'Not claimed')!;
+  const sec = useSectionTracker<'summary' | 'invoices'>('summary');
+  useZippyPending(toClaim.n ? [{ id: 'claim', label: `${toClaim.n} invoice${toClaim.n === 1 ? '' : 's'} not claimed`, detail: `${inr(toClaim.amt)} waiting — claim to get paid.`, actionLabel: 'Show unclaimed', onAction: () => setFilter('Not claimed') }] : []);
+
   const claim = async (id: string) => {
     setBusy(id); const r = await claimInvoice(id); setBusy(null);
     if (r.ok) { haptic.success(); setOverrides((o) => ({ ...o, [id]: { status: 'Claimed' } })); }
   };
 
   return (
-    <JourneyScreen assistant="home" showTerms={false}>
-      <View style={{ gap: space.xxs }}>
+    <JourneyScreen assistant="home" showTerms={false} onScroll={sec.onScroll}>
+      <View style={{ gap: space.xxs }} onLayout={sec.at('summary')}>
         <Text variant="h1">Payouts</Text>
         <Text variant="body" color={colors.textSecondary}>Dealer payout invoices for {session?.name ?? 'your dealership'}</Text>
         <ExampleTag />
       </View>
+      {/* Hero figure: what's waiting to be claimed dominates the screen */}
+      <Card style={{ gap: 2, backgroundColor: colors.ctaTint, borderColor: colors.cta }}>
+        <Text variant="label" color={colors.ctaDark}>READY TO CLAIM</Text>
+        <Text variant="display" style={{ fontVariant: ['tabular-nums'] }}>{inr(toClaim.amt)}</Text>
+        <Text variant="caption" color={colors.textSecondary}>{toClaim.n ? `${toClaim.n} invoice${toClaim.n === 1 ? '' : 's'} in this range · tap Claim on each` : 'Nothing to claim in this range'}</Text>
+      </Card>
       <DateFilterBar />
 
       <Card style={{ gap: space.sm }}>
@@ -57,7 +71,7 @@ export default function PayoutsScreen() {
       </Card>
 
       <View style={{ flexDirection: 'row', gap: space.sm, flexWrap: 'wrap' }}>
-        {totals.map((t) => <StatCard compact key={t.s} label={t.s} sub={`${t.n} invoice${t.n === 1 ? '' : 's'}`} value={inrShort(t.amt)} tone={t.s === 'Paid' ? colors.success : t.s === 'Claimed' ? colors.text : colors.warning} />)}
+        {totals.map((t) => <StatCard key={t.s} label={t.s} sub={`${t.n} invoice${t.n === 1 ? '' : 's'}`} value={inrShort(t.amt)} tone={t.s === 'Paid' ? colors.success : t.s === 'Claimed' ? colors.text : colors.warning} />)}
       </View>
 
       <View style={{ flexDirection: 'row', gap: space.xs, flexWrap: 'wrap' }}>
@@ -65,8 +79,20 @@ export default function PayoutsScreen() {
         {totals.map((t) => <Chip key={t.s} label={t.s} count={String(t.n)} on={filter === t.s} onPress={() => setFilter(t.s)} />)}
       </View>
 
-      <View style={{ gap: space.sm }}>
-        {shown.length === 0 && <Card><Text variant="body" color={colors.textSecondary}>No invoices for this filter and date range.</Text></Card>}
+      <View style={{ gap: space.sm }} onLayout={sec.at('invoices')}>
+        {shown.length === 0 && (
+          <Card>
+            {all.length === 0 ? (
+              <EmptyState icon="receipt-text-clock-outline" title="No payout invoices in this range"
+                body="Invoices are raised weekly from your disbursed loans. Try last month, or start a new loan to earn your next payout."
+                action={range.preset === 'thisMonth' ? { label: 'Show last month', icon: 'calendar-arrow-left', onPress: () => setRange(presetRange('lastMonth')) } : { label: 'Start a new loan', icon: 'qrcode-scan', onPress: () => nav.navigate('ScanQr') }} />
+            ) : (
+              <EmptyState icon="filter-variant-remove" title={`No ${filter === 'All' ? '' : `${filter.toLowerCase()} `}invoices`}
+                body="Nothing matches this status in the selected range. Switch the filter to see the rest."
+                action={{ label: 'Show all invoices', icon: 'filter-off-outline', onPress: () => setFilter('All') }} />
+            )}
+          </Card>
+        )}
         {shown.map((inv, idx) => {
           const expanded = open === inv.id;
           return (
@@ -79,7 +105,7 @@ export default function PayoutsScreen() {
                     <Text variant="caption" color={colors.textSecondary}>{fmtDate(inv.date)} · {inv.lines.length} case{inv.lines.length > 1 ? 's' : ''}{inv.utr ? ` · UTR ${inv.utr}` : ''}</Text>
                   </View>
                   <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                    <Text variant="h3">{inr(inv.amount)}</Text>
+                    <Text variant="h2" style={{ fontVariant: ['tabular-nums'] }}>{inr(inv.amount)}</Text>
                     <Pill label={inv.status.toUpperCase()} tone={TONE[inv.status]} />
                   </View>
                   <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={22} color={colors.textSecondary} />
@@ -90,7 +116,7 @@ export default function PayoutsScreen() {
                       <Text variant="label">{l.lan} · {l.customer}</Text>
                       <Text variant="caption" color={colors.textSecondary}>Loan {inr(l.loan)} × {l.ratePct}%</Text>
                     </View>
-                    <Text variant="label">{inr(l.payout)}</Text>
+                    <Text variant="bodyStrong" style={{ fontVariant: ['tabular-nums'] }}>{inr(l.payout)}</Text>
                   </View>
                 ))}
                 {inv.status === 'Not claimed' && (

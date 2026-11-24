@@ -4,6 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useSwipeBack } from '../navigation/useSwipeBack';
 import { useZippyTip } from '../components/assistant/tips';
 import { useZippyMood } from '../components/assistant/zippyStore';
+import { useSectionTracker, useZippyPending } from '../components/assistant/zippySection';
 import { JourneyScreen } from '../components/Screen';
 import { Banner, Button, Card, Field, Icon, PressableScale, ReadOnlyRow, Text } from '../components/ui';
 import { AVAILABLE_FROM, UPI_MANDATE_EMI_CAP } from '../config/phases';
@@ -40,6 +41,13 @@ export default function MandateScreen() {
   useZippyTip(onFile && covers && !journey.mandate ? '' : null);
   useZippyMood(loading ? 'thinking' : done ? 'happy' : null);
   useSwipeBack(!(onFile && covers && !journey.mandate)); // iOS: no swipe-back mid waiver animation
+  const sec = useSectionTracker<'mode' | 'details'>('mode');
+  const vpaBad = mode === 'upi' && !mandate.VPA_REGEX.test(vpa.trim());
+  useZippyPending(done || (onFile && covers) ? [] : [
+    ...(upiBlocked && !mvp2 ? [{ id: 'cap', label: 'EMI is above the UPI AutoPay cap', detail: 'Go back and extend tenure or lower the amount.', actionLabel: 'Change tenure', onAction: () => nav.navigate('Asset') }] : []),
+    ...(vpaBad && !upiBlocked ? [{ id: 'vpa', label: "Customer's UPI ID", detail: 'Enter a valid UPI ID, e.g. name@okhdfc.' }] : []),
+    ...(!vpaBad && !upiBlocked ? [{ id: 'mandate', label: 'AutoPay mandate not set up yet', detail: 'Send the request; the customer approves with their UPI PIN.' }] : []),
+  ]);
 
   const create = async () => {
     setLoading(true); setErr('');
@@ -49,14 +57,14 @@ export default function MandateScreen() {
     setLoading(false);
     if (!r.ok) { haptic.error(); setErr(r.message); return; }
     haptic.success(); update({ mandate: { ...r.data, mode } });
-    setTimeout(() => nav.navigate('Kfs'), 1100); // auto-advance — no extra tap
+    setTimeout(() => nav.navigate('Esign'), 1100); // auto-advance — no extra tap (KFS goes to the customer with the e-sign link)
   };
 
   if (onFile && covers && !journey.mandate) {
     const finish = () => {
       if (advanced.current) return; advanced.current = true;
       update({ mandate: { umn: onFile.umn, status: 'ACTIVE', payerVpa: onFile.payerVpa, mode: 'upi', existing: true } });
-      nav.navigate('Kfs');
+      nav.navigate('Esign');
     };
     return (
       <JourneyScreen step="mandate" assistant="mandate" showTerms={false}>
@@ -68,8 +76,8 @@ export default function MandateScreen() {
   }
 
   return (
-    <JourneyScreen step="mandate" assistant="mandate" footer={done
-      ? <Button label="Continue to KFS & charges" iconRight="arrow-right" onPress={() => nav.navigate('Kfs')} />
+    <JourneyScreen step="mandate" assistant="mandate" onScroll={sec.onScroll} footer={done
+      ? <Button label="Continue to e-sign" iconRight="arrow-right" onPress={() => nav.navigate('Esign')} />
       : <Button label={mode === 'upi' ? 'Send UPI AutoPay request' : 'Set up e-mandate'} icon={mode === 'upi' ? 'send' : 'bank'} onPress={create} loading={loading}
           disabled={upiBlocked || (mode === 'upi' && !mandate.VPA_REGEX.test(vpa.trim()))} />}>
       <View style={{ gap: space.xs }}>
@@ -77,7 +85,7 @@ export default function MandateScreen() {
         <Text variant="body" color={colors.textSecondary}>Set up auto-debit for the monthly EMI of <Text variant="bodyStrong">{inr(monthly)}</Text>.</Text>
       </View>
 
-      <View style={{ gap: space.sm }}>
+      <View style={{ gap: space.sm }} onLayout={sec.at('mode')}>
         <ModeRow on={mode === 'upi'} icon="contactless-payment" title="UPI AutoPay" sub={overCap ? `Not available — EMI above ${inr(UPI_MANDATE_EMI_CAP)} cap` : `NPCI · EMI up to ${inr(UPI_MANDATE_EMI_CAP)}`} disabled={overCap} onPress={() => setMode('upi')} />
         <ModeRow on={mode === 'debitCard'} icon="credit-card-outline" title="Debit card e-mandate" sub={features.debitCardMandate ? 'NPCI API e-NACH' : `Coming in MVP ${AVAILABLE_FROM.debitCardMandate}`} disabled={!features.debitCardMandate} onPress={() => setMode('debitCard')} />
         <ModeRow on={mode === 'netBanking'} icon="bank-outline" title="Net banking e-mandate" sub={features.netBankingMandate ? 'NPCI API e-NACH' : `Coming in MVP ${AVAILABLE_FROM.netBankingMandate}`} disabled={!features.netBankingMandate} onPress={() => setMode('netBanking')} />
@@ -101,6 +109,7 @@ export default function MandateScreen() {
         </>
       )}
 
+      <View onLayout={sec.at('details')}>
       <Card style={{ gap: space.xxs }}>
         <Text variant="label" color={colors.textSecondary}>MANDATE DETAILS</Text>
         <ReadOnlyRow label="Max debit amount" value={inr(maxAmt)} />
@@ -109,6 +118,7 @@ export default function MandateScreen() {
         <ReadOnlyRow label="Valid till" value={fmt(end)} />
         <ReadOnlyRow label="Purpose" value="Loan EMI" />
       </Card>
+      </View>
 
       {err ? <Banner tone="danger" title="Mandate not created" body={err} /> : null}
       {done && journey.mandate && (
@@ -120,6 +130,7 @@ export default function MandateScreen() {
           <ReadOnlyRow label="UMN" value={journey.mandate.umn} />
           <ReadOnlyRow label="Payer" value={journey.mandate.payerVpa} />
           <Text variant="caption" color={colors.textSecondary}>Customer gets a pre-debit notification at least 24 hours before each EMI.</Text>
+          <Text variant="caption" color={colors.textSecondary}>Next: e-sign. The KFS goes to the customer with the e-sign link.</Text>
         </Card>
       )}
     </JourneyScreen>

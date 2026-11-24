@@ -15,7 +15,7 @@ export default function OfferScreen() {
   const t = termsFor(product, journey.condition);
   const used = journey.condition === 'used';
   return (
-    <JourneyScreen step="offer" assistant="offer" footer={<Button label="Proceed to Vehicle Selection" iconRight="arrow-right" onPress={() => nav.navigate('Asset')} />}>
+    <JourneyScreen step="offer" assistant="offer" footer={<Button label="Select vehicle" iconRight="arrow-right" onPress={() => nav.navigate('Asset')} />}>
       <View style={{ alignItems: 'center', gap: space.xs, paddingTop: space.sm }}>
         <View style={{ width: 88, height: 88, borderRadius: 44, backgroundColor: colors.successSoft, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="check-decagram" size={52} color={colors.success} />

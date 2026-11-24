@@ -5,7 +5,7 @@ import type { AssistantContext } from '../../navigation/types';
 /** Route name → assistant context (drives Zippy's tip and the sheet's suggestions). */
 export const ROUTE_CONTEXT: Record<string, AssistantContext> = {
   DealerLogin: 'login', DealerOtp: 'login', Home: 'home', Profile: 'profile', QuickList: 'home', ScanQr: 'scan', SearchMobile: 'search',
-  Offer: 'offer', Asset: 'asset', FaceKyc: 'kyc', Mandate: 'mandate', Kfs: 'kfs', Esign: 'esign', Docs: 'docs', Disbursal: 'disbursal',
+  Offer: 'offer', Asset: 'asset', FaceKyc: 'kyc', Mandate: 'mandate', Esign: 'esign', Docs: 'docs', Disbursal: 'disbursal',
   Payouts: 'payouts', Portfolio: 'portfolio', Cases: 'cases', RcPendency: 'rc', TaInf: 'tainf',
 };
 
@@ -17,11 +17,10 @@ export const TIPS: Record<AssistantContext, string> = {
   scan: '15–20 cm away, screen brightness up. QR codes love a well-lit stage.',
   search: "Customer reads out the OTP; six digits in and I'll verify it on the spot.",
   offer: "Pre-approved and ready. That's the ceiling — no haggling with this number.",
-  asset: 'Slide the amount and the EMI follows. Under ₹15,000 keeps UPI AutoPay happy.',
+  asset: 'Slide the amount and the EMI follows. Under ₹15,000 keeps UPI AutoPay happy. Charges sit at the bottom.',
   kyc: 'Glasses and cap off, good light, eye level. The camera does the rest.',
-  mandate: 'One approval in their UPI app and AutoPay is sorted for the whole tenure.',
-  kfs: 'Walk them through every charge. A clear KFS today saves a call tomorrow.',
-  esign: 'Customer reads the OTP aloud. Six digits and the agreement signs itself.',
+  mandate: 'One approval in their UPI app and AutoPay is sorted. Next stop: e-sign.',
+  esign: 'The KFS is on their phone with the agreement. Once they consent, six digits and it signs itself.',
   docs: 'Three uploads stand between you and disbursal. Invoice first?',
   disbursal: "Money's on its way. Share the RC once registration's done — I'll remind you.",
   payouts: "Tap an invoice to see each case. Unclaimed? One tap and it's in the queue.",

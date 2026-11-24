@@ -19,6 +19,7 @@ import type { ConsentOtpSession, PreQualifiedOffer, Result } from './types';
 const OFFER_AMOUNT: Record<ProductId, Record<Condition, number>> = {
   twoWheeler: { new: 150000, used: 100000 },
   car: { new: 1000000, used: 600000 },
+  cv: { new: 1200000, used: 700000 }, // example values
 };
 
 export const ETB_TEST_NUMBERS = { kycWaived: '9912345555', mandateWaived: '9912346666', both: '9912347777' } as const;

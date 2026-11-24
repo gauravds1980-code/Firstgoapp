@@ -16,7 +16,6 @@ import OfferScreen from '../screens/OfferScreen';
 import AssetScreen from '../screens/AssetScreen';
 import FaceKycScreen from '../screens/FaceKycScreen';
 import MandateScreen from '../screens/MandateScreen';
-import KfsScreen from '../screens/KfsScreen';
 import EsignScreen from '../screens/EsignScreen';
 import DocsScreen from '../screens/DocsScreen';
 import DisbursalScreen from '../screens/DisbursalScreen';
@@ -56,7 +55,6 @@ const linking: LinkingOptions<RootStackParamList> = {
       Asset: 'asset',
       FaceKyc: 'kyc',
       Mandate: 'mandate',
-      Kfs: 'kfs',
       Esign: 'esign',
       Docs: 'docs',
       Disbursal: 'disbursal',
@@ -103,7 +101,6 @@ export default function RootNavigator() {
             <Stack.Screen name="Asset" component={AssetScreen} />
             <Stack.Screen name="FaceKyc" component={FaceKycScreen} />
             <Stack.Screen name="Mandate" component={MandateScreen} />
-            <Stack.Screen name="Kfs" component={KfsScreen} />
             <Stack.Screen name="Esign" component={EsignScreen} />
             <Stack.Screen name="Docs" component={DocsScreen} />
             <Stack.Screen name="Disbursal" component={DisbursalScreen} options={{ gestureEnabled: false }} />

@@ -4,7 +4,7 @@ import { useIsFocused, useRoute } from '@react-navigation/native';
 import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { ASSISTANT_NAME } from '../../config/brand';
 import { haptic } from '../../utils/haptics';
-import { Zippy } from './Zippy';
+import { ZippyCharacter } from './ZippyCharacter';
 import { registerDockSlot, useRouteMood, useZippyStore, zippyDock, ZippyMood } from './zippyStore';
 
 /** Header slot footprint (always reserved, so headers never shift) and the docked mini face size. */
@@ -33,7 +33,7 @@ function DockedFace({ mood, disabled }: { mood: ZippyMood; disabled: boolean }) 
       accessibilityHint="Brings the assistant back on screen"
       style={({ pressed }) => [{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.8 : 1 }, { cursor: 'pointer' } as object]}
     >
-      <Animated.View style={a}><Zippy size={DOCK_MINI_SIZE} mood={mood} /></Animated.View>
+      <Animated.View style={a}><ZippyCharacter size={DOCK_MINI_SIZE} mood={mood} /></Animated.View>
     </Pressable>
   );
 }

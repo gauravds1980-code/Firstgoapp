@@ -1,14 +1,15 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { JourneyScreen } from '../components/Screen';
 import { Slider } from '../components/Slider';
-import { Banner, Button, Card, Icon, Pill, PressableScale, Text } from '../components/ui';
+import { Banner, Button, Card, Icon, Pill, PressableScale, ReadOnlyRow, Text } from '../components/ui';
+import { useSectionTracker, useZippyPending } from '../components/assistant/zippySection';
 import { UPI_MANDATE_EMI_CAP } from '../config/phases';
 import { CONDITION_LABEL, PRODUCTS, termsFor } from '../config/products';
 import { useApp } from '../state/AppState';
 import { colors, fontScaleCap, radius, space, touch, type } from '../theme/tokens';
-import { emi, inr, maxLoan, maskMobile } from '../utils/finance';
+import { charges, emi, inr, maxLoan, maskMobile } from '../utils/finance';
 import { haptic } from '../utils/haptics';
 
 export default function AssetScreen() {
@@ -29,13 +30,28 @@ export default function AssetScreen() {
 
   // Shortest tenure that brings EMI under the UPI cap, to suggest a fix
   const fixTenure = p.tenureOptions.find((tn) => tn > journey.tenure && emi(loan, t.annualRate, tn) <= UPI_MANDATE_EMI_CAP);
+  const blocked = overCap && !mvp2Available;
+  const c = charges(product, loan);
+  const [showCharges, setShowCharges] = useState(false);
+  const ratePct = `${(t.annualRate * 100).toFixed(1)}%`;
+
+  // Section-aware Zippy help + what still needs the dealer here.
+  const sec = useSectionTracker<'vehicle' | 'emi' | 'charges'>('vehicle');
+  useZippyPending(blocked ? [{
+    id: 'emiCap', label: `EMI ${inr(monthly)} is above the ${inr(UPI_MANDATE_EMI_CAP)} UPI cap`,
+    detail: fixTenure ? `${fixTenure} months brings it under the cap.` : 'Lower the loan amount to bring it under the cap.',
+    actionLabel: fixTenure ? `Set ${fixTenure} months` : undefined, onAction: fixTenure ? () => update({ tenure: fixTenure }) : undefined,
+  }] : []);
 
   return (
-    <JourneyScreen step="asset" assistant="asset" footer={
+    <JourneyScreen step="asset" assistant="asset" onScroll={sec.onScroll} footer={
       <View style={{ gap: space.xs }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
-          <Text variant="caption" color={colors.textSecondary}>EMI · {journey.tenure} months</Text>
-          <Text variant="h2" color={overCap ? colors.warning : colors.text}>{inr(monthly)}<Text variant="caption" color={colors.textSecondary} style={{ lineHeight: type.h2.lineHeight }}> /month</Text></Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: space.sm }}>
+          <View style={{ flexShrink: 1 }}>
+            <Text variant="label" color={colors.textSecondary}>EMI · {journey.tenure} months</Text>
+            <Text variant="caption" color={colors.textSecondary}>{ratePct} p.a. · net to you {inr(c.net)}</Text>
+          </View>
+          <Text variant="h1" color={overCap ? colors.warning : colors.primary} style={{ fontVariant: ['tabular-nums'] }}>{inr(monthly)}<Text variant="caption" color={colors.textSecondary} style={{ lineHeight: type.h1.lineHeight }}> /mo</Text></Text>
         </View>
  {overCap && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: mvp2Available ? colors.warningSoft : colors.dangerSoft, borderRadius: radius.md, padding: space.xs }} accessibilityRole="alert">
@@ -45,16 +61,17 @@ export default function AssetScreen() {
             </Text>
           </View>
         )}
-        <Button label="Verify and Continue" iconRight="arrow-right" onPress={() => nav.navigate('FaceKyc')} disabled={overCap && !mvp2Available}
-          accessibilityHint={overCap && !mvp2Available ? 'Disabled: EMI is above the UPI mandate cap' : undefined} />
+        <Button label="Confirm & start KYC" iconRight="arrow-right" onPress={() => nav.navigate('FaceKyc')} disabled={blocked}
+          accessibilityHint={blocked ? 'Disabled: EMI is above the UPI mandate cap' : undefined} />
       </View>}>
       {/* Offer summary (merged from the Offer screen to save a tap) */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.md, borderRadius: radius.lg, backgroundColor: colors.successSoft, borderWidth: 1, borderColor: 'rgba(0,160,122,0.25)' }}
         accessibilityLabel={`Pre-qualified offer for ${journey.offer.customerName}, up to ${inr(journey.offer.amount)}`}>
         <Icon name="check-decagram" size={32} color={colors.success} />
         <View style={{ flex: 1 }}>
-          <Text variant="bodyStrong">{journey.offer.customerName} · up to {inr(journey.offer.amount)}</Text>
-          <Text variant="caption" color={colors.textSecondary}>ETB pre-approved · {maskMobile(journey.offer.registeredMobile)} · LAN {journey.offer.loanApplicationNumber}</Text>
+          <Text variant="caption" color={colors.textSecondary}>{journey.offer.customerName} · pre-approved up to</Text>
+          <Text variant="h2" color={colors.success} style={{ fontVariant: ['tabular-nums'] }}>{inr(journey.offer.amount)}</Text>
+          <Text variant="caption" color={colors.textSecondary}>ETB · {maskMobile(journey.offer.registeredMobile)} · LAN {journey.offer.loanApplicationNumber}</Text>
           {(journey.offer.waivers.kycOnFile || journey.offer.waivers.mandateOnFile) && (
             <Text variant="caption" color={colors.success} style={{ fontFamily: 'Inter_600SemiBold' }}>
               On file: {[journey.offer.waivers.kycOnFile && 'KYC', journey.offer.waivers.mandateOnFile && 'AutoPay mandate'].filter(Boolean).join(' + ')} · those steps will be skipped
@@ -62,7 +79,7 @@ export default function AssetScreen() {
           )}
         </View>
       </View>
-      <View style={{ gap: space.xs }}>
+      <View style={{ gap: space.xs }} onLayout={sec.at('vehicle')}>
         <Text variant="h2">Select the {used ? 'used ' : ''}{p.label.toLowerCase()}</Text>
         <Text variant="body" color={colors.textSecondary}>Pick the model the customer is buying, then set tenure and amount.</Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
@@ -96,24 +113,31 @@ export default function AssetScreen() {
         <Row label={used ? 'Valuation (used)' : 'On-road price'} value={inr(journey.asset.onRoadPrice)} />
       </Card>
 
-      <View style={{ gap: space.xs }}>
+      <View style={{ gap: space.xs }} onLayout={sec.at('emi')}>
         <Text variant="label">Tenure (months)</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.xs }}>
           {p.tenureOptions.map((t) => {
             const on = t === journey.tenure;
+            const fix = blocked && t === fixTenure;
             return (
               <PressableScale key={t} onPress={() => { haptic.select(); update({ tenure: t }); }} accessibilityRole="radio" accessibilityState={{ selected: on }} accessibilityLabel={`${t} months`}
-                style={{ minWidth: 56, minHeight: touch.min, borderRadius: radius.md, borderWidth: 1.5, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.sm }}>
+                style={{ minWidth: 56, minHeight: touch.min, borderRadius: radius.md, borderWidth: fix ? 2 : 1.5, borderColor: on ? (blocked ? colors.danger : colors.primary) : fix ? colors.successBright : colors.border, backgroundColor: on ? colors.primary : colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.sm }}>
                 <Text variant="bodyStrong" color={on ? colors.onPrimary : colors.text} maxFontSizeMultiplier={fontScaleCap.compact} style={{ textAlign: 'center' }}>{t}</Text>
               </PressableScale>
             );
           })}
         </ScrollView>
+        {/* Inline validation: tenure that breaks the UPI cap */}
+        {blocked && (
+          <Text variant="caption" color={colors.danger} accessibilityLiveRegion="polite">
+            {fixTenure ? `${journey.tenure} months puts the EMI above ${inr(UPI_MANDATE_EMI_CAP)}. Pick ${fixTenure}+ months (outlined).` : `Even the longest tenure is above ${inr(UPI_MANDATE_EMI_CAP)} — lower the amount.`}
+          </Text>
+        )}
       </View>
 
-      <Card style={{ gap: space.xs }}>
+      <Card style={{ gap: space.xs, borderColor: blocked ? colors.danger : colors.border }}>
         <Text variant="label" color={colors.textSecondary}>Desired loan amount</Text>
-        <Text variant="display" color={colors.primary}>{inr(loan)}</Text>
+        <Text variant="display" color={colors.primary} style={{ fontVariant: ['tabular-nums'] }}>{inr(loan)}</Text>
         <Slider label="Loan amount" value={loan} min={min} max={max} step={p.loanStep} onChange={(v) => update({ loan: v })} />
         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
           <Text variant="caption" color={colors.textSecondary}>{inr(min)}</Text>
@@ -122,6 +146,18 @@ export default function AssetScreen() {
             <Text variant="caption" color={colors.textSecondary}>{offerBinds ? 'Pre-qualified offer limit' : `${Math.round(t.ltv * 100)}% of ${used ? 'valuation' : 'on-road price'}`}</Text>
           </View>
         </View>
+        {/* EMI + rate: the two figures the customer asks about, sized to dominate */}
+        <View style={{ flexDirection: 'row', borderTopWidth: 1, borderTopColor: colors.border, paddingTop: space.sm, marginTop: space.xxs }}>
+          <View style={{ flex: 1 }}>
+            <Text variant="caption" color={colors.textSecondary}>EMI</Text>
+            <Text variant="h1" color={overCap ? colors.warning : colors.text} style={{ fontVariant: ['tabular-nums'] }}>{inr(monthly)}</Text>
+          </View>
+          <View style={{ flex: 1, alignItems: 'flex-end' }}>
+            <Text variant="caption" color={colors.textSecondary}>Rate (indicative)</Text>
+            <Text variant="h1" style={{ fontVariant: ['tabular-nums'] }}>{ratePct}</Text>
+          </View>
+        </View>
+        {loan < min && <Text variant="caption" color={colors.danger}>Minimum loan is {inr(p.minLoan)}.</Text>}
       </Card>
 
       {overCap ? (
@@ -134,7 +170,23 @@ export default function AssetScreen() {
       ) : (
         <Banner tone="success" title="Eligible for UPI AutoPay" body={`EMI is within the ${inr(UPI_MANDATE_EMI_CAP)} UPI mandate cap.`} />
       )}
-      <Text variant="caption" color={colors.textSecondary}>Indicative EMI at {(t.annualRate * 100).toFixed(1)}% p.a. reducing{used ? ` · used ${p.label.toLowerCase()}: ${Math.round(t.ltv * 100)}% LTV (example values)` : ''}. Final rate and charges are shown in the KFS before e-sign.</Text>
+      {/* Charges & net disbursal (the dealer-side summary that used to live on the KFS screen) */}
+      <View onLayout={sec.at('charges')}>
+      <Card style={{ gap: space.xs }}>
+        <PressableScale onPress={() => setShowCharges((v) => !v)} accessibilityRole="button" accessibilityState={{ expanded: showCharges }}
+          accessibilityLabel={`Charges ${inr(c.total)}, net disbursal ${inr(c.net)}. ${showCharges ? 'Hide' : 'Show'} breakdown`}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: touch.min }}>
+          <View style={{ flex: 1 }}>
+            <Text variant="label" color={colors.textSecondary}>NET DISBURSAL TO YOU</Text>
+            <Text variant="h1" color={colors.primary} style={{ fontVariant: ['tabular-nums'] }}>{inr(c.net)}</Text>
+            <Text variant="caption" color={colors.textSecondary}>{inr(loan)} loan − {inr(c.total)} customer charges</Text>
+          </View>
+          <Icon name={showCharges ? 'chevron-up' : 'chevron-down'} size={24} color={colors.textSecondary} />
+        </PressableScale>
+        {showCharges && c.lines.map((l) => <ReadOnlyRow key={l.label} label={l.label} value={`− ${inr(l.amount)}`} />)}
+      </Card>
+      </View>
+      <Text variant="caption" color={colors.textSecondary}>Indicative EMI at {ratePct} p.a. reducing{used ? ` · used ${p.label.toLowerCase()}: ${Math.round(t.ltv * 100)}% LTV (example values)` : ''}. The KFS with final rate and charges goes to the customer with the e-sign link.</Text>
     </JourneyScreen>
   );
 }
