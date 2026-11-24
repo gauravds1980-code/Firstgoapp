@@ -59,18 +59,21 @@ export interface QuickAction { key: 'reports' | 'dashboard' | 'rc' | 'tainf'; la
 
 export interface Payout { utr: string; lan: string; amount: number; when: string; product: ProductId }
 
+/** "Today, 9:43 AM" with a non-breaking space before AM/PM, so the time never wraps "AM" onto its own line. */
+const t = (time: string) => `Today, ${time.replace(' ', '\u00A0')}`;
+
 /** Home dashboard. Callers filter `recent` / `payouts` to the dealer's enabled categories (see HomeScreen). */
 export async function fetchDealerHome(): Promise<{ stats: Stat[]; recent: RecentApp[]; actions: QuickAction[]; unread: number; payouts: Payout[] }> {
   await delay(900);
   return {
     unread: 2,
     payouts: [
-      { utr: 'IDFBR817262893752611', lan: 'CV-30218', amount: 512000, when: 'Today, 9:58 AM', product: 'cv' },
-      { utr: 'IDFBR817262893744406', lan: 'CV-30211', amount: 748000, when: 'Today, 9:05 AM', product: 'cv' },
-      { utr: 'IDFBR817262893736015', lan: 'CR-20409', amount: 662000, when: 'Today, 8:40 AM', product: 'car' },
-      { utr: 'IDFBR817262893749220', lan: 'TW-184392', amount: 135000, when: 'Today, 9:43 AM', product: 'twoWheeler' },
-      { utr: 'IDFBR817262893741108', lan: 'TW-184388', amount: 66500, when: 'Today, 8:52 AM', product: 'twoWheeler' },
-      { utr: 'IDFBR817262893739912', lan: 'TW-184371', amount: 104500, when: 'Today, 8:21 AM', product: 'twoWheeler' },
+      { utr: 'IDFBR817262893752611', lan: 'CV-30218', amount: 512000, when: t('9:58 AM'), product: 'cv' },
+      { utr: 'IDFBR817262893744406', lan: 'CV-30211', amount: 748000, when: t('9:05 AM'), product: 'cv' },
+      { utr: 'IDFBR817262893736015', lan: 'CR-20409', amount: 662000, when: t('8:40 AM'), product: 'car' },
+      { utr: 'IDFBR817262893749220', lan: 'TW-184392', amount: 135000, when: t('9:43 AM'), product: 'twoWheeler' },
+      { utr: 'IDFBR817262893741108', lan: 'TW-184388', amount: 66500, when: t('8:52 AM'), product: 'twoWheeler' },
+      { utr: 'IDFBR817262893739912', lan: 'TW-184371', amount: 104500, when: t('8:21 AM'), product: 'twoWheeler' },
     ],
     stats: [
       { key: 'apps', label: 'Applications today', value: '3', delta: '20%', up: true, tone: 'blue', icon: 'file-document-outline' },
@@ -78,12 +81,18 @@ export async function fetchDealerHome(): Promise<{ stats: Stat[]; recent: Recent
       { key: 'amt', label: 'Approved amount', value: '₹3,06,000', delta: '12%', up: true, tone: 'peach', icon: 'currency-inr' },
       { key: 'tat', label: 'Avg. processing time', value: '1m 57s', delta: '8%', up: false, tone: 'rose', icon: 'timer-outline' },
     ],
+    // Today's applications, newest first. Every loan credited in `payouts` above is here as DISBURSED,
+    // so Home's Today figures (applications / approved / disbursed) agree with the credits list.
     recent: [
-      { id: 'TW-184392', when: 'Today, 9:43 AM', status: 'DISBURSED', amount: 135000, product: 'twoWheeler' },
-      { id: 'TW-184401', when: 'Today, 10:05 AM', status: 'APPROVED', amount: 96000, product: 'twoWheeler' },
-      { id: 'CR-20417', when: 'Today, 10:31 AM', status: 'PENDING', amount: 726000, product: 'car' },
-      { id: 'CV-30218', when: 'Today, 9:58 AM', status: 'DISBURSED', amount: 527000, product: 'cv' },
-      { id: 'CV-30226', when: 'Today, 10:40 AM', status: 'PENDING', amount: 1255000, product: 'cv' },
+      { id: 'CV-30226', when: t('10:40 AM'), status: 'PENDING', amount: 1255000, product: 'cv' },
+      { id: 'CR-20417', when: t('10:31 AM'), status: 'PENDING', amount: 726000, product: 'car' },
+      { id: 'TW-184401', when: t('10:05 AM'), status: 'APPROVED', amount: 96000, product: 'twoWheeler' },
+      { id: 'CV-30218', when: t('9:58 AM'), status: 'DISBURSED', amount: 527000, product: 'cv' },
+      { id: 'TW-184392', when: t('9:43 AM'), status: 'DISBURSED', amount: 138000, product: 'twoWheeler' },
+      { id: 'CV-30211', when: t('9:05 AM'), status: 'DISBURSED', amount: 763000, product: 'cv' },
+      { id: 'TW-184388', when: t('8:52 AM'), status: 'DISBURSED', amount: 68000, product: 'twoWheeler' },
+      { id: 'CR-20409', when: t('8:40 AM'), status: 'DISBURSED', amount: 676000, product: 'car' },
+      { id: 'TW-184371', when: t('8:21 AM'), status: 'DISBURSED', amount: 110000, product: 'twoWheeler' },
     ],
     actions: [
       { key: 'reports', label: 'Reports', icon: 'chart-bar', count: 4 },
@@ -129,24 +138,24 @@ export const QUICK_LISTS: Record<ListKind, { title: string; subtitle: string; ro
   loans: {
     title: 'Loans', subtitle: 'All applications and their status',
     rows: [
-      { title: 'TW-184392 · Rahul S. · ₹1,50,000', meta: 'Royal Enfield Bullet 350 · Today 9:41 AM', tag: 'Disbursed', product: 'twoWheeler' },
-      { title: 'TW-184401 · Priya K. · ₹96,000', meta: 'TVS Apache RTR 160 · Today 10:05 AM', tag: 'Approved', product: 'twoWheeler' },
+      { title: 'TW-184392 · Rahul S. · ₹1,38,000', meta: 'Hero Xtreme 125R · Today 9:43\u00A0AM', tag: 'Disbursed', product: 'twoWheeler' },
+      { title: 'TW-184401 · Priya K. · ₹96,000', meta: 'TVS Apache RTR 160 · Today 10:05\u00A0AM', tag: 'Approved', product: 'twoWheeler' },
       { title: 'CR-20417 · Amit P. · ₹7,26,000', meta: 'Tata Nexon · awaiting e-sign', tag: 'Pending', product: 'car' },
       { title: 'CV-30226 · Sanjay P. · ₹12,55,000', meta: 'Tata 407 Gold SFC · awaiting e-sign', tag: 'Pending', product: 'cv' },
-      { title: 'CV-30218 · Manoj V. · ₹5,27,000', meta: 'Tata Ace Gold · Today 9:58 AM', tag: 'Disbursed', product: 'cv' },
-      { title: 'TW-184371 · Neha D. · ₹1,10,000', meta: 'Ather 450X · Today 8:19 AM', tag: 'Disbursed', product: 'twoWheeler' },
+      { title: 'CV-30218 · Manoj V. · ₹5,27,000', meta: 'Tata Ace Gold · Today 9:58\u00A0AM', tag: 'Disbursed', product: 'cv' },
+      { title: 'TW-184371 · Neha D. · ₹1,10,000', meta: 'Ather 450X · Today 8:19\u00A0AM', tag: 'Disbursed', product: 'twoWheeler' },
       { title: 'TW-184350 · Vikram R. · ₹70,000', meta: 'Honda Activa 6G · Yesterday', tag: 'Disbursed', product: 'twoWheeler' },
     ],
   },
   payouts: {
     title: 'Payouts & Disbursals', subtitle: 'Loan amounts credited to your settlement account',
     rows: [
-      { title: '₹5,12,000 · CV-30218', meta: 'UTR IDFBR817262893752611 · Today 9:58 AM', tag: 'Credited', product: 'cv' },
-      { title: '₹1,35,000 · TW-184392', meta: 'UTR IDFBR817262893749220 · Today 9:43 AM', tag: 'Credited', product: 'twoWheeler' },
-      { title: '₹7,48,000 · CV-30211', meta: 'UTR IDFBR817262893744406 · Today 9:05 AM', tag: 'Credited', product: 'cv' },
-      { title: '₹66,500 · TW-184388', meta: 'UTR IDFBR817262893741108 · Today 8:52 AM', tag: 'Credited', product: 'twoWheeler' },
-      { title: '₹6,62,000 · CR-20409', meta: 'UTR IDFBR817262893736015 · Today 8:40 AM', tag: 'Credited', product: 'car' },
-      { title: '₹1,04,500 · TW-184371', meta: 'UTR IDFBR817262893739912 · Today 8:21 AM', tag: 'Credited', product: 'twoWheeler' },
+      { title: '₹5,12,000 · CV-30218', meta: 'UTR IDFBR817262893752611 · Today 9:58\u00A0AM', tag: 'Credited', product: 'cv' },
+      { title: '₹1,35,000 · TW-184392', meta: 'UTR IDFBR817262893749220 · Today 9:43\u00A0AM', tag: 'Credited', product: 'twoWheeler' },
+      { title: '₹7,48,000 · CV-30211', meta: 'UTR IDFBR817262893744406 · Today 9:05\u00A0AM', tag: 'Credited', product: 'cv' },
+      { title: '₹66,500 · TW-184388', meta: 'UTR IDFBR817262893741108 · Today 8:52\u00A0AM', tag: 'Credited', product: 'twoWheeler' },
+      { title: '₹6,62,000 · CR-20409', meta: 'UTR IDFBR817262893736015 · Today 8:40\u00A0AM', tag: 'Credited', product: 'car' },
+      { title: '₹1,04,500 · TW-184371', meta: 'UTR IDFBR817262893739912 · Today 8:21\u00A0AM', tag: 'Credited', product: 'twoWheeler' },
       { title: '₹38,400 · Incentive (INF) Oct', meta: 'UTR IDFBR817262890012345 · 05 Nov', tag: 'Credited' },
     ],
   },

@@ -15,7 +15,7 @@ export interface Asset {
 export interface ProductConfig {
   id: ProductId;
   label: string;
-  headerSubtitle: string; // "TWO WHEELER LOAN"
+  headerSubtitle: string; // "Two-wheeler loan" (sentence case, one line in the header)
   icon: 'motorbike' | 'car-side' | 'truck';
   onRoadPriceRange: [number, number];
   ltv: number; // max loan as fraction of on-road price
@@ -33,7 +33,7 @@ export const PRODUCTS: Record<ProductId, ProductConfig> = {
   twoWheeler: {
     id: 'twoWheeler',
     label: 'Two Wheeler',
-    headerSubtitle: 'TWO WHEELER LOAN',
+    headerSubtitle: 'Two-wheeler loan',
     icon: 'motorbike',
     onRoadPriceRange: [60000, 450000],
     ltv: 0.9,
@@ -57,7 +57,7 @@ export const PRODUCTS: Record<ProductId, ProductConfig> = {
   car: {
     id: 'car',
     label: 'Car',
-    headerSubtitle: 'CAR LOAN',
+    headerSubtitle: 'Car loan',
     icon: 'car-side',
     onRoadPriceRange: [450000, 3500000],
     ltv: 0.85,
@@ -83,7 +83,7 @@ export const PRODUCTS: Record<ProductId, ProductConfig> = {
   cv: {
     id: 'cv',
     label: 'Commercial Vehicle',
-    headerSubtitle: 'COMMERCIAL VEHICLE LOAN',
+    headerSubtitle: 'Commercial vehicle loan',
     icon: 'truck',
     onRoadPriceRange: [550000, 3000000],
     ltv: 0.85,

@@ -14,14 +14,14 @@ export default function TaInfScreen() {
   const { profile } = useApp();
   if (!profile?.hasTaInf) {
     return (
-      <JourneyScreen assistant="home" showTerms={false}>
+      <JourneyScreen title="TA / INF limits" assistant="tainf" showTerms={false}>
         <Banner tone="info" title="No TA / INF limits" body="Your dealership doesn't have Trade Advance or Inventory Funding with IDFC FIRST. Contact your relationship manager to apply." />
       </JourneyScreen>
     );
   }
   const limits = taInfFor(profile);
   return (
-    <JourneyScreen assistant="home" showTerms={false}>
+    <JourneyScreen title="TA / INF limits" assistant="tainf" showTerms={false}>
       <View style={{ gap: space.xxs }}>
         <Text variant="h1">TA / INF limits</Text>
         <Text variant="body" color={colors.textSecondary}>Trade Advance and Inventory Funding with IDFC FIRST</Text>

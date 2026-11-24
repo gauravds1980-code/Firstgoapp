@@ -8,6 +8,7 @@ import { MAX_OTP_ATTEMPTS, OTP_COOLDOWN_SEC, requestDealerOtp, verifyDealerOtp }
 import { useApp } from '../state/AppState';
 import { colors, space, touch } from '../theme/tokens';
 import { haptic } from '../utils/haptics';
+import { maskMobile } from '../utils/finance';
 
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
@@ -70,13 +71,14 @@ function DealerOtpForm() {
   };
 
   return (
-    <AuthScaffold title="Enter OTP" subtitle={`Sent to +91 ••••••${params.mobile.slice(-4)}`}
+    <AuthScaffold title="Enter OTP" subtitle={`Sent to ${maskMobile(params.mobile)}`}
       footer={<>
         <Button label={locked ? `Try again in ${mmss(cooldown)}` : 'Verify & log in'} icon="login" onPress={() => verify()} loading={loading} disabled={locked || otp.length !== 6} />
         <Text variant="caption" color={colors.textSecondary} style={{ textAlign: 'center' }}>Terms and eligibility conditions apply.</Text>
       </>}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Text variant="bodyStrong">+91 {params.mobile.slice(0, 5)} {params.mobile.slice(5)}</Text>
+        {/* Masked only: the full number never sits next to the mask on this screen. */}
+        <Text variant="bodyStrong">{maskMobile(params.mobile)}</Text>
         <PressableScale onPress={() => nav.navigate('DealerLogin', { mobile: params.mobile })} accessibilityRole="link" accessibilityLabel="Edit mobile number"
           style={{ minHeight: touch.min, justifyContent: 'center', paddingLeft: space.md }}>
           <Text variant="bodyStrong" color={colors.primary}>Edit number</Text>

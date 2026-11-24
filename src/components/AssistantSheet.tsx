@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { AssistantContext } from '../navigation/types';
 import { colors, radius, space, touch, type } from '../theme/tokens';
 import { Icon, PressableScale, Text } from './ui';
+import { SHOW_DEV_UI } from '../config/devFlags';
 
 /**
  * PLACEHOLDER — assistant (chatbot layer for dealer staff who get stuck).
@@ -53,7 +54,7 @@ const SUGGESTIONS: Record<AssistantContext, { q: string; a: string }[]> = {
   ],
   search: [
     { q: 'Customer didn’t get the OTP', a: 'Check the number is the one registered with the bank. Wait 30s and tap Resend.' },
-    { q: 'No offer found — what now?', a: 'MVP 1 covers existing IDFC FIRST pre-approved customers only. Route to a regular loan application.' },
+    { q: 'No offer found — what now?', a: 'Right now, instant offers are only for existing IDFC FIRST customers with a pre-approved offer. Route others to a regular loan application.' },
   ],
   offer: [
     { q: 'Can the offer amount be increased?', a: 'No — the pre-qualified amount is the ceiling. Final loan is also capped by LTV of the on-road price.' },
@@ -61,15 +62,19 @@ const SUGGESTIONS: Record<AssistantContext, { q: string; a: string }[]> = {
   ],
   asset: [
     { q: 'Why is the slider capped?', a: 'Loan max = lower of the pre-qualified offer and LTV % × on-road price.' },
-    { q: 'EMI shows above ₹15,000', a: 'UPI AutoPay is capped at ₹15,000 EMI in MVP 1. Increase tenure or lower the loan amount, or use debit card / net banking (MVP 2).' },
+    { q: 'EMI shows above ₹15,000', a: 'UPI AutoPay is capped at ₹15,000 EMI. Increase the tenure or lower the loan amount. Debit card / net banking mandates are coming soon.' },
   ],
   kyc: [
-    { q: 'Face capture keeps failing', a: 'Ask the customer to remove glasses and cap, move to even light, and hold the phone at eye level. Fingerprint e-KYC arrives in MVP 2.' },
+    { q: 'Face capture keeps failing', a: 'Ask the customer to remove glasses and cap, move to even light, and hold the phone at eye level. Fingerprint e-KYC is coming soon.' },
+    { q: 'What does the customer do on the camera?', a: 'Line their face up inside the oval and blink once when it says “Okay, blink”. The tick shows and the mandate step opens by itself.' },
+    { q: 'Camera access is off', a: 'Open Settings → FIRSTgo → Camera, turn it on, then tap Try again. The same camera is used for QR, RC and face e-KYC.' },
     { q: 'Face RD app not installed', a: 'Install “AadhaarFaceRD” from the Play Store, then retry.' },
   ],
   mandate: [
-    { q: 'Customer didn’t get the UPI request', a: 'Confirm the UPI ID, ask them to open their UPI app’s pending mandates, or use the intent option.' },
-    { q: 'What is a UMN?', a: 'Unique Mandate Number from NPCI — proof the AutoPay mandate is active.' },
+    { q: 'How does Scan & Setup work?', a: 'The customer scans the AutoPay QR with any UPI app (or you tap Open UPI app on their phone), checks the EMI and max amount, and approves with their UPI PIN. The mandate is created and e-sign opens by itself.' },
+    { q: 'Open UPI app says no UPI app found', a: 'This phone has no UPI app. Ask the customer to scan the QR from their own phone, or send a request to their UPI ID instead.' },
+    { q: 'Customer didn’t get the UPI request', a: 'Scan & Setup needs no request — they just scan the QR. If you sent one to a UPI ID, confirm the ID and ask them to check pending mandates in their UPI app.' },
+    { q: 'What is a UMRN?', a: 'Unique Mandate Reference Number from NPCI — proof the AutoPay mandate is active. Customers get a pre-debit notification 24 hours before each EMI.' },
     { q: 'What happens after the mandate?', a: 'E-sign opens next. The KFS goes to the customer with the e-sign link — there is no separate KFS screen for you.' },
   ],
   esign: [
@@ -100,7 +105,11 @@ const CONTEXT_LABEL: Record<AssistantContext, string> = {
  * v1.2.2: section-aware — FAQs for the section in view come first, and anything on the screen that
  * still needs the dealer is shown as a nudge with a quick action (see zippySection.ts).
  */
-export function AssistantSheet({ visible, onClose, context, route, product }: { visible: boolean; onClose: () => void; context: AssistantContext; route?: string; product?: ProductId }) {
+export function AssistantSheet({ visible, onClose, context, route, product, docked = true, onToggleDock }: {
+  visible: boolean; onClose: () => void; context: AssistantContext; route?: string; product?: ProductId;
+  /** Zippy's dock state, for the menu option that hides (docks) or floats it. */
+  docked?: boolean; onToggleDock?: () => void;
+}) {
   const insets = useSafeAreaInsets();
   const { section, pending } = useRouteHelp(route);
   const sec = section ? SECTION_HELP[context]?.[section] : undefined;
@@ -168,13 +177,26 @@ export function AssistantSheet({ visible, onClose, context, route, product }: { 
             ))}
           </View>
         </ScrollView>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: space.md, backgroundColor: colors.surfaceMuted }}>
-          <TextInput editable={false} placeholder="Typing coming soon (placeholder)" placeholderTextColor={colors.textMuted}
-            style={[type.body, { flex: 1, height: touch.cta }, { outlineStyle: 'none' } as object]} accessibilityLabel="Chat input, disabled placeholder" />
-          <Icon name="microphone-outline" size={22} color={colors.borderStrong} />
-          <Icon name="send" size={22} color={colors.borderStrong} />
-        </View>
-        <Text variant="caption" color={colors.textSecondary} style={{ textAlign: 'center' }}>Prototype: canned answers, assistant backend not connected yet.</Text>
+        {/* Menu option: the single way (besides long-press) to hide Zippy into the header or float it back out. */}
+        {onToggleDock && (
+          <PressableScale onPress={onToggleDock} accessibilityRole="button" accessibilityLabel={docked ? `Show ${ASSISTANT_NAME} on screen` : `Hide ${ASSISTANT_NAME} in the header`}
+            style={{ minHeight: touch.min, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs }}>
+            <Icon name={docked ? 'arrow-expand-down' : 'arrow-collapse-up'} size={18} color={colors.primary} />
+            <Text variant="label" color={colors.primary}>{docked ? `Show ${ASSISTANT_NAME} on screen` : `Hide ${ASSISTANT_NAME} in the header`}</Text>
+          </PressableScale>
+        )}
+        {/* Prototype chrome (disabled chat box, "canned answers" note): tester builds only. */}
+        {SHOW_DEV_UI && (
+          <>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: space.md, backgroundColor: colors.surfaceMuted }}>
+              <TextInput editable={false} placeholder="Typing coming soon (placeholder)" placeholderTextColor={colors.textMuted}
+                style={[type.body, { flex: 1, height: touch.cta }, { outlineStyle: 'none' } as object]} accessibilityLabel="Chat input, disabled placeholder" />
+              <Icon name="microphone-outline" size={22} color={colors.borderStrong} />
+              <Icon name="send" size={22} color={colors.borderStrong} />
+            </View>
+            <Text variant="caption" color={colors.textSecondary} style={{ textAlign: 'center' }}>Prototype: canned answers, assistant backend not connected yet.</Text>
+          </>
+        )}
       </View>
     </Modal>
   );

@@ -24,7 +24,7 @@ export default function PortfolioScreen() {
   const shown = bucket === 'All' ? cases : cases.filter((c) => bucketOf(c.dpd) === bucket);
   const overdue = split.filter((s) => s.b !== 'Current').reduce((t, s) => t + s.pos, 0);
   return (
-    <JourneyScreen assistant="home" showTerms={false}>
+    <JourneyScreen title="Portfolio" assistant="portfolio" showTerms={false}>
       <View style={{ gap: space.xxs }}>
         <Text variant="h1">Portfolio</Text>
         <Text variant="body" color={colors.textSecondary}>Active loans you sourced, by disbursal date</Text>
@@ -63,12 +63,12 @@ export default function PortfolioScreen() {
             <View style={{ width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.primaryTint, alignItems: 'center', justifyContent: 'center' }}>
               <Icon name={PRODUCTS[c.product].icon} size={20} color={colors.primary} />
             </View>
-            <View style={{ flex: 1, gap: 2 }}>
+            <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
               <Text variant="bodyStrong">{c.customer}</Text>
               <Text variant="caption" color={colors.textSecondary}>{c.lan} · {c.vehicle} · {fmtDate(c.disbursedOn)}</Text>
               <Text variant="caption" color={colors.textSecondary}>POS {inr(c.pos)} of {inr(c.amount)}</Text>
             </View>
-            <Pill label={c.dpd ? `${c.dpd} DPD` : 'CURRENT'} tone={c.dpd === 0 ? 'success' : c.dpd <= 30 ? 'warning' : 'danger'} />
+            <Pill label={c.dpd ? `${c.dpd} DPD` : 'Current'} tone={c.dpd === 0 ? 'success' : c.dpd <= 30 ? 'warning' : 'danger'} />
           </View>
         ))}
       </Card>

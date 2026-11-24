@@ -7,6 +7,7 @@ import { CONDITION_LABEL, PRODUCTS, termsFor } from '../config/products';
 import { useApp } from '../state/AppState';
 import { colors, radius, space } from '../theme/tokens';
 import { inr, maskMobile } from '../utils/finance';
+import { fmtDayMonth } from '../services/business';
 
 export default function OfferScreen() {
   const nav = useNavigation();
@@ -24,8 +25,8 @@ export default function OfferScreen() {
         <Text variant="body" color={colors.textSecondary} style={{ textAlign: 'center' }}>Pre-qualified {used ? 'used ' : ''}{PRODUCTS[product].label.toLowerCase()} offer up to</Text>
         <Text variant="display" color={colors.primary} style={{ textAlign: 'center' }} accessibilityLabel={`Offer amount ${inr(o.amount)}`}>{inr(o.amount)}</Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: space.xs }}>
-          <Pill label="ETB · PRE-APPROVED" tone="success" />
-          <Pill label={`VALID TILL ${new Date(o.validTill).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }).toUpperCase()}`} tone="neutral" />
+          <Pill label="Pre-approved" tone="success" />
+          <Pill label={`Valid till ${fmtDayMonth(new Date(o.validTill))}`} tone="neutral" />
         </View>
       </View>
       <Card style={{ gap: space.xxs }}>

@@ -11,6 +11,8 @@ import { useApp } from '../state/AppState';
 import { colors, fontScaleCap, radius, space, touch, type } from '../theme/tokens';
 import { charges, emi, inr, maxLoan, maskMobile } from '../utils/finance';
 import { haptic } from '../utils/haptics';
+import { waiverPlan } from '../utils/waivers';
+import { NB_HYPHEN } from '../navigation/types';
 
 export default function AssetScreen() {
   const nav = useNavigation();
@@ -34,6 +36,10 @@ export default function AssetScreen() {
   const c = charges(product, loan);
   const [showCharges, setShowCharges] = useState(false);
   const ratePct = `${(t.annualRate * 100).toFixed(1)}%`;
+  // Skip path: name the real next step. KYC / mandate on file are skipped after a short
+  // "Checking bank records" beat, so the CTA never says "start KYC" when KYC won't happen.
+  const plan = waiverPlan(journey, product);
+  const cta = !plan.kyc ? 'Confirm & start KYC' : !plan.mandate ? 'Confirm & set up mandate' : `Confirm & go to e${NB_HYPHEN}sign`;
 
   // Section-aware Zippy help + what still needs the dealer here.
   const sec = useSectionTracker<'vehicle' | 'emi' | 'charges'>('vehicle');
@@ -57,11 +63,11 @@ export default function AssetScreen() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: mvp2Available ? colors.warningSoft : colors.dangerSoft, borderRadius: radius.md, padding: space.xs }} accessibilityRole="alert">
             <Icon name="alert-circle-outline" size={18} color={mvp2Available ? colors.warning : colors.danger} />
             <Text variant="caption" color={mvp2Available ? colors.warning : colors.danger} style={{ flex: 1, fontFamily: 'Inter_600SemiBold' }}>
-              {mvp2Available ? `Above ${inr(UPI_MANDATE_EMI_CAP)} UPI cap — debit card / net banking mandate will be used` : `Above ${inr(UPI_MANDATE_EMI_CAP)} UPI AutoPay cap — needs an MVP 2 mandate (debit card / net banking)${fixTenure ? `. Try ${fixTenure}+ months` : ''}`}
+              {mvp2Available ? `Above ${inr(UPI_MANDATE_EMI_CAP)} UPI cap — debit card / net banking mandate will be used` : `Above the ${inr(UPI_MANDATE_EMI_CAP)} UPI AutoPay cap${fixTenure ? `. Try ${fixTenure}+ months` : ' — lower the amount'}`}
             </Text>
           </View>
         )}
-        <Button label="Confirm & start KYC" iconRight="arrow-right" onPress={() => nav.navigate('FaceKyc')} disabled={blocked}
+        <Button label={cta} iconRight="arrow-right" onPress={() => nav.navigate('FaceKyc')} disabled={blocked}
           accessibilityHint={blocked ? 'Disabled: EMI is above the UPI mandate cap' : undefined} />
       </View>}>
       {/* Offer summary (merged from the Offer screen to save a tap) */}
@@ -71,10 +77,12 @@ export default function AssetScreen() {
         <View style={{ flex: 1 }}>
           <Text variant="caption" color={colors.textSecondary}>{journey.offer.customerName} · pre-approved up to</Text>
           <Text variant="h2" color={colors.success} style={{ fontVariant: ['tabular-nums'] }}>{inr(journey.offer.amount)}</Text>
-          <Text variant="caption" color={colors.textSecondary}>ETB · {maskMobile(journey.offer.registeredMobile)} · LAN {journey.offer.loanApplicationNumber}</Text>
+          <Text variant="caption" color={colors.textSecondary}>Existing customer · {maskMobile(journey.offer.registeredMobile)} · LAN {journey.offer.loanApplicationNumber}</Text>
           {(journey.offer.waivers.kycOnFile || journey.offer.waivers.mandateOnFile) && (
             <Text variant="caption" color={colors.success} style={{ fontFamily: 'Inter_600SemiBold' }}>
-              On file: {[journey.offer.waivers.kycOnFile && 'KYC', journey.offer.waivers.mandateOnFile && 'AutoPay mandate'].filter(Boolean).join(' + ')} · those steps will be skipped
+              {plan.kyc || plan.mandate
+                ? `On file: ${[plan.kyc && 'KYC', plan.mandate && 'AutoPay mandate'].filter(Boolean).join(' + ')} · ${plan.kyc && plan.mandate ? 'both steps' : 'that step'} skipped`
+                : 'AutoPay mandate on file doesn\'t cover this EMI · a new one is set up'}
             </Text>
           )}
         </View>
@@ -83,8 +91,9 @@ export default function AssetScreen() {
         <Text variant="h2">Select the {used ? 'used ' : ''}{p.label.toLowerCase()}</Text>
         <Text variant="body" color={colors.textSecondary}>Pick the model the customer is buying, then set tenure and amount.</Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
-          {used && <Pill label={`${CONDITION_LABEL[journey.condition].toUpperCase()} VEHICLE`} tone="warning" />}
-          <Pill label={profile && profile.type !== 'multiBrand' && profile.oem ? `${profile.oem.toUpperCase()} MODELS` : 'ALL BRANDS'} tone="neutral" />
+          {used && <Pill label={`${CONDITION_LABEL[journey.condition]} vehicle`} tone="warning" />}
+          {/* Short brand name ("Hero models"), so the chip never truncates. */}
+          <Pill label={profile && profile.type !== 'multiBrand' && profile.oem ? `${profile.oem.split(' ')[0]} models` : 'All brands'} tone="neutral" />
         </View>
       </View>
 
@@ -115,18 +124,19 @@ export default function AssetScreen() {
 
       <View style={{ gap: space.xs }} onLayout={sec.at('emi')}>
         <Text variant="label">Tenure (months)</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.xs }}>
+        {/* Equal-width wrapping grid, 3 per row: every option visible and aligned (no clipped "72"). */}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: space.xs, rowGap: space.xs }} accessibilityRole="radiogroup">
           {p.tenureOptions.map((t) => {
             const on = t === journey.tenure;
             const fix = blocked && t === fixTenure;
             return (
               <PressableScale key={t} onPress={() => { haptic.select(); update({ tenure: t }); }} accessibilityRole="radio" accessibilityState={{ selected: on }} accessibilityLabel={`${t} months`}
-                style={{ minWidth: 56, minHeight: touch.min, borderRadius: radius.md, borderWidth: fix ? 2 : 1.5, borderColor: on ? (blocked ? colors.danger : colors.primary) : fix ? colors.successBright : colors.border, backgroundColor: on ? colors.primary : colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.sm }}>
+                style={{ width: '31%', flexGrow: 0, minHeight: touch.min, borderRadius: radius.md, borderWidth: fix ? 2 : 1.5, borderColor: on ? (blocked ? colors.danger : colors.primary) : fix ? colors.successBright : colors.border, backgroundColor: on ? colors.primary : colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.sm }}>
                 <Text variant="bodyStrong" color={on ? colors.onPrimary : colors.text} maxFontSizeMultiplier={fontScaleCap.compact} style={{ textAlign: 'center' }}>{t}</Text>
               </PressableScale>
             );
           })}
-        </ScrollView>
+        </View>
         {/* Inline validation: tenure that breaks the UPI cap */}
         {blocked && (
           <Text variant="caption" color={colors.danger} accessibilityLiveRegion="polite">
@@ -165,7 +175,7 @@ export default function AssetScreen() {
           <Banner tone="warning" title={`EMI above ${inr(UPI_MANDATE_EMI_CAP)} UPI AutoPay cap`} body="UPI mandate isn't available for this EMI. You'll set up a debit card or net banking mandate in the mandate step." />
         ) : (
           <Banner tone="danger" title={`EMI above ${inr(UPI_MANDATE_EMI_CAP)} — UPI AutoPay can't be used`}
-            body={`MVP 1 only supports UPI mandates up to ${inr(UPI_MANDATE_EMI_CAP)}/month. ${fixTenure ? `Choose ${fixTenure} months or more, or ` : ''}lower the loan amount. Higher EMIs need a debit card / net banking mandate (coming in MVP 2).`} />
+            body={`UPI AutoPay mandates go up to ${inr(UPI_MANDATE_EMI_CAP)}/month. ${fixTenure ? `Choose ${fixTenure} months or more, or ` : ''}lower the loan amount. Debit card / net banking mandates for higher EMIs are coming soon.`} />
         )
       ) : (
         <Banner tone="success" title="Eligible for UPI AutoPay" body={`EMI is within the ${inr(UPI_MANDATE_EMI_CAP)} UPI mandate cap.`} />

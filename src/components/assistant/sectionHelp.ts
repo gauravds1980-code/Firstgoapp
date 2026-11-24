@@ -27,7 +27,7 @@ export const SECTION_HELP: Partial<Record<AssistantContext, Record<string, { lab
       { q: 'Why did the amount change?', a: 'Changing the vehicle resets the loan to the new maximum: the lower of the offer and LTV × on-road price.' },
     ] },
     emi: { label: 'EMI & tenure', faqs: [
-      { q: 'EMI is above ₹15,000', a: 'UPI AutoPay is capped at ₹15,000 in MVP 1. Pick a longer tenure or lower the amount; debit card / net banking mandates come in MVP 2.' },
+      { q: 'EMI is above ₹15,000', a: 'UPI AutoPay is capped at ₹15,000. Pick a longer tenure or lower the amount. Debit card / net banking mandates are coming soon.' },
       { q: 'Why is the slider capped?', a: 'Loan max = lower of the pre-qualified offer and LTV % × on-road price.' },
     ] },
     charges: { label: 'charges', faqs: [
@@ -36,12 +36,15 @@ export const SECTION_HELP: Partial<Record<AssistantContext, Record<string, { lab
     ] },
   },
   kyc: {
-    method: { label: 'KYC method', faqs: [{ q: 'Fingerprint is greyed out', a: 'Fingerprint e-KYC with an RD device arrives in MVP 2. Use face e-KYC today.' }] },
-    capture: { label: 'face capture', faqs: [{ q: 'Liveness keeps failing', a: 'Even light, no cap or mask, phone at eye level, about an arm’s length away.' }] },
+    method: { label: 'KYC method', faqs: [{ q: 'Fingerprint is greyed out', a: 'Fingerprint e-KYC with an RD device is coming soon. Use face e-KYC today.' }] },
+    capture: { label: 'face capture', faqs: [{ q: 'Liveness keeps failing', a: 'Even light, no cap or mask, phone at eye level, about an arm’s length away. Face inside the oval, then one clear blink.' }] },
   },
   mandate: {
-    mode: { label: 'mandate type', faqs: [{ q: 'Which mandate should I pick?', a: 'UPI AutoPay for EMIs up to ₹15,000. Above that you need a debit card or net banking e-mandate (MVP 2).' }] },
-    details: { label: 'mandate details', faqs: [{ q: 'Why is max debit higher than the EMI?', a: 'It is a ceiling with headroom for rate changes. Only the actual EMI is debited each month.' }] },
+    mode: { label: 'mandate type', faqs: [{ q: 'Which mandate should I pick?', a: 'UPI AutoPay for EMIs up to ₹15,000. Debit card and net banking e-mandates for higher EMIs are coming soon.' }] },
+    details: { label: 'Scan & Setup', faqs: [
+      { q: 'How does the customer approve?', a: 'They scan the AutoPay QR with any UPI app (or you tap Open UPI app) and approve with their UPI PIN.' },
+      { q: 'Why is max debit higher than the EMI?', a: 'It is a ceiling with headroom for rate changes. Only the actual EMI is debited each month.' },
+    ] },
   },
   esign: {
     kfs: { label: 'KFS on customer’s phone', faqs: [

@@ -4,7 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { casesFor, invoicesFor, rcCasesFor, taInfFor } from '../services/business';
-import { useRcCases } from '../state/stores';
+import { inRange, useDateRange, useRcCases } from '../state/stores';
 import { inrShort } from '../components/business';
 import type { RootStackParamList } from '../navigation/types';
 import { Badge, ButtonLabel, Card, EmptyState, ErrorState, Icon, IconName, Pill, PressableScale, Segmented, Skeleton, Text } from '../components/ui';
@@ -13,12 +13,20 @@ import { Condition, CONDITION_LABEL, PRODUCTS, ProductId } from '../config/produ
 import { dealerTagline, fetchDealerHome, initials, RecentApp } from '../services/dealer';
 import { useApp } from '../state/AppState';
 import { USED_VEHICLES_ENABLED } from '../config/phases';
-import { colors, elevation, gutter, radius, space, touch } from '../theme/tokens';
+import { colors, elevation, fontScaleCap, gutter, radius, space, touch } from '../theme/tokens';
 import { inr } from '../utils/finance';
 import { haptic } from '../utils/haptics';
 import { HeaderDockSlot } from '../components/assistant/HeaderDockSlot';
+import { ZIPPY_RIGHT_LANE } from '../components/assistant/ZippyBubble';
+import { BrandLockup } from '../components/BrandMarks';
+import { ZippyTipSlot } from '../components/assistant/ZippyTipSlot';
+import { SHOW_DEV_UI } from '../config/devFlags';
 
 type HomeData = Awaited<ReturnType<typeof fetchDealerHome>>;
+
+/** Scan QR FAB: 72dp disc + gap + ~22dp label. The scroll content reserves this + 24 so the last rows clear it. */
+const FAB_H = 72 + space.xxs + 22;
+const FAB_CLEARANCE = 24;
 
 /**
  * Single-stack Home (per /workspace/boom-mockups/nav-single-stack.png): everything reachable
@@ -33,14 +41,18 @@ export default function HomeScreen() {
   const [error, setError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [rc] = useRcCases(session?.dealerId ?? 'anon', () => rcCasesFor(casesFor(profile)));
+  // Tiles use the SAME source and date range (shared date filter) as the Payouts / Portfolio / Cases screens,
+  // so a tile never says 72 when the screen behind it says 21.
+  const [range] = useDateRange();
   const tiles = React.useMemo<Tile[]>(() => {
-    const cs = casesFor(profile);
-    const inv = invoicesFor(cs);
+    const cs = casesFor(profile).filter((c) => inRange(c.disbursedOn, range));
+    const inv = invoicesFor(casesFor(profile)).filter((i) => inRange(i.date, range));
     const unclaimed = inv.filter((i) => i.status === 'Not claimed');
+    const when = range.preset === 'thisMonth' ? 'this month' : range.preset === 'lastMonth' ? 'last month' : 'in range';
     const t: Tile[] = [
       { route: 'Payouts', label: 'Payouts', icon: 'cash-multiple', color: colors.tileMustard, count: unclaimed.length, sub: `${inrShort(unclaimed.reduce((a, i) => a + i.amount, 0))} to claim` },
-      { route: 'Portfolio', label: 'Portfolio', icon: 'chart-donut', color: colors.tileTeal, count: 0, sub: `${cs.filter((c) => c.pos > 0).length} active loans` },
-      { route: 'Cases', label: 'Cases done', icon: 'check-decagram-outline', color: colors.tileNavy, count: 0, sub: `${cs.length} disbursed` },
+      { route: 'Portfolio', label: 'Portfolio', icon: 'chart-donut', color: colors.tileTeal, count: 0, sub: `${cs.filter((c) => c.pos > 0).length} active · ${when}` },
+      { route: 'Cases', label: 'Cases done', icon: 'check-decagram-outline', color: colors.tileNavy, count: 0, sub: `${cs.length} disbursed · ${when}` },
       { route: 'RcPendency', label: 'RC pendency', icon: 'card-account-details-outline', color: colors.tileMaroon, count: rc.filter((c) => c.status === 'Pending').length, sub: 'pending RCs' },
     ];
     if (profile?.hasTaInf) {
@@ -49,7 +61,7 @@ export default function HomeScreen() {
       t.push({ route: 'TaInf', label: 'TA / INF limits', icon: 'warehouse', color: colors.primaryDark, count: 0, sub: `${inrShort(avail)} available` });
     }
     return t;
-  }, [profile, rc]);
+  }, [profile, rc, range]);
 
   // Section-aware Zippy help: which Home block is in view.
   const sec = useSectionTracker<'start' | 'today' | 'loans' | 'actions' | 'payouts'>('start');
@@ -57,6 +69,14 @@ export default function HomeScreen() {
   const recent = data ? data.recent.filter((r) => categories.includes(r.product)) : null;
   const payouts = data ? data.payouts.filter((po) => categories.includes(po.product)) : null;
   const payoutsToday = payouts ? payouts.reduce((t, po) => t + po.amount, 0) : 0;
+  // Today's three figures come from ONE list (today's applications), so "Approved" can never be 0 next
+  // to a non-zero "Disbursed": a disbursed loan was approved first.
+  const today = recent ? {
+    apps: recent.length,
+    approved: recent.filter((r) => r.status !== 'PENDING').length,
+    disbursed: recent.filter((r) => r.status === 'DISBURSED').reduce((t, r) => t + r.amount, 0),
+  } : null;
+  const fabBottom = Math.max(insets.bottom, space.sm) + space.xs;
 
   const load = useCallback(async () => {
     setError(false);
@@ -67,15 +87,11 @@ export default function HomeScreen() {
   const p = PRODUCTS[product];
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }}>
-      {/* Header: logo mark + wordmark + dealer, bell, avatar → Profile & settings */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: gutter.screen, minHeight: 64, gap: space.sm }}>
-        <View style={{ width: 44, height: 44, borderRadius: radius.md, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}>
-          <LogoMark />
-        </View>
-        <View style={{ flex: 1 }} accessibilityRole="header">
-          <Text variant="bodyStrong" color={colors.primary}>IDFC <Text variant="bodyStrong" color={colors.primary} style={{ fontFamily: 'Inter_800ExtraBold' }}>FIRST</Text> Bank</Text>
-          <Text variant="caption" color={colors.textSecondary} numberOfLines={2}>{session?.name ?? 'Dealer'}{profile ? ` · ${dealerTagline(profile)}` : ''}</Text>
-        </View>
+      {/* Header: the shared bank lockup (IDFC mark + one-line "IDFC FIRST Bank" + "» FIRSTgo"), Zippy's dock,
+          bell, avatar → Profile & settings. Only the lockup's text column shrinks; the trailing controls keep
+          their 48dp boxes. A little extra top padding keeps the wordmark off the status bar / notch. */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: gutter.screen, paddingTop: space.xs, minHeight: 64 }}>
+        <BrandLockup markSize={44} style={{ flex: 1, marginRight: space.xxs }} />
         <HeaderDockSlot />
         <PressableScale accessibilityRole="button" accessibilityLabel={`Notifications, ${data?.unread ?? 0} unread`} style={iconBtn}>
           <Icon name="bell-outline" size={26} color={colors.text} />
@@ -83,24 +99,30 @@ export default function HomeScreen() {
         </PressableScale>
         <PressableScale accessibilityRole="button" accessibilityLabel={`Profile and settings, ${session?.name ?? 'Dealer'}`} onPress={() => nav.navigate('Profile')} style={iconBtn}>
           <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: colors.primary }}>
-            <Text variant="label" color={colors.primary}>{initials(session?.name ?? 'Dealer')}</Text>
+            <Text variant="label" color={colors.primary} maxFontSizeMultiplier={fontScaleCap.control}>{initials(session?.name ?? 'Dealer')}</Text>
           </View>
         </PressableScale>
       </View>
 
       <ScrollView
-        contentContainerStyle={{ paddingHorizontal: gutter.screen, paddingTop: space.xs, gap: space.lg, paddingBottom: 140 + insets.bottom }}
+        contentContainerStyle={{ paddingHorizontal: gutter.screen, paddingTop: space.xs, gap: space.lg, paddingBottom: fabBottom + FAB_H + FAB_CLEARANCE }}
         onScroll={sec.onScroll} scrollEventThrottle={64}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
       >
-        {/* HERO — dominant one-tap start */}
+        {/* Dealer: name on one line, role / OEM on the next (ellipsized, never an orphan "·"). */}
+        <View style={{ gap: 2 }}>
+          <Text variant="h3" numberOfLines={1} maxFontSizeMultiplier={fontScaleCap.compact}>{session?.name ?? 'Dealer'}</Text>
+          {profile && <Text variant="caption" color={colors.textSecondary} numberOfLines={1} maxFontSizeMultiplier={fontScaleCap.compact}>{dealerTagline(profile)} · {profile.branch}</Text>}
+        </View>
+
+        {/* HERO — short: title, product / OEM pills on one row, the CTA */}
         {/* iOS clips shadows on overflow:'hidden' views, so on iOS the shadow lives on a wrapper (Android/web unchanged). */}
         <View onLayout={sec.at('start')} style={IOS ? [{ borderRadius: radius.xl, backgroundColor: colors.primary }, elevation.raised as object] : undefined}>
         <LinearGradient colors={['#B43140', colors.primary, colors.primaryDark]} locations={[0, 0.48, 1]} start={{ x: 0.2, y: 0 }} end={{ x: 0.8, y: 1 }}
-          style={[{ borderRadius: radius.xl, padding: space.lg, gap: space.md, overflow: 'hidden' }, IOS ? null : elevation.raised as object]}>
+          style={[{ borderRadius: radius.xl, padding: space.md, gap: space.sm, overflow: 'hidden' }, IOS ? null : elevation.raised as object]}>
           <View pointerEvents="none" style={{ position: 'absolute', right: -32, top: -40, width: 170, height: 170, borderRadius: 85, backgroundColor: 'rgba(255,255,255,0.07)' }} />
           <View pointerEvents="none" style={{ position: 'absolute', right: 40, bottom: -60, width: 140, height: 140, borderRadius: 70, backgroundColor: 'rgba(0,0,0,0.10)' }} />
-          <Text variant="h1" color={colors.onPrimary} accessibilityRole="header">{heroTitle(product, condition)}</Text>
+          <Text variant="h2" color={colors.onPrimary} accessibilityRole="header" numberOfLines={1} maxFontSizeMultiplier={fontScaleCap.compact}>{heroTitle(condition)}</Text>
           {/* Category switch when the dealer has more than one of 2W / Car / CV; single-product dealers get a chip (e.g. "Commercial Vehicle only") */}
           {categories.length > 1 && (
             <Segmented<ProductId> inverse value={product} onChange={setProduct}
@@ -111,7 +133,7 @@ export default function HomeScreen() {
             <Segmented<Condition> inverse value={condition} onChange={setCondition}
               options={conditions.map((c) => ({ value: c, label: CONDITION_LABEL[c], icon: c === 'new' ? 'star-four-points-outline' : 'history' }))} />
           ) : (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, flexWrap: 'wrap' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, flexWrap: 'nowrap', overflow: 'hidden' }}>
               {categories.length === 1 && <HeroChip icon={p.icon} label={`${p.label} only`} />}
               {USED_VEHICLES_ENABLED && <HeroChip icon={condition === 'new' ? 'star-four-points-outline' : 'history'} label={`${CONDITION_LABEL[condition]} vehicles`} />}
               {profile?.oem && profile.type !== 'multiBrand' && <HeroChip icon="factory" label={profile.oem} />}
@@ -124,8 +146,7 @@ export default function HomeScreen() {
           </PressableScale>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs }}>
             <Icon name="qrcode-scan" size={16} color="rgba(255,255,255,0.85)" />
-            <Text variant="caption" color="rgba(255,255,255,0.85)">or tap <Text variant="label" color={colors.onPrimary}>Scan QR</Text> below · fastest</Text>
-            <Icon name="arrow-down" size={16} color="rgba(255,255,255,0.85)" />
+            <Text variant="caption" color="rgba(255,255,255,0.85)" numberOfLines={1} maxFontSizeMultiplier={fontScaleCap.compact} style={{ flexShrink: 1 }}>or tap <Text variant="label" color={colors.onPrimary}>Scan QR</Text> below · fastest</Text>
           </View>
         </LinearGradient>
         </View>
@@ -134,11 +155,11 @@ export default function HomeScreen() {
         <Section title="Today" onLayout={sec.at('today')}>
           {error ? <Card><ErrorState title="Couldn't load today's numbers" body="Pull down to refresh or try again." onRetry={load} /></Card> : (
             <View style={{ flexDirection: 'row', gap: space.sm }}>
-              {data ? (
-                [[String(recent?.length ?? 0), 'Applications'], [String(recent?.filter((r) => r.status !== 'PENDING').length ?? 0), 'Approved'], [inrShort(payoutsToday).replace(' ', ''), 'Disbursed']].map(([v, l]) => (
-                  <Card key={l} style={{ flex: 1, padding: space.md, gap: space.xxs }}>
-                    <Text variant="h2">{v}</Text>
-                    <Text variant="caption" color={colors.textSecondary}>{l}</Text>
+              {data && today ? (
+                [[String(today.apps), 'Applications'], [String(today.approved), 'Approved'], [inrShort(today.disbursed), 'Disbursed']].map(([v, l]) => (
+                  <Card key={l} style={{ flex: 1, minWidth: 0, padding: space.md, gap: space.xxs }}>
+                    <Text variant="h2" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} maxFontSizeMultiplier={fontScaleCap.compact}>{v}</Text>
+                    <Text variant="caption" color={colors.textSecondary} numberOfLines={1}>{l}</Text>
                   </Card>
                 ))
               ) : [0, 1, 2].map((i) => <View key={i} style={{ flex: 1 }}><Skeleton h={76} r={radius.lg} /></View>)}
@@ -153,7 +174,7 @@ export default function HomeScreen() {
               <EmptyState icon="file-document-plus-outline" title="No loans yet today"
                 body={`Start one with Scan QR below, or search the customer's mobile number for a ${p.label.toLowerCase()} offer.`}
                 action={{ label: 'Search by mobile number', icon: 'cellphone-text', onPress: () => nav.navigate('SearchMobile', { stage: 'enter' }) }} />
-            ) : (recent ?? [null, null]).map((r, i, arr) => <LoanRow key={r?.id ?? i} app={r} last={i === arr.length - 1} />)}
+            ) : (recent ? recent.slice(0, 3) : [null, null]).map((r, i, arr) => <LoanRow key={r?.id ?? i} app={r} last={i === arr.length - 1} />)}
           </Card>
         </Section>
 
@@ -162,7 +183,7 @@ export default function HomeScreen() {
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
             {(data ? tiles : [null, null, null, null]).map((a, i) => <ActionTile key={a?.route ?? i} action={a} onPress={() => a && nav.navigate(a.route as never)} />)}
           </View>
-          <Text variant="caption" color={colors.textSecondary}>Example data in Actions screens</Text>
+          {SHOW_DEV_UI && <Text variant="caption" color={colors.textSecondary}>Example data in Actions screens</Text>}
         </Section>
 
         {/* Payouts / disbursals (formerly the Pay tab) */}
@@ -172,9 +193,9 @@ export default function HomeScreen() {
               <View style={{ width: 44, height: 44, borderRadius: radius.md, backgroundColor: colors.successSoft, alignItems: 'center', justifyContent: 'center' }}>
                 <Icon name="bank-transfer-in" size={24} color={colors.success} />
               </View>
-              <View style={{ flex: 1 }}>
+              <View style={{ flex: 1, minWidth: 0 }}>
                 <Text variant="caption" color={colors.textSecondary}>Credited today · settlement a/c ••4321</Text>
-                {data ? <Text variant="display" color={colors.text}>{inr(payoutsToday)}</Text> : <Skeleton w={120} h={32} />}
+                {data ? <Text variant="display" color={colors.text} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} maxFontSizeMultiplier={fontScaleCap.compact}>{inr(payoutsToday)}</Text> : <Skeleton w={120} h={32} />}
               </View>
             </View>
             {payouts && payouts.length === 0 && (
@@ -182,11 +203,12 @@ export default function HomeScreen() {
             )}
             {payouts?.slice(0, 2).map((po) => (
               <View key={po.utr} style={{ flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: colors.border, paddingTop: space.sm, gap: space.sm }}>
-                <View style={{ flex: 1 }}>
-                  <Text variant="label">{inr(po.amount)} · {po.lan}</Text>
-                  <Text variant="caption" color={colors.textSecondary}>UTR {po.utr} · {po.when}</Text>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text variant="label" numberOfLines={1}>{inr(po.amount)} · {po.lan}</Text>
+                  <Text variant="caption" color={colors.textSecondary} numberOfLines={1}>{po.when}</Text>
+                  <Text variant="caption" color={colors.textSecondary} numberOfLines={1} ellipsizeMode="middle">UTR {po.utr}</Text>
                 </View>
-                <Pill label="CREDITED" tone="success" />
+                <Pill label="Credited" tone="success" />
               </View>
             ))}
           </Card>
@@ -194,10 +216,13 @@ export default function HomeScreen() {
 
       </ScrollView>
 
-      <LinearGradient pointerEvents="none" colors={['rgba(253,244,239,0)', colors.bg]} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 120 + insets.bottom }} />
+      <LinearGradient pointerEvents="none" colors={['rgba(253,244,239,0)', colors.bg]} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: fabBottom + FAB_H }} />
+
+      {/* Zippy's tip: anchored just above the Scan QR FAB, auto-dismisses. */}
+      <ZippyTipSlot style={{ position: 'absolute', left: 0, right: 0, bottom: fabBottom + FAB_H + space.xs }} />
 
       {/* Fixed bottom-centre SCAN QR FAB (PhonePe/UPI mental model) — the dominant one-tap start */}
-      <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: Math.max(insets.bottom, space.sm) + space.xs, alignItems: 'center' }}>
+      <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: fabBottom, alignItems: 'center' }}>
         <PressableScale onPress={() => { haptic.success(); nav.navigate('ScanQr'); }} haptics={false}
           accessibilityRole="button" accessibilityLabel={`Scan QR. Scan the customer's QR to start a ${p.label} loan`}
           style={{ alignItems: 'center', gap: space.xxs }}>
@@ -217,27 +242,21 @@ export default function HomeScreen() {
 /** iOS draws shadows only on unclipped views (see hero + action tiles). */
 const IOS = Platform.OS === 'ios';
 
-const iconBtn = { width: touch.min, height: touch.min, alignItems: 'center' as const, justifyContent: 'center' as const };
+const iconBtn = { width: touch.min, height: touch.min, flexShrink: 0, alignItems: 'center' as const, justifyContent: 'center' as const };
 
-/** The IDFC FIRST "F" bars mark. */
-function LogoMark() {
-  return (
-    <View style={{ width: 22, height: 20, gap: 3 }}>
-      <View style={{ width: 22, height: 4.5, backgroundColor: '#fff', borderRadius: 1 }} />
-      <View style={{ width: 15, height: 4.5, backgroundColor: '#fff', borderRadius: 1 }} />
-      <View style={{ width: 7, height: 4.5, backgroundColor: '#fff', borderRadius: 1 }} />
-    </View>
-  );
-}
+/** Trailing inset for section link rows: Zippy's right lane measured from the screen edge, minus the screen gutter. */
+const SECTION_LINK_INSET = Math.max(0, ZIPPY_RIGHT_LANE - gutter.screen);
 
 function Section({ title, link, onLink, children, onLayout }: { title: string; link?: string; onLink?: () => void; children: React.ReactNode; onLayout?: React.ComponentProps<typeof View>['onLayout'] }) {
   return (
     <View style={{ gap: space.xs }} onLayout={onLayout}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: touch.min }}>
-        <Text variant="h2" accessibilityRole="header">{title}</Text>
+      {/* Rows with a link keep a clear right-hand lane for floating Zippy (+ its inner-side ✕), so the
+          link never scrolls under Zippy's rest footprint. */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: touch.min, paddingRight: link ? SECTION_LINK_INSET : 0 }}>
+        <Text variant="h2" accessibilityRole="header" numberOfLines={1} maxFontSizeMultiplier={fontScaleCap.compact} style={{ flexShrink: 1 }}>{title}</Text>
         {link && (
-          <PressableScale onPress={onLink} accessibilityRole="link" accessibilityLabel={`${link} ${title}`} style={{ flexDirection: 'row', alignItems: 'center', minHeight: touch.min, paddingLeft: space.md }}>
-            <Text variant="bodyStrong" color={colors.primary}>{link}</Text>
+          <PressableScale onPress={onLink} accessibilityRole="link" accessibilityLabel={`${link} ${title}`} style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 0, minHeight: touch.min, paddingLeft: space.md }}>
+            <Text variant="bodyStrong" color={colors.primary} numberOfLines={1} maxFontSizeMultiplier={fontScaleCap.control}>{link}</Text>
             <Icon name="chevron-right" size={20} color={colors.primary} />
           </PressableScale>
         )}
@@ -272,6 +291,8 @@ function ActionTile({ action, onPress }: { action: Tile | null; onPress: () => v
   );
 }
 
+const STATUS_LABEL: Record<RecentApp['status'], string> = { DISBURSED: 'Disbursed', APPROVED: 'Approved', PENDING: 'Pending' };
+
 function LoanRow({ app, last }: { app: RecentApp | null; last: boolean }) {
   const tone = app?.status === 'DISBURSED' ? 'success' : app?.status === 'APPROVED' ? 'info' : 'warning';
   return (
@@ -281,29 +302,28 @@ function LoanRow({ app, last }: { app: RecentApp | null; last: boolean }) {
           <View style={{ width: 44, height: 44, borderRadius: radius.md, backgroundColor: colors.primaryTint, alignItems: 'center', justifyContent: 'center' }}>
             <Icon name={PRODUCTS[app.product].icon} size={22} color={colors.primary} />
           </View>
-          <View style={{ flex: 1, gap: 2 }}>
-            <Text variant="bodyStrong">{app.id}</Text>
-            <Text variant="caption" color={colors.textSecondary}>{inr(app.amount)} · {app.when}</Text>
+          <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+            <Text variant="bodyStrong" numberOfLines={1}>{app.id}</Text>
+            <Text variant="caption" color={colors.textSecondary} numberOfLines={1}>{inr(app.amount)}</Text>
+            <Text variant="caption" color={colors.textSecondary} numberOfLines={1}>{app.when}</Text>
           </View>
-          <Pill label={app.status} tone={tone} />
+          <Pill label={STATUS_LABEL[app.status]} tone={tone} />
         </>
       ) : (<><Skeleton w={44} h={44} r={radius.md} /><View style={{ flex: 1, gap: 6 }}><Skeleton w="50%" /><Skeleton w="70%" h={12} /></View><Skeleton w={72} h={20} /></>)}
     </View>
   );
 }
 
-/** Plain, product-aware hero title in sentence case; mentions "used" only when used vehicles are enabled. */
-const HERO_NOUN: Record<ProductId, string> = { twoWheeler: 'two-wheeler', car: 'car', cv: 'commercial vehicle' };
-function heroTitle(product: ProductId, condition: Condition): string {
-  const used = USED_VEHICLES_ENABLED && condition === 'used' ? 'used ' : '';
-  return `Start a pre-qualified ${used}${HERO_NOUN[product]} loan`;
+/** Short hero title, no jargon; the product is in the pill / switch right under it. "used" only when enabled. */
+function heroTitle(condition: Condition): string {
+  return USED_VEHICLES_ENABLED && condition === 'used' ? 'New used-vehicle loan' : 'New loan';
 }
 
 function HeroChip({ icon, label }: { icon: IconName; label: string }) {
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: radius.pill, paddingHorizontal: space.sm, paddingVertical: 6, backgroundColor: 'rgba(255,255,255,0.16)' }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1, minWidth: 0, borderRadius: radius.pill, paddingHorizontal: space.sm, paddingVertical: 6, backgroundColor: 'rgba(255,255,255,0.16)' }}>
       <Icon name={icon} size={16} color={colors.onPrimary} />
-      <Text variant="label" color={colors.onPrimary}>{label}</Text>
+      <Text variant="label" color={colors.onPrimary} numberOfLines={1} maxFontSizeMultiplier={fontScaleCap.compact} style={{ flexShrink: 1 }}>{label}</Text>
     </View>
   );
 }

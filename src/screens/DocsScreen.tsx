@@ -85,7 +85,7 @@ export default function DocsScreen() {
               <View style={{ flex: 1, gap: 2 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
                   <Text variant="bodyStrong">{d.title}</Text>
-                  {!done && <Pill label="REQUIRED" tone={fail ? 'danger' : 'warning'} />}
+                  {!done && <Pill label="Required" tone={fail ? 'danger' : 'warning'} />}
                 </View>
                 <Text variant="caption" color={colors.textSecondary}>{d.sub}</Text>
               </View>

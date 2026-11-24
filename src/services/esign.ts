@@ -6,10 +6,11 @@
  */
 import { delay, rid } from './mock';
 import type { EsignResult, EsignSession, Result } from './types';
+import { maskMobile } from '../utils/finance';
 
 export async function sendAgreementAndOtp(mobile: string, lan: string): Promise<Result<EsignSession>> {
   await delay(800);
-  return { ok: true, data: { txnId: rid('ESG'), agreementUrl: `https://idfcfirst.bank.in/agreement/${lan}`, maskedMobile: `+91 XXXXX X${mobile.slice(-4)}` } }; // same grouping as utils/finance maskMobile
+  return { ok: true, data: { txnId: rid('ESG'), agreementUrl: `https://idfcfirst.bank.in/agreement/${lan}`, maskedMobile: maskMobile(mobile) } }; // same grouping as utils/finance maskMobile
 }
 
 export async function verifyEsignOtp(txnId: string, otp: string): Promise<Result<EsignResult>> {

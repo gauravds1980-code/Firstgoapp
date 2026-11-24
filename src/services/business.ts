@@ -115,10 +115,28 @@ export function regSuggestions(lan: string): string[] {
   return [0, 1, 2].map((k) => `MH${String(1 + ((i + k) % 48)).padStart(2, '0')}${s[(i + k) % s.length]}${String(1000 + ((i * 37 + k * 911) % 9000))}`);
 }
 
-/** Mock OCR: "reads" the reg number from an RC photo. */
-export async function ocrRegFromPhoto(_uri: string, lan: string): Promise<{ regNo: string; confidence: number }> {
+/**
+ * Registration number printed on the sample RC used for testing (/workspace/boom-rn-tools/mock-rc.png,
+ * "Regn. No. MH 02 EK 4821").
+ */
+export const SAMPLE_RC_REG = 'MH02EK4821';
+const safeDecode = (s: string) => { try { return decodeURIComponent(s); } catch { return s; } };
+
+/**
+ * Stand-in OCR until the RC OCR API is wired: it must return the number ON THE PHOTO, never a number
+ * made up from the case. If the picked file's name carries a valid registration number
+ * (e.g. "MH02EK4821.jpg", "rc_MH-02-EK-4821.png") that is used; otherwise the photo is taken to be the
+ * sample RC and its printed number is returned. The dealer still checks the prefilled field.
+ */
+export async function ocrRegFromPhoto(uri: string, fileName?: string | null): Promise<{ regNo: string; confidence: number }> {
   await delay(1300);
-  return { regNo: regSuggestions(lan)[0]!, confidence: 0.94 };
+  // Standalone token only (start / separator on both sides) with a letter series, so camera names like
+  // "IMG_20261124_1234" never pass for a registration number.
+  const fromName = [fileName ?? '', safeDecode(uri.split('/').pop() ?? '')]
+    .map((n) => n.toUpperCase().replace(/\.[A-Z0-9]+$/, '').match(/(?:^|[^A-Z0-9])([A-Z]{2}[\s_-]?\d{1,2}[\s_-]?[A-Z]{1,3}[\s_-]?\d{4})(?![A-Z0-9])/)?.[1])
+    .map((n) => (n ? normaliseReg(n) : undefined))
+    .find((n): n is string => !!n && REG_REGEX.test(n));
+  return { regNo: fromName ?? SAMPLE_RC_REG, confidence: 0.94 };
 }
 
 /* ---------------- TA / INF ---------------- */

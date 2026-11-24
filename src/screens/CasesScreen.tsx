@@ -21,7 +21,7 @@ export default function CasesScreen() {
   // "12 Two Wheeler · 3 Car · 2 Commercial Vehicle" — only when the dealer has more than one product.
   const mix = categories.length > 1 ? categories.map((p) => `${cases.filter((c) => c.product === p).length} ${PRODUCTS[p].label}`).join(' · ') : undefined;
   return (
-    <JourneyScreen assistant="home" showTerms={false}>
+    <JourneyScreen title="Cases done" assistant="cases" showTerms={false}>
       <View style={{ gap: space.xxs }}>
         <Text variant="h1">Cases done</Text>
         <Text variant="body" color={colors.textSecondary}>Loans disbursed through your dealership</Text>
@@ -43,14 +43,14 @@ export default function CasesScreen() {
             <View style={{ width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.successSoft, alignItems: 'center', justifyContent: 'center' }}>
               <Icon name={PRODUCTS[c.product].icon} size={20} color={colors.success} />
             </View>
-            <View style={{ flex: 1, gap: 2 }}>
+            <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
               <Text variant="bodyStrong">{c.customer}</Text>
               <Text variant="caption" color={colors.textSecondary}>{c.lan} · {c.vehicle}</Text>
               <Text variant="caption" color={colors.textSecondary}>Disbursed {fmtDate(c.disbursedOn)}</Text>
             </View>
             <View style={{ alignItems: 'flex-end', gap: 4 }}>
               <Text variant="label">{inr(c.amount)}</Text>
-              <Pill label="DISBURSED" tone="success" />
+              <Pill label="Disbursed" tone="success" />
             </View>
           </View>
         ))}

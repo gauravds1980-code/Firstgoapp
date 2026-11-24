@@ -3,10 +3,14 @@ import { View } from 'react-native';
 import { colors, fontScaleCap, radius, space, touch } from '../theme/tokens';
 import { DateRange, Preset, presetRange, rangeLabel, useDateRange } from '../state/stores';
 import { TODAY } from '../services/business';
+import { inr } from '../utils/finance';
 import { Sheet } from './Sheet';
+import { SHOW_DEV_UI } from '../config/devFlags';
 import { Button, Icon, IconName, PressableScale, Text } from './ui';
 
+/** "Example data" chip — tester-only, hidden in release builds (SHOW_DEV_UI). */
 export function ExampleTag() {
+  if (!SHOW_DEV_UI) return null;
   return (
     <View style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: space.sm, paddingVertical: 4, borderRadius: radius.pill, backgroundColor: colors.ctaTint }}>
       <Icon name="flask-outline" size={14} color={colors.ctaDark} />
@@ -73,23 +77,22 @@ function DateStepper({ label, value, onChange, max }: { label: string; value: Da
     onChange(max && n > max ? new Date(max) : n);
   };
   return (
-    <View style={{ gap: space.xs, padding: space.sm, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border }}>
-      <Text variant="label" color={colors.textSecondary}>{label.toUpperCase()}</Text>
-      <View style={{ flexDirection: 'row', gap: space.sm }}>
-        <Stepper a11y={`${label} month`} value={`${MONTHS[m]} ${y}`} onPrev={() => set(m === 0 ? y - 1 : y, (m + 11) % 12, d)} onNext={() => set(m === 11 ? y + 1 : y, (m + 1) % 12, d)} flex={1.4} />
-        <Stepper a11y={`${label} day`} value={String(d).padStart(2, '0')} onPrev={() => set(y, m, d <= 1 ? new Date(y, m + 1, 0).getDate() : d - 1)} onNext={() => set(y, m, d >= new Date(y, m + 1, 0).getDate() ? 1 : d + 1)} flex={1} />
-      </View>
+    <View style={{ alignSelf: 'stretch', minWidth: 0, gap: space.xs, padding: space.sm, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border }}>
+      <Text variant="label" color={colors.textSecondary}>{label}</Text>
+      {/* Month and day stacked, each full width, so neither stepper can run off a 360dp screen. */}
+      <Stepper a11y={`${label} month`} value={`${MONTHS[m]} ${y}`} onPrev={() => set(m === 0 ? y - 1 : y, (m + 11) % 12, d)} onNext={() => set(m === 11 ? y + 1 : y, (m + 1) % 12, d)} />
+      <Stepper a11y={`${label} day`} value={`Day ${String(d).padStart(2, '0')}`} onPrev={() => set(y, m, d <= 1 ? new Date(y, m + 1, 0).getDate() : d - 1)} onNext={() => set(y, m, d >= new Date(y, m + 1, 0).getDate() ? 1 : d + 1)} />
     </View>
   );
 }
 
-function Stepper({ value, onPrev, onNext, a11y, flex }: { value: string; onPrev: () => void; onNext: () => void; a11y: string; flex: number }) {
+function Stepper({ value, onPrev, onNext, a11y }: { value: string; onPrev: () => void; onNext: () => void; a11y: string }) {
   return (
-    <View style={{ flex, flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surfaceMuted, borderRadius: radius.pill }} accessibilityLabel={`${a11y}: ${value}`}>
+    <View style={{ alignSelf: 'stretch', minWidth: 0, flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surfaceMuted, borderRadius: radius.pill }} accessibilityLabel={`${a11y}: ${value}`}>
       <PressableScale onPress={onPrev} accessibilityRole="button" accessibilityLabel={`Previous ${a11y}`} style={{ width: touch.min, height: touch.min, alignItems: 'center', justifyContent: 'center' }}>
         <Icon name="chevron-left" size={24} color={colors.primary} />
       </PressableScale>
-      <Text variant="bodyStrong" style={{ flex: 1, textAlign: 'center' }}>{value}</Text>
+      <Text variant="bodyStrong" numberOfLines={1} maxFontSizeMultiplier={fontScaleCap.compact} style={{ flex: 1, minWidth: 0, textAlign: 'center' }}>{value}</Text>
       <PressableScale onPress={onNext} accessibilityRole="button" accessibilityLabel={`Next ${a11y}`} style={{ width: touch.min, height: touch.min, alignItems: 'center', justifyContent: 'center' }}>
         <Icon name="chevron-right" size={24} color={colors.primary} />
       </PressableScale>
@@ -101,15 +104,19 @@ export function StatCard({ label, value, sub, tone = colors.text, compact }: { l
   return (
     <View style={{ flex: 1, minWidth: compact ? 96 : 140, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: compact ? space.sm : space.md, gap: 2 }}>
       <Text variant="caption" color={colors.textSecondary} numberOfLines={1}>{label}</Text>
-      <Text variant={compact ? 'h3' : 'h2'} color={tone} numberOfLines={1} adjustsFontSizeToFit>{value}</Text>
+      <Text variant={compact ? 'h3' : 'h2'} color={tone} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} maxFontSizeMultiplier={fontScaleCap.compact}>{value}</Text>
       {sub ? <Text variant="caption" color={colors.textSecondary}>{sub}</Text> : null}
     </View>
   );
 }
 
-/** ₹ in lakh/crore short form for dashboards. */
+/**
+ * ₹ in compact lakh/crore form for dashboards: ₹12.6L, ₹1.25Cr, ₹48,200. No space before the unit,
+ * so the figure can never wrap between the number and "L".
+ */
 export function inrShort(n: number): string {
-  if (n >= 1e7) return `₹${(n / 1e7).toFixed(2)} Cr`;
-  if (n >= 1e5) return `₹${(n / 1e5).toFixed(2)} L`;
-  return `₹${Math.round(n).toLocaleString('en-IN')}`;
+  const trim = (v: string) => v.replace(/\.?0+$/, '');
+  if (n >= 1e7) return `₹${trim((n / 1e7).toFixed(2))}Cr`;
+  if (n >= 1e5) return `₹${trim((n / 1e5).toFixed(1))}L`;
+  return inr(n);
 }

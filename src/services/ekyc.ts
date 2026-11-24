@@ -39,5 +39,5 @@ export async function performEkyc25(pid: FaceCaptureResult, consent: boolean): P
 
 /** MVP 2: fingerprint RD device (same PID → e-KYC path, `bt=FMR`). Not active in MVP 1. */
 export async function captureFingerprintViaRd(): Promise<Result<FaceCaptureResult>> {
-  return { ok: false, code: 'NOT_IN_PHASE', message: 'Fingerprint e-KYC arrives in MVP 2.' };
+  return { ok: false, code: 'NOT_IN_PHASE', message: 'Fingerprint e-KYC is coming soon.' };
 }

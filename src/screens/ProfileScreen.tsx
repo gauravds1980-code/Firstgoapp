@@ -8,15 +8,17 @@ import { brandSource, colors, radius, space, touch } from '../theme/tokens';
 import { useApp } from '../state/AppState';
 import { DEALER_PRODUCTS } from '../config/products';
 import { DEALER_TYPE_LABEL, initials } from '../services/dealer';
+import { maskMobile } from '../utils/finance';
+import { SHOW_DEV_UI } from '../config/devFlags';
 
-/** Dealer profile & settings (reached from the Home header avatar). Includes the dev phase toggle. */
+/** Dealer profile & settings (reached from the Home header avatar). The rollout-phase panel is tester-only (SHOW_DEV_UI). */
 export default function ProfileScreen() {
   const { phase, setPhase, session, signOut, profile } = useApp();
   const [out, setOut] = useState(false);
   const doLogout = async () => { setOut(true); await logout(session); await signOut(); /* auth gate swaps to DealerLogin */ };
   const f = featuresFor(phase);
   return (
-    <JourneyScreen assistant="home" showTerms={false} footer={<Button label="Log out" variant="secondary" icon="logout" onPress={doLogout} loading={out} />}>
+    <JourneyScreen title="Profile" assistant="profile" showTerms={false} footer={<Button label="Log out" variant="secondary" icon="logout" onPress={doLogout} loading={out} />}>
       <Card style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
         <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}>
           <Text variant="h2" color={colors.onPrimary}>{initials(session?.name ?? 'Dealer')}</Text>
@@ -24,14 +26,14 @@ export default function ProfileScreen() {
         <View style={{ flex: 1 }}>
           <Text variant="h3">{session?.name ?? 'ABC Motors'}</Text>
           <Text variant="caption" color={colors.textSecondary}>Dealer code {session?.dealerId ?? '—'} · {profile?.branch ?? '—'}</Text>
-          <Text variant="caption" color={colors.textSecondary}>Signed in as +91 ••••••{session?.mobile.slice(-4)}</Text>
+          <Text variant="caption" color={colors.textSecondary}>Signed in as {session ? maskMobile(session.mobile) : '—'}</Text>
         </View>
       </Card>
       {profile && (
         <Card style={{ gap: space.sm }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <Text variant="label" color={colors.textSecondary}>DEALER PROFILE</Text>
-            <Pill label={DEALER_TYPE_LABEL[profile.type].toUpperCase()} tone="brand" />
+            <Pill label={DEALER_TYPE_LABEL[profile.type]} tone="brand" />
           </View>
           <ReadOnlyRow label="Dealer type" value={DEALER_TYPE_LABEL[profile.type]} />
           <ReadOnlyRow label="Manufacturer (OEM)" value={profile.type === 'multiBrand' ? 'All brands (multi-brand)' : profile.oem ?? '—'} />
@@ -65,6 +67,7 @@ export default function ProfileScreen() {
           <Icon name="chevron-right" size={22} color={colors.textSecondary} />
         </PressableScale>
       ))}
+      {SHOW_DEV_UI && (
       <Card style={{ gap: space.sm, borderStyle: 'dashed', borderColor: colors.borderStrong }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
           <Icon name="flask-outline" size={20} color={colors.primary} />
@@ -85,6 +88,7 @@ export default function ProfileScreen() {
         </Text>
         <Text variant="caption" color={colors.textMuted}>Brand tokens: {brandSource}</Text>
       </Card>
+      )}
     </JourneyScreen>
   );
 }

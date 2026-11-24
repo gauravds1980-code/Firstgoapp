@@ -122,6 +122,11 @@ export function Badge({ count, style }: { count: number; style?: StyleProp<ViewS
   );
 }
 
+/**
+ * Status pill. Sentence case ("Disbursed", "Not claimed"), no tracking, sized to its content and never
+ * truncated: it does not shrink, so a tight row squeezes the text beside it instead. Where a row is too
+ * narrow, put the pill on its own line under the amount.
+ */
 export function Pill({ label, tone = 'neutral' }: { label: string; tone?: 'neutral' | 'success' | 'warning' | 'danger' | 'brand' | 'info' }) {
   const map = {
     neutral: [colors.surfaceMuted, colors.textSecondary], success: [colors.successSoft, colors.success],
@@ -130,7 +135,7 @@ export function Pill({ label, tone = 'neutral' }: { label: string; tone?: 'neutr
   const [bg, fg] = map[tone];
   return (
     <View style={[s.pill, { backgroundColor: bg }]}>
-      <Text variant="overline" color={fg} numberOfLines={1} maxFontSizeMultiplier={fontScaleCap.control} style={s.pillText}>{label}</Text>
+      <Text variant="label" color={fg} maxFontSizeMultiplier={fontScaleCap.control} style={s.pillText}>{label}</Text>
     </View>
   );
 }
@@ -287,9 +292,8 @@ export const s = StyleSheet.create({
   card: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: space.md, borderWidth: 1, borderColor: colors.border, ...(elevation.card as object) },
   badge: { minWidth: 20, minHeight: 20, borderRadius: radius.pill, paddingHorizontal: 5, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.surface },
   badgeText: { fontFamily: type.overline.fontFamily, lineHeight: 14, textAlign: 'center' },
-  pill: { minHeight: 24, paddingHorizontal: space.sm, paddingVertical: 3, borderRadius: radius.pill, alignSelf: 'flex-start', alignItems: 'center', justifyContent: 'center', flexShrink: 1 },
-  // letterSpacing is also added after the last glyph; trim it so caps labels look centred in the pill.
-  pillText: { textAlign: 'center', lineHeight: 16, marginRight: -type.overline.letterSpacing },
+  pill: { minHeight: 24, minWidth: 56, paddingHorizontal: space.sm, paddingVertical: 3, borderRadius: radius.pill, alignSelf: 'flex-start', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  pillText: { textAlign: 'center', lineHeight: 18, letterSpacing: 0 },
   banner: { flexDirection: 'row', gap: space.sm, padding: space.sm, borderRadius: radius.md, alignItems: 'flex-start' },
   otpDigit: { width: '100%', textAlign: 'center' },
   circle: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center' },

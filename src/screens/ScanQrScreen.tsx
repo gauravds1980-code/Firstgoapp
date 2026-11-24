@@ -11,6 +11,8 @@ import { useApp } from '../state/AppState';
 import { colors, radius, space, touch } from '../theme/tokens';
 import { haptic, hapticMoment } from '../utils/haptics';
 import { HeaderDockSlot } from '../components/assistant/HeaderDockSlot';
+import { ZippyTipSlot } from '../components/assistant/ZippyTipSlot';
+import { SHOW_DEV_UI } from '../config/devFlags';
 
 const FRAME = 260;
 
@@ -18,7 +20,8 @@ const FRAME = 260;
  * Live camera QR scanner (expo-camera CameraView barcode scanning, QR only).
  * The customer's IDFC FIRST app QR carries a signed offer token → resolveOfferFromQr.
  * Handles: permission loading / ask / denied (retry + open settings), mount errors, bad QR.
- * "Simulate successful scan" stays as a small fallback for testing and web.
+ * "Simulate successful scan" is a tester-only fallback (SHOW_DEV_UI), hidden in release builds.
+ * Zippy's tip appears above the bottom buttons (ZippyTipSlot), never over the frame.
  */
 export default function ScanQrScreen() {
   const nav = useNavigation();
@@ -118,14 +121,17 @@ export default function ScanQrScreen() {
         )}
       </View>
 
+      <ZippyTipSlot onDark />
       <View style={{ padding: space.md, paddingBottom: Math.max(insets.bottom, space.md), gap: space.xxs }}>
         <Button label="Search by mobile number instead" variant="secondary" icon="cellphone-text" onPress={() => nav.navigate('SearchMobile', { stage: 'enter' })} />
-        <PressableScale onPress={() => resolve('MOCK_SIGNED_TOKEN')} accessibilityRole="button" accessibilityLabel="Simulate successful scan"
-          style={{ minHeight: touch.min, alignItems: 'center', justifyContent: 'center' }}>
-          <Text variant="caption" color="rgba(255,255,255,0.7)" style={{ textDecorationLine: 'underline' }}>
-            {Platform.OS === 'web' ? 'Simulate successful scan (web / testing)' : 'Simulate successful scan (testing)'}
-          </Text>
-        </PressableScale>
+        {SHOW_DEV_UI && (
+          <PressableScale onPress={() => resolve('MOCK_SIGNED_TOKEN')} accessibilityRole="button" accessibilityLabel="Simulate successful scan"
+            style={{ minHeight: touch.min, alignItems: 'center', justifyContent: 'center' }}>
+            <Text variant="caption" color="rgba(255,255,255,0.7)" style={{ textDecorationLine: 'underline' }}>
+              {Platform.OS === 'web' ? 'Simulate successful scan (web / testing)' : 'Simulate successful scan (testing)'}
+            </Text>
+          </PressableScale>
+        )}
       </View>
     </View>
   );
@@ -141,7 +147,7 @@ function PermissionCard({ denied, camErr, onAllow, onSettings }: { denied: boole
       <Text variant="body" color={colors.textSecondary} style={{ textAlign: 'center' }}>
         {camErr ?? (denied
           ? `${APP_NAME} needs the camera to read the customer's offer QR. Turn on Camera for ${APP_NAME} in Settings, then come back and tap Try again.`
-          : `${APP_NAME} uses the camera only to read the customer's offer QR. Nothing is recorded or stored.`)}
+          : `Here, ${APP_NAME} uses the camera only to read the customer's offer QR (it is also used for RC photos and face e-KYC). Nothing is recorded or stored.`)}
       </Text>
       <View style={{ alignSelf: 'stretch', gap: space.xs, marginTop: space.xs }}>
         {denied && <Button label="Open Settings" icon="cog-outline" onPress={onSettings} />}

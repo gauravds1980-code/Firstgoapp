@@ -25,12 +25,16 @@ function DockedFace({ mood, disabled }: { mood: ZippyMood; disabled: boolean }) 
   const a = useAnimatedStyle(() => ({ transform: [{ scale: settle.value }] }));
   return (
     <Pressable
-      onPress={() => { haptic.tap(); zippyDock.requestUndock(); }}
+      onPress={() => { haptic.tap(); zippyDock.requestSheet(); }}
+      onLongPress={() => { haptic.select(); zippyDock.requestUndock(); }}
+      delayLongPress={550}
       disabled={disabled}
       hitSlop={4}
       accessibilityRole="button"
-      accessibilityLabel={`Show ${ASSISTANT_NAME}, your assistant`}
-      accessibilityHint="Brings the assistant back on screen"
+      accessibilityLabel={`${ASSISTANT_NAME}, your assistant`}
+      accessibilityHint="Opens quick help. Long-press to show the assistant on screen"
+      accessibilityActions={[{ name: 'longpress', label: 'Show on screen' }]}
+      onAccessibilityAction={(e) => { if (e.nativeEvent.actionName === 'longpress') zippyDock.requestUndock(); }}
       style={({ pressed }) => [{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.8 : 1 }, { cursor: 'pointer' } as object]}
     >
       <Animated.View style={a}><ZippyCharacter size={DOCK_MINI_SIZE} mood={mood} /></Animated.View>
@@ -40,8 +44,8 @@ function DockedFace({ mood, disabled }: { mood: ZippyMood; disabled: boolean }) 
 
 /**
  * Fixed-size header slot Zippy docks into. Used by BrandHeader, Home, AuthScaffold and ScanQr.
- * Floating → empty placeholder (same footprint). Docked → this slot draws the tappable mini face
- * (the floating overlay hides), so there is only ever one face. While its screen is focused the slot
+ * Docked (the default) → this slot draws the mini face: tap = help sheet, long-press = float on screen.
+ * Floating → empty placeholder (same footprint), so there is only ever one face. While its screen is focused the slot
  * registers a measurer, so ZippyBubble flies to its real on-screen position.
  */
 export function HeaderDockSlot({ size = DOCK_SLOT_SIZE, style }: { size?: number; style?: StyleProp<ViewStyle> }) {
@@ -68,7 +72,7 @@ export function HeaderDockSlot({ size = DOCK_SLOT_SIZE, style }: { size?: number
       collapsable={false}
       importantForAccessibility={showFace ? 'auto' : 'no-hide-descendants'}
       accessibilityElementsHidden={!showFace}
-      style={[{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }, style]}
+      style={[{ width: size, height: size, flexShrink: 0, alignItems: 'center', justifyContent: 'center' }, style]}
     >
       {showFace && <DockedFace mood={mood} disabled={phase !== 'docked'} />}
     </View>

@@ -28,15 +28,22 @@ export type RootStackParamList = {
 export type JourneyStep = 'offer' | 'asset' | 'kyc' | 'mandate' | 'esign' | 'docs' | 'disbursal';
 export type AssistantContext = JourneyStep | 'search' | 'scan' | 'home' | 'login' | 'payouts' | 'portfolio' | 'cases' | 'rc' | 'tainf' | 'profile';
 
-export const JOURNEY_STEPS: { key: JourneyStep; label: string }[] = [
+/** Non-breaking hyphen (U+2011): "e‑sign" never splits across lines. */
+export const NB_HYPHEN = '\u2011';
+
+/**
+ * `label` is the full name (a11y, help); `short` is what the one-line header shows
+ * ("Step 3/6 · Mandate", "Next: e‑sign"), so the header never wraps or changes height.
+ */
+export const JOURNEY_STEPS: { key: JourneyStep; label: string; short: string }[] = [
   // Offer is shown on the Vehicle & EMI screen since v1.2 (one screen less).
   // v1.2.2: no dealer KFS step — the KFS goes to the customer with the e-sign link (consent on their phone).
-  { key: 'asset', label: 'Offer, vehicle & EMI' },
-  { key: 'kyc', label: 'Face KYC' },
-  { key: 'mandate', label: 'AutoPay mandate' },
-  { key: 'esign', label: 'KFS consent & e-sign' },
-  { key: 'docs', label: 'Documents' },
-  { key: 'disbursal', label: 'Disbursal' },
+  { key: 'asset', label: 'Offer, vehicle & EMI', short: 'Vehicle & EMI' },
+  { key: 'kyc', label: 'Face KYC', short: 'Face KYC' },
+  { key: 'mandate', label: 'AutoPay mandate', short: 'Mandate' },
+  { key: 'esign', label: 'KFS consent & e-sign', short: `e${NB_HYPHEN}sign` },
+  { key: 'docs', label: 'Documents', short: 'Documents' },
+  { key: 'disbursal', label: 'Disbursal', short: 'Disbursal' },
 ];
 
 declare global {

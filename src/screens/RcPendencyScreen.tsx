@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Image, Linking, Platform, View } from 'react-native';
 import Animated, { FadeInDown, FadeOut, LinearTransition } from 'react-native-reanimated';
 import * as ImagePicker from 'expo-image-picker';
@@ -27,6 +27,8 @@ export default function RcPendencyScreen() {
   const [selected, setSelected] = useState<string[]>([]);
   const [editing, setEditing] = useState<string[] | null>(null); // lans in the sheet
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => { if (!toast) return; const tm = setTimeout(() => setToast(null), 3500); return () => clearTimeout(tm); }, [toast]);
   const pending = cases.filter((c) => c.status === 'Pending').sort((a, b) => b.daysPending - a.daysPending);
   const submitted = cases.filter((c) => c.status === 'Submitted');
   const list = tab === 'Pending' ? pending : submitted;
@@ -60,7 +62,7 @@ export default function RcPendencyScreen() {
       if (res.canceled || !res.assets?.[0]) return;
       const uri = res.assets[0].uri;
       setDraft(lan, { photo: uri, reading: true });
-      const o = await ocrRegFromPhoto(uri, lan);
+      const o = await ocrRegFromPhoto(uri, res.assets[0].fileName);
       hapticMoment.rcCaptured();
       setDraft(lan, { reg: prettyReg(o.regNo), ocr: true, reading: false });
     } catch { haptic.error(); setDraft(lan, { reading: false }); }
@@ -75,12 +77,14 @@ export default function RcPendencyScreen() {
     setCases((cs) => cs.map((c) => (ok.includes(c.lan) ? { ...c, status: 'Submitted', regNo: prettyReg(drafts[c.lan]!.reg), photo: drafts[c.lan]!.photo, submittedOn: TODAY } : c)));
     setSelected((s) => s.filter((x) => !ok.includes(x)));
     setEditing(null);
+    // Feedback: the case leaves Pending, the Submitted count goes up, and a toast confirms it.
+    setToast(ok.length === 1 ? `RC ${prettyReg(drafts[ok[0]!]!.reg)} submitted · moved to Submitted` : `${ok.length} RCs submitted · moved to Submitted`);
   };
   const editingCases = (editing ?? []).map((l) => cases.find((c) => c.lan === l)).filter(Boolean) as RcCase[];
   const validCount = (editing ?? []).filter(valid).length;
 
   return (
-    <JourneyScreen assistant="docs" showTerms={false} footer={selecting ? (
+    <JourneyScreen title="RC pendency" assistant="rc" showTerms={false} toast={toast} footer={selecting ? (
       <View style={{ flexDirection: 'row', gap: space.xs }}>
         <Button label="Clear all" variant="secondary" onPress={() => setSelected([])} style={{ flex: 1 }} />
         <Button label={`Share ${selected.length} RC${selected.length > 1 ? 's' : ''}`} icon="share-variant" onPress={() => openSheet(selected)} style={{ flex: 2 }} />
@@ -123,19 +127,19 @@ export default function RcPendencyScreen() {
                     <Icon name={on ? 'checkbox-marked' : 'checkbox-blank-outline'} size={24} color={on ? colors.primary : colors.textSecondary} />
                   </PressableScale>
                 )}
-                <View style={{ flex: 1, gap: 2 }}>
+                <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                   <Text variant="bodyStrong">{c.customer}</Text>
                   <Text variant="caption" color={colors.textSecondary}>{c.vehicle} · {c.lan}</Text>
                   <Text variant="caption" color={colors.textSecondary}>Disbursed {fmtDate(c.disbursedOn)}</Text>
                   {c.regNo && <Text variant="label" color={colors.primary}>{c.regNo}</Text>}
                 </View>
-                <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                <View style={{ alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
                   {c.status === 'Pending' ? (
                     <>
                       <Text variant="h3" color={ageTone(c.daysPending)}>{c.daysPending}d</Text>
-                      <Pill label={ageLabel(c.daysPending).toUpperCase()} tone={c.daysPending > 30 ? 'danger' : c.daysPending > 15 ? 'warning' : 'success'} />
+                      <Pill label={ageLabel(c.daysPending)} tone={c.daysPending > 30 ? 'danger' : c.daysPending > 15 ? 'warning' : 'success'} />
                     </>
-                  ) : <Pill label="UNDER VERIFICATION" tone="info" />}
+                  ) : <Pill label="Submitted" tone="info" />}
                 </View>
               </PressableScale>
             </Animated.View>
@@ -167,8 +171,8 @@ function RcEntry({ c, d, onChange, onCapture, compact }: { c: RcCase; d: Draft; 
         <PhotoButton icon="image-outline" label="Gallery" onPress={() => onCapture('gallery')} />
         {d.photo ? <Image source={{ uri: d.photo }} style={{ width: 64, height: 48, borderRadius: radius.sm, backgroundColor: colors.surfaceMuted }} accessibilityLabel="RC photo" /> : null}
       </View>
-      {d.reading && <Banner tone="info" icon="text-recognition" title="Reading registration number…" body="Mock OCR on the RC photo" />}
-      <Field label={d.ocr ? 'Registration number (read from RC · check it)' : 'Registration number'} value={d.reg} placeholder="MH12AB1234" autoCapitalize="characters" maxLength={13}
+      {d.reading && <Banner tone="info" icon="text-recognition" title="Reading registration number…" body="From the RC photo. Takes a second." />}
+      <Field label={d.ocr ? 'Registration number (read from RC photo · check it)' : 'Registration number'} value={d.reg} placeholder="MH12AB1234" autoCapitalize="characters" maxLength={13}
         onChangeText={(t) => onChange({ reg: t.toUpperCase(), ocr: d.ocr && t.toUpperCase() === d.reg ? d.ocr : false })} error={err}
         right={REG_REGEX.test(norm) ? <Icon name="check-circle" size={22} color={colors.successBright} style={{ marginRight: space.md }} /> : undefined} />
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs, alignItems: 'center' }}>

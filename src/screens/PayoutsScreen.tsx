@@ -6,7 +6,7 @@ import { Chip, DateFilterBar, ExampleTag, inrShort, StatCard } from '../componen
 import { Card, EmptyState, Icon, Pill, PressableScale, Text } from '../components/ui';
 import { useSectionTracker, useZippyPending } from '../components/assistant/zippySection';
 import { presetRange } from '../state/stores';
-import { casesFor, claimInvoice, fmtDate, Invoice, invoicesFor, InvoiceStatus, TODAY } from '../services/business';
+import { casesFor, claimInvoice, fmtDate, Invoice, invoicesFor, InvoiceStatus, MONTHS, TODAY } from '../services/business';
 import { useApp } from '../state/AppState';
 import { inRange, useDateRange } from '../state/stores';
 import { useNavigation } from '@react-navigation/native';
@@ -30,7 +30,14 @@ export default function PayoutsScreen() {
   const all = base.map((i) => ({ ...i, ...overrides[i.id] })).filter((i) => inRange(i.date, range));
   const totals = STATUS.map((s) => ({ s, n: all.filter((i) => i.status === s).length, amt: all.filter((i) => i.status === s).reduce((t, i) => t + i.amount, 0) }));
   const shown = filter === 'All' ? all : all.filter((i) => i.status === filter);
-  const months = [2, 1, 0].map((k) => { const d = new Date(TODAY.getFullYear(), TODAY.getMonth() - k, 1); const inv = base.filter((i) => i.date.getMonth() === d.getMonth() && i.date.getFullYear() === d.getFullYear()); return { label: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()], amt: inv.reduce((t, i) => t + i.amount, 0) }; });
+  // Last three months; a bar is highlighted when its month overlaps the selected date range
+  // (This month → Nov, Last month → Oct, a custom range → every month it touches).
+  const months = [2, 1, 0].map((k) => {
+    const d = new Date(TODAY.getFullYear(), TODAY.getMonth() - k, 1);
+    const end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
+    const inv = base.filter((i) => i.date.getMonth() === d.getMonth() && i.date.getFullYear() === d.getFullYear());
+    return { label: MONTHS[d.getMonth()]!, amt: inv.reduce((t, i) => t + i.amount, 0), on: d <= range.to && end >= range.from };
+  });
   const maxM = Math.max(1, ...months.map((m) => m.amt));
 
   const toClaim = totals.find((t) => t.s === 'Not claimed')!;
@@ -43,7 +50,7 @@ export default function PayoutsScreen() {
   };
 
   return (
-    <JourneyScreen assistant="home" showTerms={false} onScroll={sec.onScroll}>
+    <JourneyScreen title="Payouts" assistant="payouts" showTerms={false} onScroll={sec.onScroll}>
       <View style={{ gap: space.xxs }} onLayout={sec.at('summary')}>
         <Text variant="h1">Payouts</Text>
         <Text variant="body" color={colors.textSecondary}>Dealer payout invoices for {session?.name ?? 'your dealership'}</Text>
@@ -60,11 +67,11 @@ export default function PayoutsScreen() {
       <Card style={{ gap: space.sm }}>
         <Text variant="label" color={colors.textSecondary}>MONTHLY PAYOUT</Text>
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: space.md, height: 110 }}>
-          {months.map((m, i) => (
-            <View key={m.label} style={{ flex: 1, alignItems: 'center', gap: 4 }}>
-              <Text variant="caption" color={colors.textSecondary}>{inrShort(m.amt)}</Text>
-              <View style={{ width: '70%', height: Math.max(6, (m.amt / maxM) * 64), borderRadius: 8, backgroundColor: i === 2 ? colors.primary : colors.primarySoft }} />
-              <Text variant="label">{m.label}</Text>
+          {months.map((m) => (
+            <View key={m.label} style={{ flex: 1, minWidth: 0, alignItems: 'center', gap: 4 }} accessibilityLabel={`${m.label}: ${inrShort(m.amt)}${m.on ? ', in the selected range' : ''}`}>
+              <Text variant="caption" color={m.on ? colors.text : colors.textSecondary} numberOfLines={1}>{inrShort(m.amt)}</Text>
+              <View style={{ width: '70%', height: Math.max(6, (m.amt / maxM) * 64), borderRadius: 8, backgroundColor: m.on ? colors.primary : colors.primarySoft }} />
+              <Text variant="label" color={m.on ? colors.primary : colors.textSecondary}>{m.label}</Text>
             </View>
           ))}
         </View>
@@ -100,19 +107,21 @@ export default function PayoutsScreen() {
               <Card style={{ gap: space.xs, padding: space.md }}>
                 <PressableScale onPress={() => setOpen(expanded ? null : inv.id)} accessibilityRole="button" accessibilityLabel={`Invoice ${inv.id}, ${inr(inv.amount)}, ${inv.status}. ${expanded ? 'Hide' : 'Show'} cases`}
                   style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-                  <View style={{ flex: 1, gap: 2 }}>
-                    <Text variant="bodyStrong">{inv.id}</Text>
-                    <Text variant="caption" color={colors.textSecondary}>{fmtDate(inv.date)} · {inv.lines.length} case{inv.lines.length > 1 ? 's' : ''}{inv.utr ? ` · UTR ${inv.utr}` : ''}</Text>
+                  <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                    <Text variant="bodyStrong" numberOfLines={1}>{inv.id}</Text>
+                    <Text variant="caption" color={colors.textSecondary}>{fmtDate(inv.date)} · {inv.lines.length} case{inv.lines.length > 1 ? 's' : ''}</Text>
+                    {inv.utr ? <Text variant="caption" color={colors.textSecondary} numberOfLines={1} ellipsizeMode="middle">UTR {inv.utr}</Text> : null}
                   </View>
-                  <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                    <Text variant="h2" style={{ fontVariant: ['tabular-nums'] }}>{inr(inv.amount)}</Text>
-                    <Pill label={inv.status.toUpperCase()} tone={TONE[inv.status]} />
+                  {/* Amount, then the status pill on its own line under it (sized to content, never clipped). */}
+                  <View style={{ alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                    <Text variant="h2" numberOfLines={1} style={{ fontVariant: ['tabular-nums'] }}>{inr(inv.amount)}</Text>
+                    <Pill label={inv.status} tone={TONE[inv.status]} />
                   </View>
                   <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={22} color={colors.textSecondary} />
                 </PressableScale>
                 {expanded && inv.lines.map((l) => (
                   <View key={l.lan} style={{ flexDirection: 'row', borderTopWidth: 1, borderTopColor: colors.border, paddingTop: space.xs, gap: space.sm }}>
-                    <View style={{ flex: 1 }}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
                       <Text variant="label">{l.lan} · {l.customer}</Text>
                       <Text variant="caption" color={colors.textSecondary}>Loan {inr(l.loan)} × {l.ratePct}%</Text>
                     </View>

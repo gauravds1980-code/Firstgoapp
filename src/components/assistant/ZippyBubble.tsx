@@ -1,20 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { PanResponder, Pressable, useWindowDimensions, View } from 'react-native';
+import { PanResponder, useWindowDimensions, View } from 'react-native';
 import Animated, {
-  cancelAnimation, Easing, FadeOut, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withSequence, withSpring, withTiming, ZoomIn,
+  cancelAnimation, Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withSequence, withSpring, withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ASSISTANT_NAME } from '../../config/brand';
-import { colors, elevation, gutter, radius, space, touch } from '../../theme/tokens';
+import { gutter, space, touch } from '../../theme/tokens';
 import { haptic } from '../../utils/haptics';
 import { AssistantSheet } from '../AssistantSheet';
-import { Icon, Text } from '../ui';
 import { DOCK_MINI_SIZE, DOCK_SLOT_SIZE, markZippyLanded } from './HeaderDockSlot';
 import { getTipOverride, ROUTE_CONTEXT, TIPS } from './tips';
-import { RIDE_EXTRA, rideOverhang, riderCenterY, ZippyRide } from './ZippyRide';
+import { RIDE_EXTRA, rideOverhang, ZippyRide } from './ZippyRide';
 import { ZippyCharacter } from './ZippyCharacter';
 import { useRouteHelp } from './zippySection';
-import { measureActiveSlot, useRouteMood, useZippyStore, zippyDock } from './zippyStore';
+import { measureActiveSlot, useRouteMood, useZippyStore, zippyDock, zippyTip } from './zippyStore';
 import { useApp } from '../../state/AppState';
 
 const SIZE = 60;
@@ -24,36 +23,38 @@ const MARGIN = 8;
 /** Keep clear of the header (top) and of sticky CTA bars + the bottom-centre Scan QR FAB (bottom). */
 const TOP_CLEAR = 76;
 const BOTTOM_CLEAR = 216;
-/** Close badge: 26dp visual + hitSlop 10 = 46dp touch target. Sits BESIDE Zippy on the inner side, vertically centred on the body. */
-const CLOSE = 26;
-const CLOSE_SLOP = 10;
-/** Gap between the badge and Zippy's silhouette (plus the vehicle overhang when riding). */
-const CLOSE_GAP = 8;
+/** Extra room above a sticky footer: the bottom safe zone where the tip slot appears. */
+const TIP_ZONE = 72;
+/** Hold this long on Zippy (without dragging) to dock it in the header. */
+const LONG_PRESS_MS = 550;
+/** How long a tip stays up before it auto-dismisses. */
+const TIP_MS = 5200;
 /**
- * The overlay box is widened by SIDE_EXT on both sides so the side badge (and its hitSlop) stays inside
- * the touchable bounds — Android does not hit-test children outside their parent. Symmetric, so the
- * scale origin (dock flight) and the x / y maths (Zippy's box) are unchanged.
+ * Right-hand lane (dp from the screen's right edge) that floating Zippy can occupy at rest on the right:
+ * edge margin + body + vehicle overhang + a little breathing room. Screens leave tappable links
+ * (e.g. Home's section "View all") out of this lane so an opted-in floating Zippy never covers them.
  */
-const SIDE_EXT = Math.ceil(CLOSE_GAP + rideOverhang(SIZE) + CLOSE + CLOSE_SLOP);
-/** Same idea vertically: the badge's hitSlop can dip below the box when riding (rider sits lower in the car). */
-const V_EXT = 8;
+export const ZIPPY_RIGHT_LANE = Math.ceil(MARGIN + SIZE + rideOverhang(SIZE) + 16);
 const DOCK_MS = 560;
 const RETURN_MS = 650;
 const MINI_SCALE = DOCK_MINI_SIZE / SIZE;
 
 /**
- * Global floating assistant, rendered once over the navigator on every screen.
- * Drag anywhere → snaps to the nearest side edge with a spring; vertical position clamped so it
- * never sits on a primary CTA bar or the Scan QR FAB. Idles with a gentle float; tap → wink + sheet.
- * Shows a one-off contextual tip balloon the first time each screen is visited in a session.
- * The ✕ badge flies Zippy up into the focused screen's HeaderDockSlot (persisted as
- * `firstgo.zippy.docked`); tapping the docked mini face flies it back down.
+ * Global assistant, rendered once over the navigator on every screen.
+ * v1.2.4 (design review #1):
+ *  - DOCKED in the header by default (HeaderDockSlot draws the face: tap = help sheet, long-press = float).
+ *  - The once-per-screen tip is no longer a balloon beside the orb: it is published to the focused
+ *    screen's ZippyTipSlot, anchored above the sticky footer / Scan QR FAB, and auto-dismisses.
+ *  - One close control: the tip's own ✕. There is no ✕ badge beside Zippy any more; long-press the
+ *    floating orb (or use the sheet menu) to dock it.
+ * Floating (opt-in, persisted as `firstgo.zippy.float`): drag anywhere → snaps to the nearest side edge;
+ * vertical position is clamped above the sticky footer + tip zone and the Scan QR FAB.
  */
 export function ZippyBubble({ route }: { route?: string }) {
   const { width: W, height: H } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const reduce = useReducedMotion();
-  const { phase } = useZippyStore();
+  const { phase, tip: tipState, sheetRequest } = useZippyStore();
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
   const context = ROUTE_CONTEXT[route ?? ''] ?? 'home';
@@ -64,7 +65,7 @@ export function ZippyBubble({ route }: { route?: string }) {
   const { footer } = useRouteHelp(route);
   const minY = insets.top + TOP_CLEAR;
   // Never cover the primary CTA: stay above the measured sticky footer (and the Home Scan QR FAB zone).
-  const bottomClear = Math.max(insets.bottom + BOTTOM_CLEAR, footer + space.md);
+  const bottomClear = Math.max(insets.bottom + BOTTOM_CLEAR, footer + TIP_ZONE + space.md);
   const maxY = Math.max(minY, H - bottomClear - SIZE - (rideProduct ? RIDE_H : 0));
   const [moving, setMoving] = useState(false);
   const [driveKey, setDriveKey] = useState(0);
@@ -91,8 +92,9 @@ export function ZippyBubble({ route }: { route?: string }) {
   sideRef.current = side;
   const [open, setOpen] = useState(false);
   const [tapKey, setTapKey] = useState(0);
-  const [tip, setTip] = useState<string | null>(null);
+  const tip = tipState && tipState.route === route ? tipState.text : null;
   const seen = useRef(new Set<string>());
+  const longPress = useRef<{ timer: ReturnType<typeof setTimeout> | null; fired: boolean }>({ timer: null, fired: false });
   const start = useRef({ x: 0, y: 0 });
   const origin = useRef<React.ComponentRef<typeof View>>(null);
 
@@ -120,21 +122,31 @@ export function ZippyBubble({ route }: { route?: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, reduce]);
 
-  // Contextual tip once per screen per session (never while docked).
+  // Contextual tip once per screen per session, docked or floating. It is shown by the screen's
+  // ZippyTipSlot (above the footer / FAB), and auto-dismisses after TIP_MS.
   useEffect(() => {
-    setTip(null); // never carry the previous screen's tip over
+    zippyTip.hide(); // never carry the previous screen's tip over
     if (!route || seen.current.has(route)) return;
+    let shownId = -1;
     const show = setTimeout(() => {
-      if (phaseRef.current !== 'floating') return;
       const o = getTipOverride(route);
       clearPeek();
-      if (o === '') { peek.value = withSpring(1, { damping: 16 }); return; }
-      seen.current.add(route); setTip(o ?? TIPS[context]); peek.value = withSpring(0, { damping: 16 });
+      if (o === '') { if (phaseRef.current === 'floating') peek.value = withSpring(1, { damping: 16 }); return; }
+      seen.current.add(route);
+      shownId = zippyTip.show(route, o ?? TIPS[context]);
+      if (phaseRef.current === 'floating') peek.value = withSpring(0, { damping: 16 });
     }, 700);
-    const hide = setTimeout(() => { setTip(null); schedulePeek(); }, 700 + 5200);
+    const hide = setTimeout(() => { zippyTip.hide(shownId); schedulePeek(); }, 700 + TIP_MS);
     return () => { clearTimeout(show); clearTimeout(hide); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route, context]);
+
+  // Docked face tapped, or the tip bubble tapped → open the help sheet.
+  const firstSheetRequest = useRef(sheetRequest);
+  useEffect(() => {
+    if (sheetRequest === firstSheetRequest.current) return;
+    haptic.select(); setTapKey((k) => k + 1); setOpen(true);
+  }, [sheetRequest]);
 
   /** Centre of the focused header slot in this overlay's coordinates (both measured in window space, so offsets cancel). */
   const measureTarget = (cb: (p: { cx: number; cy: number }) => void) => {
@@ -151,7 +163,7 @@ export function ZippyBubble({ route }: { route?: string }) {
   const dock = () => {
     if (phaseRef.current !== 'floating') return;
     haptic.select();
-    setTip(null); clearPeek();
+    zippyTip.hide(); clearPeek();
     zippyDock.setPhase('docking');
     zippyDock.persist(true);
     measureTarget(({ cx, cy }) => {
@@ -190,16 +202,28 @@ export function ZippyBubble({ route }: { route?: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
-  const openSheet = () => { schedulePeek(); setTapKey((k) => k + 1); haptic.select(); setTip(null); setTimeout(() => setOpen(true), 160); };
+  const openSheet = () => { schedulePeek(); setTapKey((k) => k + 1); haptic.select(); zippyTip.hide(); setTimeout(() => setOpen(true), 160); };
 
+  const clearLongPress = () => { if (longPress.current.timer) clearTimeout(longPress.current.timer); longPress.current.timer = null; };
   const pan = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => phaseRef.current === 'floating',
     onMoveShouldSetPanResponder: (_, g) => phaseRef.current === 'floating' && Math.abs(g.dx) + Math.abs(g.dy) > 4,
-    onPanResponderGrant: () => { clearPeek(); peek.value = withSpring(0, { damping: 16 }); start.current = { x: x.value, y: y.value }; lift.value = withSpring(1.12, { damping: 12 }); },
-    onPanResponderMove: (_, g) => { x.value = start.current.x + g.dx; y.value = start.current.y + g.dy; if (Math.abs(g.dx) + Math.abs(g.dy) > 6) movingRef.current(true); },
-    onPanResponderRelease: (_, g) => { lift.value = withSpring(1, { damping: 12 }); movingRef.current(false); release(g.dx, g.dy, g.moveX); },
-    onPanResponderTerminate: (_, g) => { lift.value = withSpring(1, { damping: 12 }); movingRef.current(false); release(g.dx, g.dy, g.moveX); },
+    onPanResponderGrant: () => {
+      clearPeek(); peek.value = withSpring(0, { damping: 16 }); start.current = { x: x.value, y: y.value }; lift.value = withSpring(1.12, { damping: 12 });
+      // Long-press (no drag) docks Zippy in the header — the only "hide" gesture, no separate ✕.
+      clearLongPress(); longPress.current.fired = false;
+      longPress.current.timer = setTimeout(() => { longPress.current.fired = true; lift.value = withSpring(1, { damping: 12 }); dockRef.current(); }, LONG_PRESS_MS);
+    },
+    onPanResponderMove: (_, g) => {
+      if (longPress.current.fired) return;
+      x.value = start.current.x + g.dx; y.value = start.current.y + g.dy;
+      if (Math.abs(g.dx) + Math.abs(g.dy) > 6) { clearLongPress(); movingRef.current(true); }
+    },
+    onPanResponderRelease: (_, g) => { clearLongPress(); lift.value = withSpring(1, { damping: 12 }); movingRef.current(false); if (!longPress.current.fired) release(g.dx, g.dy, g.moveX); },
+    onPanResponderTerminate: (_, g) => { clearLongPress(); lift.value = withSpring(1, { damping: 12 }); movingRef.current(false); if (!longPress.current.fired) release(g.dx, g.dy, g.moveX); },
   })).current;
+  const dockRef = useRef(dock);
+  dockRef.current = dock;
   const movingRef = useRef((m: boolean) => setMoving(m)); // setState is stable; wheels roll while dragged
   const tapRef = useRef(openSheet);
   tapRef.current = openSheet;
@@ -225,57 +249,32 @@ export function ZippyBubble({ route }: { route?: string }) {
   });
 
   const floating = phase === 'floating';
-  const riding = !!rideProduct && floating;
-  // Close badge: inner side (left of Zippy when snapped right, right when snapped left), centred on the body — not the hood or the wheels.
-  const closeInset = CLOSE_GAP + (riding ? rideOverhang(SIZE) : 0);
-  const closeTop = V_EXT + (riding && rideProduct ? riderCenterY(rideProduct, SIZE) : SIZE / 2) - CLOSE / 2;
-  const closeLeft = side === 'right' ? SIDE_EXT - closeInset - CLOSE : SIDE_EXT + SIZE + closeInset;
-  /** The tip sits beyond the close badge so the two never overlap. */
-  const tipInset = SIZE + closeInset + CLOSE + 8;
   const showOverlay = floating || phase === 'docking' || phase === 'returning';
+  // Sheet menu: dock (hide) a floating Zippy, or float a docked one.
+  const toggleDock = () => {
+    setOpen(false);
+    setTimeout(() => { if (phaseRef.current === 'floating') dock(); else zippyDock.requestUndock(); }, 260);
+  };
   return (
     <>
       <View ref={origin} collapsable={false} pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, width: 1, height: 1 }} />
       {showOverlay && (
-        <Animated.View pointerEvents={floating ? 'box-none' : 'none'} style={[{ position: 'absolute', left: -SIDE_EXT, top: -V_EXT, width: SIZE + SIDE_EXT * 2, height: SIZE + V_EXT * 2, zIndex: 50, overflow: 'visible' }, wrap]}>
-          <View pointerEvents="box-none" style={{ position: 'absolute', left: SIDE_EXT, top: V_EXT, width: SIZE, height: SIZE, overflow: 'visible' }}>
-          {tip && floating && (
-            <Animated.View entering={reduce ? undefined : ZoomIn.springify().damping(14)} exiting={FadeOut.duration(180)}
-              style={[{ position: 'absolute', top: -4, width: Math.min(236, W - tipInset - MARGIN * 4), [side === 'right' ? 'right' : 'left']: tipInset }]}>
-              <Pressable onPress={openSheet} accessibilityRole="button" accessibilityLabel={`${ASSISTANT_NAME} says: ${tip} Tap to ask more`}
-                style={[{ backgroundColor: colors.surface, borderRadius: radius.lg, padding: space.sm, paddingRight: space.lg, borderWidth: 1.5, borderColor: colors.accent }, elevation.raised as object]}>
-                <Text variant="label" color={colors.primary}>{ASSISTANT_NAME}</Text>
-                <Text variant="caption" color={colors.text}>{tip}</Text>
-                <Pressable onPress={() => { setTip(null); schedulePeek(); }} hitSlop={10} accessibilityLabel="Dismiss tip" style={{ position: 'absolute', right: 6, top: 6 }}>
-                  <Icon name="close" size={14} color={colors.textSecondary} />
-                </Pressable>
-              </Pressable>
-            </Animated.View>
-          )}
+        <Animated.View pointerEvents={floating ? 'box-none' : 'none'} style={[{ position: 'absolute', left: 0, top: 0, width: SIZE, height: SIZE, zIndex: 50, overflow: 'visible' }, wrap]}>
           <Animated.View style={[{ position: 'absolute', bottom: rideProduct ? -RIDE_H - 4 : -10, left: rideProduct ? 4 : 16, width: rideProduct ? SIZE - 8 : SIZE - 32, height: 6, borderRadius: 6, backgroundColor: '#000' }, shadow]} />
           <Animated.View style={body}>
             <View {...pan.panHandlers} accessible accessibilityRole="button" accessibilityLabel={`${ASSISTANT_NAME}, your assistant. Tap for help, drag to move`}
+              accessibilityHint="Long-press to dock in the header" accessibilityActions={[{ name: 'longpress', label: 'Dock in the header' }]}
+              onAccessibilityAction={(e) => { if (e.nativeEvent.actionName === 'longpress') dock(); }}
               style={[{ width: SIZE, height: SIZE, borderRadius: SIZE / 2, alignItems: 'center', justifyContent: 'center' }, { cursor: 'grab' } as object]}>
               {rideProduct && floating
                 ? <ZippyRide size={SIZE} product={rideProduct} mood={mood} speaking={!!tip || open} tapKey={tapKey} moving={moving} driveKey={driveKey} />
                 : <ZippyCharacter size={SIZE} mood={mood} speaking={!!tip || open} tapKey={tapKey} />}
             </View>
           </Animated.View>
-          </View>
-          {/* Close ✕ — a sibling of the pan view (not a child), so the drag responder never steals its tap. Beside Zippy on the inner side, so it stays visible when peeking and never covers the face. */}
-          {floating && (
-            <Pressable onPress={dock} hitSlop={CLOSE_SLOP} accessibilityRole="button" accessibilityLabel="Close Zippy" accessibilityHint="Docks the assistant to the header. Tap it there to bring it back"
-              style={({ pressed }) => [{
-                position: 'absolute', top: closeTop, left: closeLeft, width: CLOSE, height: CLOSE, borderRadius: CLOSE / 2,
-                backgroundColor: colors.surface, borderWidth: 1.5, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center',
-                transform: [{ scale: pressed ? 0.9 : 1 }],
-              }, elevation.card as object, { cursor: 'pointer' } as object]}>
-              <Icon name="close" size={15} color={colors.primary} />
-            </Pressable>
-          )}
         </Animated.View>
       )}
-      <AssistantSheet visible={open} onClose={() => setOpen(false)} context={context} route={route} product={rideProduct} />
+      <AssistantSheet visible={open} onClose={() => setOpen(false)} context={context} route={route} product={rideProduct}
+        docked={!floating} onToggleDock={phase === 'floating' || phase === 'docked' ? toggleDock : undefined} />
     </>
   );
 }

@@ -5,13 +5,14 @@ import { JourneyScreen } from '../components/Screen';
 import { useZippyMood } from '../components/assistant/zippyStore';
 import { useSectionTracker, useZippyPending } from '../components/assistant/zippySection';
 import { Banner, Button, ErrorState, Field, Icon, OtpInput, PressableScale, Text } from '../components/ui';
-import { AVAILABLE_FROM } from '../config/phases';
 import { PRODUCTS } from '../config/products';
 import type { RootStackParamList } from '../navigation/types';
 import { offers } from '../services';
 import { useApp } from '../state/AppState';
 import { colors, radius, space, touch } from '../theme/tokens';
 import { haptic, hapticMoment } from '../utils/haptics';
+import { maskMobile } from '../utils/finance';
+import { SHOW_DEV_UI } from '../config/devFlags';
 
 type Stage = 'enter' | 'otp' | 'none';
 
@@ -93,10 +94,10 @@ export default function SearchMobileScreen() {
           </View>
           <Text variant="h1" style={{ textAlign: 'center' }}>No pre-qualified offer found</Text>
           <Text variant="body" color={colors.textSecondary} style={{ textAlign: 'center' }}>
-            We couldn't find a {PRODUCTS[product].label.toLowerCase()} offer for +91 ••••••{mobile.slice(-4)}.
+            We couldn't find a {PRODUCTS[product].label.toLowerCase()} offer for {maskMobile(mobile)}.
           </Text>
         </View>
-        <Banner tone="info" title="Why this happens" body="MVP 1 covers existing IDFC FIRST customers with a pre-approved offer only. New-to-bank customers can apply through the regular loan journey." />
+        <Banner tone="info" title="Why this happens" body="Right now, instant offers are only for existing IDFC FIRST customers. New-to-bank customers can apply through the regular loan journey." />
       </JourneyScreen>
     );
   }
@@ -108,7 +109,7 @@ export default function SearchMobileScreen() {
         <View style={{ gap: space.xs }}>
           <Text variant="h1" style={{ textAlign: 'center' }}>Customer consent</Text>
           <Text variant="body" color={colors.textSecondary} style={{ textAlign: 'center' }}>
-            We've sent a 6-digit OTP to <Text variant="bodyStrong">+91 ••••••{mobile.slice(-4)}</Text>. Ask the customer to read it out to confirm they consent to checking their offer.
+            We've sent a 6-digit OTP to <Text variant="bodyStrong">{maskMobile(mobile)}</Text>. Ask the customer to read it out to confirm they consent to checking their offer.
           </Text>
         </View>
         <OtpInput value={otp} onChange={(v) => { setOtp(v); setErr(null); if (v.length === 6 && !loading) verify(v); /* auto-submit */ }} error={!!otpErr} />
@@ -145,17 +146,17 @@ export default function SearchMobileScreen() {
       <Field
         label="Customer's Mobile Number" prefix="+91" placeholder="Enter 10-digit mobile number" keyboardType="number-pad" maxLength={10}
         value={mobile} onChangeText={(t) => setMobile(t.replace(/\D/g, ''))} onBlur={() => setTouched(true)} error={mobileErr}
-        hint={`${mobile.length}/10 digits · Demo: ends 0000 → no offer · 9999 → network error · ETB on file: 5555 KYC, 6666 mandate, 7777 both`}
+        hint={`${mobile.length}/10 digits${SHOW_DEV_UI ? ' · Demo: ends 0000 → no offer · 9999 → network error · ETB on file: 5555 KYC, 6666 mandate, 7777 both' : ''}`}
         right={valid ? <Icon name="check-circle" size={22} color={colors.successBright} style={{ marginRight: space.md }} /> : undefined}
       />
       {isDealerOwn && (
         <Banner tone="warning" icon="account-alert-outline" title="That's your dealer number"
-          body={`+91 ••••••${mobile.slice(-4)} is registered to ${session?.name}. Enter the customer's own bank-registered mobile so the consent OTP reaches them.`} />
+          body={`${maskMobile(mobile)} is registered to ${session?.name}. Enter the customer's own bank-registered mobile so the consent OTP reaches them.`} />
       )}
       {!features.selfServeLink ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, opacity: 0.6 }}>
           <Icon name="link-variant" size={18} color={colors.textSecondary} />
-          <Text variant="caption" color={colors.textSecondary}>Send self-serve link to customer · Coming in MVP {AVAILABLE_FROM.selfServeLink}</Text>
+          <Text variant="caption" color={colors.textSecondary}>Send self-serve link to customer · Coming soon</Text>
         </View>
       ) : (
         <Button label="Send self-serve link to customer" variant="secondary" icon="link-variant" onPress={() => { setTouched(true); if (valid) haptic.success(); }} />

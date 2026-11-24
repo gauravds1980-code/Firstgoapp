@@ -13,6 +13,7 @@
 import { DealerProfile, mockDealerProfile } from './dealer';
 import { delay, rid } from './mock';
 import type { Result } from './types';
+import { maskMobile } from '../utils/finance';
 
 export interface DealerSession {
   dealerId: string;
@@ -36,7 +37,7 @@ export async function requestDealerOtp(mobile: string): Promise<Result<DealerOtp
   if (!DEALER_MOBILE_REGEX.test(mobile)) return { ok: false, code: 'MOBILE_INVALID', message: 'Enter a valid 10-digit mobile number.' };
   if (mobile.endsWith('9999')) return { ok: false, code: 'NETWORK', message: "Couldn't reach IDFC FIRST. Check your connection and try again." };
   if (mobile.endsWith('0000')) return { ok: false, code: 'NOT_DEALER', message: 'This number is not registered as an IDFC FIRST dealer. Contact your relationship manager.' };
-  return { ok: true, data: { txnId: rid('DLR'), maskedMobile: `+91 ••••••${mobile.slice(-4)}`, resendInSec: 30, maxAttempts: MAX_OTP_ATTEMPTS } };
+  return { ok: true, data: { txnId: rid('DLR'), maskedMobile: maskMobile(mobile), resendInSec: 30, maxAttempts: MAX_OTP_ATTEMPTS } };
 }
 
 export async function verifyDealerOtp(txnId: string, mobile: string, otp: string): Promise<Result<DealerSession>> {

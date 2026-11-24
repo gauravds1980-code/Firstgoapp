@@ -42,9 +42,13 @@ export function inr(n: number, decimals = 0): string {
   return `${neg ? '-' : ''}₹${s}${d ? '.' + d : ''}`;
 }
 
-/** Customer mobile for display, Indian 5+5 grouping with the last 4 visible: 9912347777 -> "+91 XXXXX X7777". */
+/**
+ * The ONE mobile mask used across the app (dealer and customer numbers): Indian 5+5 grouping with the
+ * last 4 visible, 9912347777 -> "+91 ••••• •7777". Non-breaking spaces, so it never wraps mid-number.
+ * Never show the full number on a screen that shows this mask.
+ */
 export function maskMobile(m: string): string {
-  return m.length === 10 ? `+91 XXXXX X${m.slice(-4)}` : m;
+  return m.length === 10 ? `+91\u00A0•••••\u00A0•${m.slice(-4)}` : m;
 }
 
 export const PRODUCTS_DEFAULT_TENURE = (product: ProductId) => PRODUCTS[product].defaultTenure;

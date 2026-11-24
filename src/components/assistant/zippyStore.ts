@@ -12,7 +12,8 @@ export type ZippyMood = 'idle' | 'happy' | 'thinking' | 'cheer';
 
 /**
  * hydrating → reading the persisted flag (nothing drawn yet)
- * floating  → orb on screen
+ * docked    → DEFAULT. Mini face in the header slot; tap = help sheet, long-press = float on screen
+ * floating  → orb on screen (opt-in; long-press it, or use the sheet menu, to dock it again)
  * docking   → orb flying up into the header slot
  * docked    → mini face drawn by the header slot; overlay hidden
  * undocking → slot was tapped; overlay is measuring the slot (slot still draws the face)
@@ -23,10 +24,17 @@ export type DockPhase = 'hydrating' | 'floating' | 'docking' | 'docked' | 'undoc
 export type WindowRect = { x: number; y: number; width: number; height: number };
 type Measurer = (cb: (r: WindowRect | null) => void) => void;
 
-export const DOCK_STORAGE_KEY = 'firstgo.zippy.docked';
+/**
+ * v1.2.4: Zippy docks in the header by default. The flag now records the opt-in to FLOAT ('1');
+ * a new key, so every install starts docked whatever the old `firstgo.zippy.docked` said.
+ */
+export const FLOAT_STORAGE_KEY = 'firstgo.zippy.float';
 
-type Snapshot = { phase: DockPhase; moodVersion: number };
-let snap: Snapshot = { phase: 'hydrating', moodVersion: 0 };
+/** One tip at a time, shown by the focused screen's ZippyTipSlot (anchored above its footer / FAB). */
+export type ZippyTip = { route: string; text: string; id: number };
+
+type Snapshot = { phase: DockPhase; moodVersion: number; tip: ZippyTip | null; sheetRequest: number };
+let snap: Snapshot = { phase: 'hydrating', moodVersion: 0, tip: null, sheetRequest: 0 };
 const listeners = new Set<() => void>();
 const emit = (next: Partial<Snapshot>) => { snap = { ...snap, ...next }; listeners.forEach((l) => l()); };
 const subscribe = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
@@ -39,18 +47,28 @@ export function useZippyStore(): Snapshot {
 export const zippyDock = {
   get phase() { return snap.phase; },
   setPhase(phase: DockPhase) { if (snap.phase !== phase) emit({ phase }); },
-  /** Restore the persisted docked flag once per app launch. */
+  /** Restore the persisted preference once per app launch. Docked unless the dealer chose to float Zippy. */
   hydrate() {
     if (snap.phase !== 'hydrating') return;
-    secureStorage.get(DOCK_STORAGE_KEY)
-      .then((v) => { if (snap.phase === 'hydrating') emit({ phase: v === '1' ? 'docked' : 'floating' }); })
-      .catch(() => { if (snap.phase === 'hydrating') emit({ phase: 'floating' }); });
+    secureStorage.get(FLOAT_STORAGE_KEY)
+      .then((v) => { if (snap.phase === 'hydrating') emit({ phase: v === '1' ? 'floating' : 'docked' }); })
+      .catch(() => { if (snap.phase === 'hydrating') emit({ phase: 'docked' }); });
   },
   persist(docked: boolean) {
-    secureStorage.set(DOCK_STORAGE_KEY, docked ? '1' : '0').catch(() => { /* non-critical UI preference */ });
+    secureStorage.set(FLOAT_STORAGE_KEY, docked ? '0' : '1').catch(() => { /* non-critical UI preference */ });
   },
-  /** Docked mini face tapped → overlay takes over and flies the orb back out. */
+  /** Docked mini face long-pressed (or "Show Zippy on screen" in the sheet) → overlay flies the orb back out. */
   requestUndock() { if (snap.phase === 'docked') emit({ phase: 'undocking' }); },
+  /** Open the help sheet (docked face tapped, or the tip bubble tapped). */
+  requestSheet() { emit({ sheetRequest: snap.sheetRequest + 1 }); },
+};
+
+let tipSeq = 0;
+export const zippyTip = {
+  /** Show a tip on `route`; returns its id (for a targeted auto-dismiss). */
+  show(route: string, text: string): number { const id = ++tipSeq; emit({ tip: { route, text, id } }); return id; },
+  /** Hide the current tip (optionally only if it is still the one with this id). */
+  hide(id?: number) { if (snap.tip && (id === undefined || snap.tip.id === id)) emit({ tip: null }); },
 };
 
 // ---- Header slots -------------------------------------------------------------------------------

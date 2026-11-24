@@ -7,6 +7,7 @@ import type { RootStackParamList } from '../navigation/types';
 import { DEALER_MOBILE_REGEX, requestDealerOtp } from '../services/auth';
 import { colors, space } from '../theme/tokens';
 import { haptic } from '../utils/haptics';
+import { SHOW_DEV_UI } from '../config/devFlags';
 
 export default function DealerLoginScreen() {
   const nav = useNavigation();
@@ -48,7 +49,7 @@ export default function DealerLoginScreen() {
           For authorised dealer staff only. Your login is separate from your customers' details — never use a customer's number here.
         </Text>
       </View>
-      <Text variant="caption" color={colors.textMuted}>Demo: OTP 123456 · ends 1111 multi-brand · 2222 Maruti sub-dealer · 3333 Tata CV dealer · 0000 not a dealer · 9999 network error</Text>
+      {SHOW_DEV_UI && <Text variant="caption" color={colors.textMuted}>Demo: OTP 123456 · ends 1111 multi-brand · 2222 Maruti sub-dealer · 3333 Tata CV dealer · 0000 not a dealer · 9999 network error</Text>}
     </AuthScaffold>
   );
 }
