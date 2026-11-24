@@ -2,25 +2,23 @@
 
 Dealer first go app.
 
-FIRSTgo v1.2.6 is the IDFC FIRST Bank dealer-side two-wheeler and car loan origination prototype. Dealers log in, pull a pre-qualified offer (scan the customer’s QR or search by mobile), and walk a new-vehicle journey through KYC, mandate, agreement, and disbursal. All data is mock. There are no real bank APIs — the integrations in `src/services/` are typed stubs.
+FIRSTgo v1.2.7 is the IDFC FIRST Bank dealer-side two-wheeler and car loan origination prototype. Dealers log in, pull a pre-qualified offer (scan the customer’s QR or search by mobile), and walk a new-vehicle journey through KYC, mandate, agreement, and disbursal. All data is mock. There are no real bank APIs — the integrations in `src/services/` are typed stubs.
 
 ## Download the Android APK
 
-[FIRSTgo-v1.2.6-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.6-arm64.apk) (arm64, v1.2.6).
+[FIRSTgo-v1.2.7-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.7-arm64.apk) (arm64, v1.2.7).
 
-Direct link: https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.6-arm64.apk
+Direct link: https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.7-arm64.apk
 
-What's new in v1.2.6:
+What's new in v1.2.7:
 
-- A standalone mic, separate from Zippy's face.
-- Simulate successful scan stays visible, including in release builds.
-- Spoken-number normalizer with a read-back before anything is filled.
-- `START_QR_JOURNEY` and `START_MOBILE_JOURNEY` commands, plus a generic loan intent.
-- Clarify band at 0.60–0.75, digit mode, and a 5-turn history.
-- OTP by voice is masked, not spoken, and not logged.
-- Streaming stays behind `EXPO_PUBLIC_VOICE_STREAMING` (default off).
+- Voice selection of the vehicle model and on-screen options. "extreme 125" selects Hero Xtreme 125R, and digits next to a model name are not treated as an amount.
+- Confidence at or above 0.65 auto-acts, with a toast and Undo. 0.50–0.65 shows Confirm. A near tie shows a two-button clarify. Below 0.50 asks to say it again.
+- A QR-question guard. Destructive and submit actions always need confirmation.
+- An "Ask before acting" toggle, off by default.
+- Valid spoken values auto-fill. OTP stays masked and is never auto-verified.
 
-Previous builds: [FIRSTgo-v1.2.5-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.5-arm64.apk), [FIRSTgo-v1.2.4-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.4-arm64.apk), [FIRSTgo-v1.2.2-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.2-arm64.apk), [FIRSTgo-v1.2.1-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.1-arm64.apk), and [FIRSTgo-v1.2.0-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.0-arm64.apk).
+Previous builds: [FIRSTgo-v1.2.6-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.6-arm64.apk), [FIRSTgo-v1.2.5-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.5-arm64.apk), [FIRSTgo-v1.2.4-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.4-arm64.apk), [FIRSTgo-v1.2.2-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.2-arm64.apk), [FIRSTgo-v1.2.1-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.1-arm64.apk), and [FIRSTgo-v1.2.0-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.0-arm64.apk).
 
 ## Features in v1.2
 
@@ -84,7 +82,7 @@ npx expo prebuild -p android
 cd android && ./gradlew assembleRelease
 ```
 
-The published arm64 build for this version is checked in at `releases/FIRSTgo-v1.2.6-arm64.apk`. `android/` and `ios/` are generated and gitignored.
+The published arm64 build for this version is checked in at `releases/FIRSTgo-v1.2.7-arm64.apk`. `android/` and `ios/` are generated and gitignored.
 
 ## iOS
 
