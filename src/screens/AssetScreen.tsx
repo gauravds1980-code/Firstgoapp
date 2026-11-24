@@ -7,7 +7,7 @@ import { Banner, Button, Card, Icon, Pill, PressableScale, Text } from '../compo
 import { UPI_MANDATE_EMI_CAP } from '../config/phases';
 import { CONDITION_LABEL, PRODUCTS, termsFor } from '../config/products';
 import { useApp } from '../state/AppState';
-import { colors, radius, space, touch } from '../theme/tokens';
+import { colors, fontScaleCap, radius, space, touch, type } from '../theme/tokens';
 import { emi, inr, maxLoan, maskMobile } from '../utils/finance';
 import { haptic } from '../utils/haptics';
 
@@ -35,7 +35,7 @@ export default function AssetScreen() {
       <View style={{ gap: space.xs }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
           <Text variant="caption" color={colors.textSecondary}>EMI · {journey.tenure} months</Text>
-          <Text variant="h2" color={overCap ? colors.warning : colors.text}>{inr(monthly)}<Text variant="caption" color={colors.textSecondary}> /month</Text></Text>
+          <Text variant="h2" color={overCap ? colors.warning : colors.text}>{inr(monthly)}<Text variant="caption" color={colors.textSecondary} style={{ lineHeight: type.h2.lineHeight }}> /month</Text></Text>
         </View>
  {overCap && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: mvp2Available ? colors.warningSoft : colors.dangerSoft, borderRadius: radius.md, padding: space.xs }} accessibilityRole="alert">
@@ -103,8 +103,8 @@ export default function AssetScreen() {
             const on = t === journey.tenure;
             return (
               <PressableScale key={t} onPress={() => { haptic.select(); update({ tenure: t }); }} accessibilityRole="radio" accessibilityState={{ selected: on }} accessibilityLabel={`${t} months`}
-                style={{ minWidth: 56, height: touch.min, borderRadius: radius.md, borderWidth: 1.5, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.sm }}>
-                <Text variant="bodyStrong" color={on ? colors.onPrimary : colors.text}>{t}</Text>
+                style={{ minWidth: 56, minHeight: touch.min, borderRadius: radius.md, borderWidth: 1.5, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.sm }}>
+                <Text variant="bodyStrong" color={on ? colors.onPrimary : colors.text} maxFontSizeMultiplier={fontScaleCap.compact} style={{ textAlign: 'center' }}>{t}</Text>
               </PressableScale>
             );
           })}

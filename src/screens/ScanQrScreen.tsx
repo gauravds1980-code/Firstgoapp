@@ -10,6 +10,7 @@ import { offers } from '../services';
 import { useApp } from '../state/AppState';
 import { colors, radius, space, touch } from '../theme/tokens';
 import { haptic } from '../utils/haptics';
+import { HeaderDockSlot } from '../components/assistant/HeaderDockSlot';
 
 const FRAME = 260;
 
@@ -75,7 +76,8 @@ export default function ScanQrScreen() {
           <Icon name="close" size={28} color="#fff" />
         </PressableScale>
         <Text variant="h3" color="#fff" style={{ flex: 1, textAlign: 'center' }}>Scan Customer QR</Text>
-        <View style={{ width: touch.min }} />
+        {/* Right-hand spacer doubles as Zippy's dock slot (keeps the title centred). */}
+        <HeaderDockSlot size={touch.min} />
       </View>
 
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.lg, paddingHorizontal: space.lg }}>

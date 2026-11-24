@@ -7,7 +7,7 @@ import { casesFor, invoicesFor, rcCasesFor, taInfFor } from '../services/busines
 import { useRcCases } from '../state/stores';
 import { inrShort } from '../components/business';
 import type { RootStackParamList } from '../navigation/types';
-import { Badge, Card, ErrorState, Icon, IconName, Pill, PressableScale, Segmented, Skeleton, Text } from '../components/ui';
+import { Badge, ButtonLabel, Card, ErrorState, Icon, IconName, Pill, PressableScale, Segmented, Skeleton, Text } from '../components/ui';
 import { Condition, CONDITION_LABEL, PRODUCTS, ProductId } from '../config/products';
 import { dealerTagline, fetchDealerHome, initials, RecentApp } from '../services/dealer';
 import { useApp } from '../state/AppState';
@@ -15,6 +15,7 @@ import { USED_VEHICLES_ENABLED } from '../config/phases';
 import { colors, elevation, gutter, radius, space, touch } from '../theme/tokens';
 import { inr } from '../utils/finance';
 import { haptic } from '../utils/haptics';
+import { HeaderDockSlot } from '../components/assistant/HeaderDockSlot';
 
 type HomeData = Awaited<ReturnType<typeof fetchDealerHome>>;
 
@@ -67,6 +68,7 @@ export default function HomeScreen() {
           <Text variant="bodyStrong" color={colors.primary}>IDFC <Text variant="bodyStrong" color={colors.primary} style={{ fontFamily: 'Inter_800ExtraBold' }}>FIRST</Text> Bank</Text>
           <Text variant="caption" color={colors.textSecondary} numberOfLines={2}>{session?.name ?? 'Dealer'}{profile ? ` · ${dealerTagline(profile)}` : ''}</Text>
         </View>
+        <HeaderDockSlot />
         <PressableScale accessibilityRole="button" accessibilityLabel={`Notifications, ${data?.unread ?? 0} unread`} style={iconBtn}>
           <Icon name="bell-outline" size={26} color={colors.text} />
           <Badge count={data?.unread ?? 0} style={{ position: 'absolute', top: 4, right: 2 }} />
@@ -110,9 +112,9 @@ export default function HomeScreen() {
             </View>
           )}
           <PressableScale accessibilityRole="button" accessibilityLabel="Search by the customer's registered mobile number" onPress={() => nav.navigate('SearchMobile', { stage: 'enter' })}
-            style={[{ height: touch.cta, borderRadius: radius.pill, backgroundColor: colors.cta, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs }, elevation.card as object]}>
-            <Icon name="cellphone-text" size={22} color={colors.text} />
-            <Text variant="h3" color={colors.text}>Search by Mobile Number</Text>
+            style={[{ minHeight: touch.cta, borderRadius: radius.pill, backgroundColor: colors.cta, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, paddingHorizontal: space.lg, paddingVertical: space.xs }, elevation.card as object]}>
+            <Icon name="cellphone-text" size={22} color={colors.text} style={{ flexShrink: 0 }} />
+            <ButtonLabel color={colors.text}>Search by Mobile Number</ButtonLabel>
           </PressableScale>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs }}>
             <Icon name="qrcode-scan" size={16} color="rgba(255,255,255,0.85)" />

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { JourneyScreen } from '../components/Screen';
+import { useZippyMood } from '../components/assistant/zippyStore';
 import { Banner, Button, Card, Icon, OtpInput, PressableScale, Skeleton, Text } from '../components/ui';
 import { esign } from '../services';
 import type { EsignSession } from '../services/types';
@@ -16,6 +17,7 @@ export default function EsignScreen() {
   const [otp, setOtp] = useState('');
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
+  useZippyMood(loading ? 'thinking' : null);
   const [resendIn, setResendIn] = useState(30);
 
   const send = async () => {

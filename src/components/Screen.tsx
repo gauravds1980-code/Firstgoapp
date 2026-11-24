@@ -8,6 +8,7 @@ import type { AssistantContext, JourneyStep } from '../navigation/types';
 import { useApp } from '../state/AppState';
 import { colors, gutter, space, touch } from '../theme/tokens';
 import { StepProgress } from './StepProgress';
+import { HeaderDockSlot } from './assistant/HeaderDockSlot';
 import { Icon, PressableScale, Text } from './ui';
 
 export function BrandHeader({ showHome = true, subtitle, onHelp }: { showHome?: boolean; subtitle?: string; onHelp?: () => void }) {
@@ -26,6 +27,8 @@ export function BrandHeader({ showHome = true, subtitle, onHelp }: { showHome?: 
           <Icon name="creation" size={22} color={colors.accent} />
         </PressableScale>
       )}
+      {/* Zippy docks here (fixed footprint, so the header never shifts). */}
+      <HeaderDockSlot style={showHome ? { marginRight: space.xs } : undefined} />
       {showHome && (
         <PressableScale accessibilityRole="button" accessibilityLabel="Go to home"
           onPress={() => nav.navigate('Home')}

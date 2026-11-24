@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View } from 'react-native';
-import { colors, radius, space, touch } from '../theme/tokens';
+import { colors, fontScaleCap, radius, space, touch } from '../theme/tokens';
 import { DateRange, Preset, presetRange, rangeLabel, useDateRange } from '../state/stores';
 import { TODAY } from '../services/business';
 import { Sheet } from './Sheet';
@@ -10,7 +10,7 @@ export function ExampleTag() {
   return (
     <View style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: space.sm, paddingVertical: 4, borderRadius: radius.pill, backgroundColor: colors.ctaTint }}>
       <Icon name="flask-outline" size={14} color={colors.ctaDark} />
-      <Text variant="label" color={colors.ctaDark}>Example data</Text>
+      <Text variant="label" color={colors.ctaDark} maxFontSizeMultiplier={fontScaleCap.compact}>Example data</Text>
     </View>
   );
 }
@@ -18,10 +18,10 @@ export function ExampleTag() {
 export function Chip({ label, on, onPress, icon, count }: { label: string; on: boolean; onPress: () => void; icon?: IconName; count?: string }) {
   return (
     <PressableScale onPress={onPress} accessibilityRole="button" accessibilityState={{ selected: on }} accessibilityLabel={label}
-      style={{ minHeight: 40, paddingHorizontal: space.md, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1.5, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
+      style={{ minHeight: 40, paddingHorizontal: space.md, paddingVertical: space.xxs, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1.5, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
       {icon ? <Icon name={icon} size={16} color={on ? colors.onPrimary : colors.textSecondary} /> : null}
-      <Text variant="label" color={on ? colors.onPrimary : colors.text}>{label}</Text>
-      {count ? <Text variant="label" color={on ? 'rgba(255,255,255,0.8)' : colors.textSecondary}>{count}</Text> : null}
+      <Text variant="label" color={on ? colors.onPrimary : colors.text} numberOfLines={1} maxFontSizeMultiplier={fontScaleCap.compact} style={{ flexShrink: 1, textAlign: 'center' }}>{label}</Text>
+      {count ? <Text variant="label" color={on ? 'rgba(255,255,255,0.8)' : colors.textSecondary} maxFontSizeMultiplier={fontScaleCap.compact}>{count}</Text> : null}
     </PressableScale>
   );
 }

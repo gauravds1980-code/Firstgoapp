@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { JourneyScreen } from '../components/Screen';
+import { useZippyMood } from '../components/assistant/zippyStore';
 import { Banner, Button, Icon, PressableScale, Text } from '../components/ui';
 import { disbursal } from '../services';
 import type { DisbursalDocType } from '../services/types';
@@ -22,6 +23,7 @@ export default function DocsScreen() {
   const [busy, setBusy] = useState<DisbursalDocType | null>(null);
   const [disbursing, setDisbursing] = useState(false);
   const allUp = DOCS.every((d) => journey.docs[d.key]);
+  useZippyMood(busy || disbursing ? 'thinking' : null); // otherwise the route default ('happy' — loan approved)
 
   const upload = async (k: DisbursalDocType) => {
     setBusy(k);
@@ -48,7 +50,7 @@ export default function DocsScreen() {
         <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: colors.successSoft, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="check-decagram" size={48} color={colors.success} />
         </View>
-        <Text variant="h1">Loan Approved!</Text>
+        <Text variant="h1" style={{ textAlign: 'center' }}>Loan Approved!</Text>
         <Text variant="body" color={colors.textSecondary} style={{ textAlign: 'center' }}>Upload the 3 documents below to release the vehicle and trigger disbursal.</Text>
       </View>
 

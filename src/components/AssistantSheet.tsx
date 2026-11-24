@@ -96,7 +96,7 @@ const CONTEXT_LABEL: Record<AssistantContext, string> = {
 /** FIRST.AI-style thread: lavender assistant bubbles, indigo (#434377) user bubbles and suggestion chips. */
 export function AssistantSheet({ visible, onClose, context }: { visible: boolean; onClose: () => void; context: AssistantContext }) {
   const insets = useSafeAreaInsets();
-  const greeting: Msg = { from: 'bot', text: `Hey there! I'm ${ASSISTANT_NAME}, your ${APP_NAME} sidekick. ${TIPS[context]}` };
+  const greeting: Msg = { from: 'bot', text: `Hi, ${ASSISTANT_NAME} here — your ${APP_NAME} co-pilot. ${TIPS[context]}` };
   const [thread, setThread] = useState<Msg[]>([greeting]);
   const [speaking, setSpeaking] = useState(false);
   useEffect(() => { if (!visible) return; setSpeaking(true); const t = setTimeout(() => setSpeaking(false), 1400); return () => clearTimeout(t); }, [visible, thread.length]);

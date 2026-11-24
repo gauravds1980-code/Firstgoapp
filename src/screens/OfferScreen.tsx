@@ -20,10 +20,10 @@ export default function OfferScreen() {
         <View style={{ width: 88, height: 88, borderRadius: 44, backgroundColor: colors.successSoft, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="check-decagram" size={52} color={colors.success} />
         </View>
-        <Text variant="h2">Congratulations, {o.customerName.split(' ')[0]}!</Text>
-        <Text variant="body" color={colors.textSecondary}>Pre-qualified {used ? 'used ' : ''}{PRODUCTS[product].label.toLowerCase()} offer up to</Text>
-        <Text variant="display" color={colors.primary} accessibilityLabel={`Offer amount ${inr(o.amount)}`}>{inr(o.amount)}</Text>
-        <View style={{ flexDirection: 'row', gap: space.xs }}>
+        <Text variant="h2" style={{ textAlign: 'center' }}>Congratulations, {o.customerName.split(' ')[0]}!</Text>
+        <Text variant="body" color={colors.textSecondary} style={{ textAlign: 'center' }}>Pre-qualified {used ? 'used ' : ''}{PRODUCTS[product].label.toLowerCase()} offer up to</Text>
+        <Text variant="display" color={colors.primary} style={{ textAlign: 'center' }} accessibilityLabel={`Offer amount ${inr(o.amount)}`}>{inr(o.amount)}</Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: space.xs }}>
           <Pill label="ETB · PRE-APPROVED" tone="success" />
           <Pill label={`VALID TILL ${new Date(o.validTill).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }).toUpperCase()}`} tone="neutral" />
         </View>

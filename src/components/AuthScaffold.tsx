@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, gutter, radius, space } from '../theme/tokens';
 import { Text } from './ui';
 import { APP_NAME } from '../config/brand';
+import { HeaderDockSlot } from './assistant/HeaderDockSlot';
 
 /** Auth layout: maroon hero header with the IDFC FIRST logo, warm canvas body, fixed bottom CTA bar. */
 export function AuthScaffold({ title, subtitle, children, footer, top }: { title: string; subtitle: string; children: React.ReactNode; footer: React.ReactNode; top?: React.ReactNode }) {
@@ -16,7 +17,10 @@ export function AuthScaffold({ title, subtitle, children, footer, top }: { title
         <View pointerEvents="none" style={{ position: 'absolute', right: -40, top: -30, width: 180, height: 180, borderRadius: 90, backgroundColor: 'rgba(255,255,255,0.07)' }} />
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 48 }}>
           <Image source={require('../../assets/idfc-logo.png')} accessibilityLabel="IDFC FIRST Bank" style={{ height: 40, width: 40 * (455 / 151) }} resizeMode="contain" />
-          {top}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+            {top}
+            <HeaderDockSlot />
+          </View>
         </View>
         <View style={{ gap: space.xs }}>
           <Text variant="overline" color={colors.accent}>{APP_NAME.toUpperCase()} · DEALER APP</Text>

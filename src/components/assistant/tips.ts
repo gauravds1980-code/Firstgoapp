@@ -9,26 +9,26 @@ export const ROUTE_CONTEXT: Record<string, AssistantContext> = {
   Payouts: 'payouts', Portfolio: 'portfolio', Cases: 'cases', RcPendency: 'rc', TaInf: 'tainf',
 };
 
-/** One short, light-hearted tip per screen. */
+/** One short tip per screen — upbeat and confident, still dealer-floor professional. */
 export const TIPS: Record<AssistantContext, string> = {
-  login: "Hi, I'm Zippy! Use your registered dealer mobile and I'll get you in quick.",
-  home: 'Good to see you! Tap Scan QR at the bottom to start a loan in seconds.',
-  profile: 'Your dealership details live here. Looking sharp!',
-  scan: 'Hold the phone 15–20 cm from the QR. Brighter screen, faster scan.',
-  search: "The customer gets the OTP. Once all 6 digits are in, I'll verify it for you.",
-  offer: 'This is the pre-approved ceiling. Good news travels fast!',
-  asset: 'Slide the amount and the EMI updates live. Keep it under ₹15,000 for UPI AutoPay.',
-  kyc: 'Ask the customer to remove glasses and cap. Good light, eye level. Smile optional!',
-  mandate: 'Ask the customer to open their UPI app and approve the AutoPay request.',
-  kfs: 'Walk the customer through the charges. Clear now, happy later.',
-  esign: 'Customer reads the OTP out. All 6 digits in and it signs by itself.',
-  docs: "Three uploads and you're done. Disbursal kicks off on its own.",
-  disbursal: "Woohoo, money's on its way! Remember to share the RC once it's out.",
-  payouts: 'Tap an invoice to see each case. Not claimed yet? One tap on Claim.',
-  portfolio: 'Green is good. Tap a DPD bucket to see who needs a gentle nudge.',
-  cases: 'Switch the date range at the top to compare months.',
+  login: "Your registered dealer mobile is the key. I'll hold the door.",
+  home: 'Ready when you are. Scan QR below is the express lane to a new loan.',
+  profile: 'Your dealership, at a glance. Changes go through your RM.',
+  scan: '15–20 cm away, screen brightness up. QR codes love a well-lit stage.',
+  search: "Customer reads out the OTP; six digits in and I'll verify it on the spot.",
+  offer: "Pre-approved and ready. That's the ceiling — no haggling with this number.",
+  asset: 'Slide the amount and the EMI follows. Under ₹15,000 keeps UPI AutoPay happy.',
+  kyc: 'Glasses and cap off, good light, eye level. The camera does the rest.',
+  mandate: 'One approval in their UPI app and AutoPay is sorted for the whole tenure.',
+  kfs: 'Walk them through every charge. A clear KFS today saves a call tomorrow.',
+  esign: 'Customer reads the OTP aloud. Six digits and the agreement signs itself.',
+  docs: 'Three uploads stand between you and disbursal. Invoice first?',
+  disbursal: "Money's on its way. Share the RC once registration's done — I'll remind you.",
+  payouts: "Tap an invoice to see each case. Unclaimed? One tap and it's in the queue.",
+  portfolio: 'Green is good. Tap a DPD bucket to see who needs a friendly nudge.',
+  cases: 'Flip the date range up top to compare months side by side.',
   rc: "Snap the RC and I'll read the number. Tick a few to share them in one go.",
-  tainf: 'Watch the bar: above 80% utilised it turns red.',
+  tainf: 'Keep an eye on the bar: past 80% utilised, it turns red.',
 };
 
 /**

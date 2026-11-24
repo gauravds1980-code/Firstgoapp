@@ -147,6 +147,19 @@ export const type = {
   overline: { fontSize: 11, lineHeight: 16, fontFamily: fontFamily.bold, letterSpacing: 1.2 },
 };
 
+/**
+ * Android-only text metrics fix. Inter ships tall ascender/descender metrics, and Android's default
+ * `includeFontPadding: true` adds that as extra top/bottom padding on top of `lineHeight` — glyphs then
+ * sit high or low inside fixed-height pills, buttons, OTP boxes and inputs. iOS / web ignore these props.
+ */
+export const textFix = Platform.select({
+  android: { includeFontPadding: false, textAlignVertical: 'center' as const },
+  default: {},
+});
+
+/** Caps on OS font scaling for dense, height-bound controls (CTAs, pills, badges, OTP digits). */
+export const fontScaleCap = { control: 1.2, compact: 1.3 } as const;
+
 /** Brand soft shadow: 0 4px 8px rgba(37,36,59,0.1). */
 export const elevation = {
   card: Platform.select({
@@ -164,9 +177,11 @@ export const button = {
   radius: radius.pill,
   paddingH: space.lg,
   text: type.h3,
+  /** Label line height inside CTAs — a touch tighter than h3 so a 2-line label still fits a ~64dp pill. */
+  lineHeight: 21,
 };
 
 export const motion = { pressScale: 0.97, fast: 120, normal: 220 } as const;
 
-export const tokens = { gutter, colors, space, radius, touch, type, fontFamily, elevation, button, motion, brandSource };
+export const tokens = { gutter, colors, space, radius, touch, type, textFix, fontScaleCap, fontFamily, elevation, button, motion, brandSource };
 export default tokens;

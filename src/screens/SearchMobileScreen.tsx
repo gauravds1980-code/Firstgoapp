@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { JourneyScreen } from '../components/Screen';
+import { useZippyMood } from '../components/assistant/zippyStore';
 import { Banner, Button, ErrorState, Field, Icon, OtpInput, PressableScale, Text } from '../components/ui';
 import { AVAILABLE_FROM } from '../config/phases';
 import { PRODUCTS } from '../config/products';
@@ -22,6 +23,7 @@ export default function SearchMobileScreen() {
   const [touched, setTouched] = useState(false);
   const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
+  useZippyMood(loading ? 'thinking' : null);
   const [err, setErr] = useState<string | null>(null);
   const [netErr, setNetErr] = useState<string | null>(null);
   const [resendIn, setResendIn] = useState(30);

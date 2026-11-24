@@ -1,18 +1,32 @@
 import React, { useEffect, useRef } from 'react';
 import {
-  ActivityIndicator, Animated, Pressable, PressableProps, StyleProp, StyleSheet, Text as RNText,
-  TextInput, TextInputProps, TextProps, View, ViewStyle,
+  ActivityIndicator, Animated, Platform, Pressable, PressableProps, StyleProp, StyleSheet, Text as RNText,
+  TextInput, TextInputProps, TextProps, TextStyle, View, ViewStyle,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { colors, elevation, motion, radius, space, touch, type } from '../theme/tokens';
+import { button, colors, elevation, fontScaleCap, motion, radius, space, textFix, touch, type } from '../theme/tokens';
 import { haptic } from '../utils/haptics';
 
 export type IconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 export const Icon = MaterialCommunityIcons;
 
 type Variant = keyof typeof type;
+/** All app text. `textFix` strips Android's Inter font padding once, so every variant centres the same on Android, iOS and web. */
 export function Text({ variant = 'body', color = colors.text, style, ...rest }: TextProps & { variant?: Variant; color?: string }) {
-  return <RNText {...rest} style={[type[variant], { color }, style]} />;
+  return <RNText {...rest} style={[type[variant], textFix, { color }, style]} />;
+}
+
+/**
+ * CTA label shared by <Button> and custom pill CTAs (e.g. Home hero): centred, wraps to at most
+ * 2 lines instead of clipping, shrinks beside an icon, and caps OS font scaling so a 1.3× setting
+ * can't blow the pill apart.
+ */
+export function ButtonLabel({ children, color, style }: { children: React.ReactNode; color: string; style?: StyleProp<TextStyle> }) {
+  return (
+    <Text variant="h3" color={color} numberOfLines={2} maxFontSizeMultiplier={fontScaleCap.control} style={[s.btnLabel, style]}>
+      {children}
+    </Text>
+  );
 }
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -47,13 +61,13 @@ export function Button({ label, onPress, variant = 'primary', icon, iconRight, l
     <PressableScale
       accessibilityRole="button" accessibilityLabel={label} accessibilityHint={accessibilityHint}
       onPress={onPress} disabled={disabled || loading}
-      style={[s.btn, { backgroundColor: bg }, variant === 'secondary' && s.btnSecondary, variant === 'ghost' && { height: touch.min }, style]}
+      style={[s.btn, { backgroundColor: bg }, variant === 'secondary' && s.btnSecondary, variant === 'ghost' && s.btnGhost, style]}
     >
       {loading ? <ActivityIndicator color={fg} /> : (
         <>
-          {icon && <Icon name={icon} size={20} color={fg} />}
-          <Text variant="h3" color={fg}>{label}</Text>
-          {iconRight && <Icon name={iconRight} size={20} color={fg} />}
+          {icon && <Icon name={icon} size={20} color={fg} style={s.btnIcon} />}
+          <ButtonLabel color={fg}>{label}</ButtonLabel>
+          {iconRight && <Icon name={iconRight} size={20} color={fg} style={s.btnIcon} />}
         </>
       )}
     </PressableScale>
@@ -68,7 +82,7 @@ export function Badge({ count, style }: { count: number; style?: StyleProp<ViewS
   if (!count) return null;
   return (
     <View style={[s.badge, style]} accessibilityLabel={`${count} pending`}>
-      <Text variant="caption" color={colors.onPrimary} style={{ fontFamily: type.overline.fontFamily }}>{count > 99 ? '99+' : count}</Text>
+      <Text variant="caption" color={colors.onPrimary} maxFontSizeMultiplier={fontScaleCap.control} style={s.badgeText}>{count > 99 ? '99+' : count}</Text>
     </View>
   );
 }
@@ -79,7 +93,11 @@ export function Pill({ label, tone = 'neutral' }: { label: string; tone?: 'neutr
     warning: [colors.warningSoft, colors.warning], danger: [colors.dangerSoft, colors.danger], brand: [colors.primarySoft, colors.primary], info: ['#E7F3F8', '#1A5E86'],
   } as const;
   const [bg, fg] = map[tone];
-  return <View style={[s.pill, { backgroundColor: bg }]}><Text variant="overline" color={fg}>{label}</Text></View>;
+  return (
+    <View style={[s.pill, { backgroundColor: bg }]}>
+      <Text variant="overline" color={fg} numberOfLines={1} maxFontSizeMultiplier={fontScaleCap.control} style={s.pillText}>{label}</Text>
+    </View>
+  );
 }
 
 export function Skeleton({ w = '100%', h = 16, r = radius.sm, style }: { w?: number | `${number}%`; h?: number; r?: number; style?: StyleProp<ViewStyle> }) {
@@ -130,12 +148,13 @@ export function Field({ label, prefix, error, hint, right, ...input }: TextInput
     <View style={{ gap: space.xs }}>
       <Text variant="label">{label}</Text>
       <View style={[s.field, error ? { borderColor: colors.danger } : null]}>
-        {prefix && <Text variant="bodyStrong" color={colors.textSecondary} style={s.prefix}>{prefix}</Text>}
+        {prefix && <Text variant="bodyStrong" color={colors.textSecondary} maxFontSizeMultiplier={fontScaleCap.compact} style={s.prefix}>{prefix}</Text>}
         <TextInput
           placeholderTextColor={colors.textMuted}
           accessibilityLabel={label}
+          maxFontSizeMultiplier={fontScaleCap.compact}
           {...input}
-          style={[type.body, { flex: 1, color: colors.text, height: touch.cta, paddingHorizontal: space.md }, { outlineStyle: 'none' } as object]}
+          style={[inputText, s.input, { outlineStyle: 'none' } as object]}
         />
         {right}
       </View>
@@ -148,8 +167,9 @@ export function Field({ label, prefix, error, hint, right, ...input }: TextInput
 export function ReadOnlyRow({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
     <View style={s.row}>
-      <Text variant="body" color={colors.textSecondary} style={{ flex: 1 }}>{label}</Text>
-      <Text variant={strong ? 'h3' : 'bodyStrong'} style={{ textAlign: 'right' }}>{value}</Text>
+      {/* Label + value tops line up; a strong (h3) value is 2px taller per line, so nudge the label to share its first baseline. */}
+      <Text variant="body" color={colors.textSecondary} style={[s.rowLabel, strong && { paddingTop: (type.h3.lineHeight - type.body.lineHeight) / 2 }]}>{label}</Text>
+      <Text variant={strong ? 'h3' : 'bodyStrong'} style={s.rowValue}>{value}</Text>
     </View>
   );
 }
@@ -169,7 +189,7 @@ export function Segmented<T extends string>({ options, value, onChange, inverse 
             style={[s.segItem, on && { backgroundColor: inverse ? colors.surface : colors.primary }]}
           >
             {o.icon && <Icon name={o.icon} size={18} color={fg} />}
-            <Text variant="label" color={fg}>{o.label}</Text>
+            <Text variant="label" color={fg} numberOfLines={1} maxFontSizeMultiplier={fontScaleCap.compact} style={s.segLabel}>{o.label}</Text>
           </Pressable>
         );
       })}
@@ -186,7 +206,7 @@ export function OtpInput({ value, onChange, length = 6, error, disabled, label =
         const active = i === value.length;
         return (
           <View key={i} style={[s.otpBox, active && !disabled && { borderColor: colors.primary, borderWidth: 2 }, error && { borderColor: colors.danger, backgroundColor: colors.dangerSoft }, disabled && { backgroundColor: colors.surfaceMuted }]}>
-            <Text variant="h2">{value[i] ?? ''}</Text>
+            <Text variant="h2" maxFontSizeMultiplier={fontScaleCap.control} style={s.otpDigit}>{value[i] ?? ''}</Text>
           </View>
         );
       })}
@@ -200,18 +220,40 @@ export function OtpInput({ value, onChange, length = 6, error, disabled, label =
   );
 }
 
+/**
+ * Input text. iOS/web keep the body style as-is. On Android, a lineHeight on a single-line TextInput
+ * shifts the glyphs and caret, and the native default vertical padding pushes digits off-centre
+ * against the "+91" prefix — so drop both and centre vertically.
+ */
+const inputText: TextStyle = Platform.OS === 'android'
+  ? { fontSize: type.body.fontSize, fontFamily: type.body.fontFamily, includeFontPadding: false, textAlignVertical: 'center', paddingVertical: 0 }
+  : type.body;
+
 export const s = StyleSheet.create({
-  btn: { height: touch.cta, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, paddingHorizontal: space.lg },
+  // minHeight (not height) so a 2-line label or 1.2× font scale grows the pill instead of clipping it.
+  btn: { minHeight: touch.cta, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, paddingHorizontal: space.lg, paddingVertical: space.xs },
   btnSecondary: { borderWidth: 1.5, borderColor: colors.primary },
+  btnGhost: { minHeight: touch.min, paddingVertical: space.xxs },
+  btnIcon: { flexShrink: 0 },
+  btnLabel: { flexShrink: 1, textAlign: 'center', lineHeight: button.lineHeight },
   card: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: space.md, borderWidth: 1, borderColor: colors.border, ...(elevation.card as object) },
-  badge: { minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.surface },
-  pill: { paddingHorizontal: space.sm, paddingVertical: space.xxs, borderRadius: radius.pill, alignSelf: 'flex-start' },
+  badge: { minWidth: 20, minHeight: 20, borderRadius: radius.pill, paddingHorizontal: 5, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.surface },
+  badgeText: { fontFamily: type.overline.fontFamily, lineHeight: 14, textAlign: 'center' },
+  pill: { minHeight: 24, paddingHorizontal: space.sm, paddingVertical: 3, borderRadius: radius.pill, alignSelf: 'flex-start', alignItems: 'center', justifyContent: 'center', flexShrink: 1 },
+  // letterSpacing is also added after the last glyph; trim it so caps labels look centred in the pill.
+  pillText: { textAlign: 'center', lineHeight: 16, marginRight: -type.overline.letterSpacing },
   banner: { flexDirection: 'row', gap: space.sm, padding: space.sm, borderRadius: radius.md, alignItems: 'flex-start' },
+  otpDigit: { width: '100%', textAlign: 'center' },
   circle: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center' },
   field: { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface },
   prefix: { paddingLeft: space.md, paddingRight: space.xs, borderRightWidth: 1, borderRightColor: colors.border },
-  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: space.xs, gap: space.sm },
+  input: { flex: 1, color: colors.text, minHeight: touch.cta, paddingHorizontal: space.md },
+  // flex-start so a wrapped value (address, UMN, rate) keeps its first line level with the label.
+  row: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: space.xs, gap: space.sm },
+  rowLabel: { flex: 1, minWidth: '35%' },
+  rowValue: { flexShrink: 1, maxWidth: '62%', textAlign: 'right' },
   seg: { flexDirection: 'row', backgroundColor: colors.surfaceMuted, borderRadius: radius.md, padding: space.xxs },
-  segItem: { flex: 1, minHeight: touch.min - 8, flexDirection: 'row', gap: space.xs, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm },
-  otpBox: { flex: 1, height: touch.cta, borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
+  segItem: { flex: 1, minHeight: touch.min - 8, paddingVertical: space.xxs, paddingHorizontal: space.xs, flexDirection: 'row', gap: space.xs, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm },
+  segLabel: { flexShrink: 1, textAlign: 'center' },
+  otpBox: { flex: 1, minWidth: 0, height: touch.cta, borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
 });
