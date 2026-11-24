@@ -42,6 +42,10 @@ yarn-error.*
 .gradle/
 build/
 
+# temporary download-server artifacts (never ship in expo export output)
+public/*.apk
+public/*.zip
+
 # local tooling
 .idea/
 *.log

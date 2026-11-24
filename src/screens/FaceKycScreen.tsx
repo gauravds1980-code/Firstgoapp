@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useSwipeBack } from '../navigation/useSwipeBack';
 import { useZippyTip } from '../components/assistant/tips';
 import { JourneyScreen } from '../components/Screen';
 import { Banner, Button, Card, Icon, Pill, PressableScale, ReadOnlyRow, Text } from '../components/ui';
@@ -49,6 +50,7 @@ export default function FaceKycScreen() {
   const advanced = useRef(false);
   const plan = waiverPlan(journey, product);
   useZippyTip(kycOnFile && !journey.ekyc ? '' : null); // quiet during the auto-advancing waiver beat
+  useSwipeBack(!(kycOnFile && !journey.ekyc)); // iOS: no swipe-back mid waiver animation
   if (kycOnFile && !journey.ekyc) {
     const both = plan.mandate && !journey.mandate;
     const mdt = journey.offer.waivers.mandateOnFile;

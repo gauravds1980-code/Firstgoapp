@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Image, Platform, View } from 'react-native';
+import { Alert, Image, Linking, Platform, View } from 'react-native';
 import Animated, { FadeInDown, FadeOut, LinearTransition } from 'react-native-reanimated';
 import * as ImagePicker from 'expo-image-picker';
 import { JourneyScreen } from '../components/Screen';
@@ -39,7 +39,17 @@ export default function RcPendencyScreen() {
     try {
       if (source === 'camera' && Platform.OS !== 'web') {
         const perm = await ImagePicker.requestCameraPermissionsAsync();
-        if (!perm.granted) { haptic.error(); return; }
+        if (!perm.granted) {
+          haptic.error();
+          // iOS never re-prompts after a denial, so offer a route to Settings instead of failing silently.
+          if (Platform.OS === 'ios' && !perm.canAskAgain) {
+            Alert.alert('Camera access is off', 'Allow camera access in Settings to photograph the RC, or pick a photo from your gallery.', [
+              { text: 'Not now', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => { Linking.openSettings().catch(() => {}); } },
+            ]);
+          }
+          return;
+        }
       }
       const opts: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], quality: 0.5, allowsEditing: false };
       const res = source === 'camera' ? await ImagePicker.launchCameraAsync(opts) : await ImagePicker.launchImageLibraryAsync(opts);

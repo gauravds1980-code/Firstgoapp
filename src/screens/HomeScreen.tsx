@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { RefreshControl, ScrollView, View } from 'react-native';
+import { Platform, RefreshControl, ScrollView, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -83,8 +83,10 @@ export default function HomeScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
       >
         {/* HERO — dominant one-tap start */}
+        {/* iOS clips shadows on overflow:'hidden' views, so on iOS the shadow lives on a wrapper (Android/web unchanged). */}
+        <View style={IOS ? [{ borderRadius: radius.xl, backgroundColor: colors.primary }, elevation.raised as object] : undefined}>
         <LinearGradient colors={['#B43140', colors.primary, colors.primaryDark]} locations={[0, 0.48, 1]} start={{ x: 0.2, y: 0 }} end={{ x: 0.8, y: 1 }}
-          style={[{ borderRadius: radius.xl, padding: space.lg, gap: space.md, overflow: 'hidden' }, elevation.raised as object]}>
+          style={[{ borderRadius: radius.xl, padding: space.lg, gap: space.md, overflow: 'hidden' }, IOS ? null : elevation.raised as object]}>
           <View pointerEvents="none" style={{ position: 'absolute', right: -32, top: -40, width: 170, height: 170, borderRadius: 85, backgroundColor: 'rgba(255,255,255,0.07)' }} />
           <View pointerEvents="none" style={{ position: 'absolute', right: 40, bottom: -60, width: 140, height: 140, borderRadius: 70, backgroundColor: 'rgba(0,0,0,0.10)' }} />
           <View style={{ gap: space.xxs }}>
@@ -118,6 +120,7 @@ export default function HomeScreen() {
             <Icon name="arrow-down" size={16} color="rgba(255,255,255,0.85)" />
           </View>
         </LinearGradient>
+        </View>
 
         {/* Today */}
         <Section title="Today">
@@ -207,6 +210,9 @@ export default function HomeScreen() {
   );
 }
 
+/** iOS draws shadows only on unclipped views (see hero + action tiles). */
+const IOS = Platform.OS === 'ios';
+
 const iconBtn = { width: touch.min, height: touch.min, alignItems: 'center' as const, justifyContent: 'center' as const };
 
 /** The IDFC FIRST "F" bars mark. */
@@ -243,7 +249,7 @@ function ActionTile({ action, onPress }: { action: Tile | null; onPress: () => v
   if (!action) return <View style={{ width: '48%', flexGrow: 1 }}><Skeleton h={104} r={radius.lg} /></View>;
   return (
     <PressableScale onPress={onPress} accessibilityRole="button" accessibilityLabel={`${action.label}${action.count ? `, ${action.count} pending` : ''}`}
-      style={[{ width: '48%', flexGrow: 1, minHeight: 104, backgroundColor: action.color, borderRadius: radius.lg, padding: space.md, justifyContent: 'space-between', overflow: 'hidden' }, elevation.card as object]}>
+      style={[{ width: '48%', flexGrow: 1, minHeight: 104, backgroundColor: action.color, borderRadius: radius.lg, padding: space.md, justifyContent: 'space-between', overflow: IOS ? 'visible' : 'hidden' }, elevation.card as object]}>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <View style={{ width: 40, height: 40, borderRadius: radius.md, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}>
           <Icon name={action.icon} size={22} color={colors.onPrimary} />

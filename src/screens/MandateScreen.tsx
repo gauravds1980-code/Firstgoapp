@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useSwipeBack } from '../navigation/useSwipeBack';
 import { useZippyTip } from '../components/assistant/tips';
 import { JourneyScreen } from '../components/Screen';
 import { Banner, Button, Card, Field, Icon, PressableScale, ReadOnlyRow, Text } from '../components/ui';
@@ -36,6 +37,7 @@ export default function MandateScreen() {
   const covers = !!onFile && monthly <= onFile.maxAmount;
   const advanced = useRef(false);
   useZippyTip(onFile && covers && !journey.mandate ? '' : null);
+  useSwipeBack(!(onFile && covers && !journey.mandate)); // iOS: no swipe-back mid waiver animation
 
   const create = async () => {
     setLoading(true); setErr('');

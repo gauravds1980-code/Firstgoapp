@@ -7,9 +7,18 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.idfcfirst.firstgo.dealer",
+      "buildNumber": "1",
+      "icon": "./assets/ios-icon.png",
+      "infoPlist": {
+        "NSCameraUsageDescription": "FIRSTgo uses the camera to scan the customer's IDFC FIRST offer QR code and to photograph RCs.",
+        "NSPhotoLibraryUsageDescription": "FIRSTgo needs access to your photos to upload the customer's RC.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
+      "package": "com.idfcfirst.boom.dealer",
       "adaptiveIcon": {
         "backgroundColor": "#9D1D27",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -27,11 +36,16 @@
     "scheme": "boom",
     "plugins": [
       "expo-font",
-      "expo-secure-store",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": false
+        }
+      ],
       [
         "expo-camera",
         {
-          "cameraPermission": "FIRSTgo uses the camera to scan the customer’s IDFC FIRST offer QR code and to photograph RCs.",
+          "cameraPermission": "FIRSTgo uses the camera to scan the customer's IDFC FIRST offer QR code and to photograph RCs.",
           "microphonePermission": false,
           "recordAudioAndroid": false
         }
@@ -48,8 +62,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "FIRSTgo needs your photos to upload the customer's RC.",
-          "cameraPermission": "FIRSTgo uses the camera to scan customer QR codes and photograph RCs.",
+          "photosPermission": "FIRSTgo needs access to your photos to upload the customer's RC.",
+          "cameraPermission": "FIRSTgo uses the camera to scan the customer's IDFC FIRST offer QR code and to photograph RCs.",
           "microphonePermission": false
         }
       ]

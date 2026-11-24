@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { GestureResponderEvent, View } from 'react-native';
+import { GestureResponderEvent, Platform, View } from 'react-native';
 import { colors, radius, space, touch } from '../theme/tokens';
 import { haptic } from '../utils/haptics';
 import { Icon, PressableScale } from './ui';
@@ -32,7 +32,7 @@ export function Slider({ value, min, max, step, onChange, label }: { value: numb
         <View pointerEvents="none" style={{ height: 6, borderRadius: 3, backgroundColor: colors.primarySoft }}>
           <View style={{ width: `${pct * 100}%`, height: 6, borderRadius: 3, backgroundColor: colors.primary }} />
         </View>
-        <View pointerEvents="none" style={{ position: 'absolute', left: Math.max(0, pct * w - 14), width: 28, height: 28, borderRadius: 14, backgroundColor: colors.primary, borderWidth: 4, borderColor: colors.surface, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 4, elevation: 3 }} />
+        <View pointerEvents="none" style={{ position: 'absolute', left: Math.max(0, pct * w - 14), width: 28, height: 28, borderRadius: 14, backgroundColor: colors.primary, borderWidth: 4, borderColor: colors.surface, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 4, elevation: 3, ...(Platform.OS === 'ios' ? { shadowOffset: { width: 0, height: 2 } } : null) }} />
       </View>
       <PressableScale accessibilityRole="button" accessibilityLabel={`Increase ${label}`} onPress={() => bump(step * 5)} disabled={value >= max} style={btn}>
         <Icon name="plus" size={22} color={colors.primary} />

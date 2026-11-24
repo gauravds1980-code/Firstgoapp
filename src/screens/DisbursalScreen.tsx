@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
 import Animated, { FadeInLeft, FadeInUp, useReducedMotion } from 'react-native-reanimated';
 import { DisbursalHero } from '../components/motion/DisbursalMotion';
 import { GoldShimmer } from '../components/motion/primitives';
@@ -55,8 +55,9 @@ export default function DisbursalScreen() {
         </Text>
       </Animated.View>
 
-      <Card style={{ backgroundColor: colors.primaryTint, borderColor: colors.primarySoft, gap: space.sm, alignItems: 'center', overflow: 'hidden' }}>
-        <View onLayout={(e) => setCardW(e.nativeEvent.layout.width)} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }} pointerEvents="none">
+      <Card style={{ backgroundColor: colors.primaryTint, borderColor: colors.primarySoft, gap: space.sm, alignItems: 'center', overflow: Platform.OS === 'ios' ? 'visible' : 'hidden' }}>
+        {/* iOS: clip the shimmer layer itself so the card keeps its shadow (overflow:'hidden' drops iOS shadows). */}
+        <View onLayout={(e) => setCardW(e.nativeEvent.layout.width)} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, ...(Platform.OS === 'ios' ? { overflow: 'hidden' as const, borderRadius: radius.lg } : null) }} pointerEvents="none">
           {!reduce && <GoldShimmer width={cardW} height={220} delay={1500} />}
         </View>
         <Text variant="label" color={colors.textSecondary}>CREDITED TO DEALER</Text>

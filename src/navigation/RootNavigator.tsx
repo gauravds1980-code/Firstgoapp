@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Platform, View } from 'react-native';
 import { useApp } from '../state/AppState';
 import DealerLoginScreen from '../screens/DealerLoginScreen';
 import DealerOtpScreen from '../screens/DealerOtpScreen';
@@ -29,6 +29,15 @@ import { createNavigationContainerRef } from '@react-navigation/native';
 import { ZippyBubble } from '../components/assistant/ZippyBubble';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+
+/**
+ * Scanner slides up from the bottom. On iOS a native `fullScreenModal` is presented above the RN
+ * root, which would hide the global Zippy overlay (Android renders modals as regular stack
+ * screens). So on iOS it's a card that slides up and dismisses with a swipe down — same look as Android.
+ */
+const SCAN_OPTIONS = Platform.OS === 'ios'
+  ? { animation: 'slide_from_bottom', presentation: 'card', gestureDirection: 'vertical' } as const
+  : { animation: 'slide_from_bottom', presentation: 'fullScreenModal' } as const;
 export const navRef = createNavigationContainerRef<RootStackParamList>();
 
 /** Deep links (also give each screen a URL on web, used for screenshots). */
@@ -88,7 +97,7 @@ export default function RootNavigator() {
             <Stack.Screen name="Home" component={HomeScreen} />
             <Stack.Screen name="Profile" component={ProfileScreen} />
             <Stack.Screen name="QuickList" component={QuickListScreen} />
-            <Stack.Screen name="ScanQr" component={ScanQrScreen} options={{ animation: 'slide_from_bottom', presentation: 'fullScreenModal' }} />
+            <Stack.Screen name="ScanQr" component={ScanQrScreen} options={SCAN_OPTIONS} />
             <Stack.Screen name="SearchMobile" component={SearchMobileScreen} />
             <Stack.Screen name="Offer" component={OfferScreen} />
             <Stack.Screen name="Asset" component={AssetScreen} />

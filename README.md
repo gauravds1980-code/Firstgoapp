@@ -73,6 +73,12 @@ cd android && ./gradlew assembleRelease
 
 The published arm64 build for this version is checked in at `releases/FIRSTgo-v1.2.0-arm64.apk`. `android/` and `ios/` are generated and gitignored.
 
+## iOS
+
+The iOS app uses bundle id `com.idfcfirst.firstgo.dealer`. Producing an installable build needs EAS Build and an Apple Developer account, or a Mac with Xcode. Setup, permissions, and the build profiles are in [IOS_BUILD.md](IOS_BUILD.md).
+
+The iOS changes were produced with Claude Code.
+
 ## Structure
 
 - `src/theme/tokens.ts` — design tokens
