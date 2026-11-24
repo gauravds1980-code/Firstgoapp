@@ -9,7 +9,7 @@ import { PRODUCTS } from '../config/products';
 import { disbursal } from '../services';
 import type { DisbursalDocType } from '../services/types';
 import { useApp } from '../state/AppState';
-import { colors, radius, space } from '../theme/tokens';
+import { colors, fontScaleCap, radius, space } from '../theme/tokens';
 import { charges } from '../utils/finance';
 import { haptic } from '../utils/haptics';
 
@@ -18,6 +18,9 @@ const DOCS: { key: DisbursalDocType; title: string; sub: string; icon: React.Com
   { key: 'insurance', title: 'Insurance', sub: 'Valid policy with IDFC FIRST hypothecation', icon: 'shield-check-outline' },
   { key: 'deliveryPhoto', title: 'Asset delivery photo', sub: 'Customer with the vehicle', icon: 'camera-outline' },
 ];
+
+/** Fixed width of the trailing Upload / Retry / Uploading control (fits "Uploading" with its icon). */
+const DOC_ACTION_W = 96;
 
 export default function DocsScreen() {
   const nav = useNavigation();
@@ -82,18 +85,22 @@ export default function DocsScreen() {
               <View style={{ width: 48, height: 48, borderRadius: radius.md, backgroundColor: done ? colors.successSoft : colors.primaryTint, alignItems: 'center', justifyContent: 'center' }}>
                 <Icon name={d.icon} size={24} color={done ? colors.success : colors.primary} />
               </View>
-              <View style={{ flex: 1, gap: 2 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
-                  <Text variant="bodyStrong">{d.title}</Text>
+              {/* v1.2.9: text column shrinks and wraps (title + pill wrap too); the trailing control has a fixed width, so the
+                  Required pill never runs into Upload at 360dp or at 1.3× font scale. */}
+              <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: space.xs, rowGap: 2 }}>
+                  <Text variant="bodyStrong" style={{ flexShrink: 1 }}>{d.title}</Text>
                   {!done && <Pill label="Required" tone={fail ? 'danger' : 'warning'} />}
                 </View>
                 <Text variant="caption" color={colors.textSecondary}>{d.sub}</Text>
               </View>
-              {done ? <Icon name="check-circle" size={26} color={colors.successBright} />
-                : <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    <Icon name={busy === d.key ? 'loading' : 'tray-arrow-up'} size={22} color={colors.primary} />
-                    <Text variant="label" color={colors.primary}>{busy === d.key ? 'Uploading' : fail ? 'Retry' : 'Upload'}</Text>
-                  </View>}
+              <View style={{ width: DOC_ACTION_W, flexShrink: 0, alignItems: 'flex-end', justifyContent: 'center' }}>
+                {done ? <Icon name="check-circle" size={26} color={colors.successBright} />
+                  : <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Icon name={busy === d.key ? 'loading' : 'tray-arrow-up'} size={22} color={colors.primary} />
+                      <Text variant="label" color={colors.primary} numberOfLines={1} maxFontSizeMultiplier={fontScaleCap.control} style={{ flexShrink: 1 }}>{busy === d.key ? 'Uploading' : fail ? 'Retry' : 'Upload'}</Text>
+                    </View>}
+              </View>
             </PressableScale>
             {fail ? <Text variant="caption" color={colors.danger} accessibilityLiveRegion="polite">{fail} Tap to retry.</Text> : null}
             </View>

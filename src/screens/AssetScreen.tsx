@@ -9,7 +9,7 @@ import { UPI_MANDATE_EMI_CAP } from '../config/phases';
 import { CONDITION_LABEL, PRODUCTS, termsFor } from '../config/products';
 import { useApp } from '../state/AppState';
 import { colors, fontScaleCap, radius, space, touch, type } from '../theme/tokens';
-import { charges, emi, inr, maxLoan, maskMobile } from '../utils/finance';
+import { charges, emi, inr, maxLoan } from '../utils/finance';
 import { haptic } from '../utils/haptics';
 import { waiverPlan } from '../utils/waivers';
 import { NB_HYPHEN } from '../navigation/types';
@@ -19,7 +19,7 @@ import { useUndoSource } from '../voice/voiceUndo';
 
 export default function AssetScreen() {
   const nav = useNavigation();
-  const { journey, product, update, features, catalogue, profile } = useApp();
+  const { journey, product, update, catalogue, profile } = useApp();
   const p = PRODUCTS[product];
   const t = termsFor(product, journey.condition);
   const used = journey.condition === 'used';
@@ -28,7 +28,6 @@ export default function AssetScreen() {
   const loan = Math.min(journey.loan, max);
   const monthly = emi(loan, t.annualRate, journey.tenure);
   const overCap = monthly > UPI_MANDATE_EMI_CAP;
-  const mvp2Available = features.debitCardMandate || features.netBankingMandate;
   const offerBinds = journey.offer.amount < t.ltv * journey.asset.onRoadPrice;
 
   useEffect(() => { if (journey.loan > max) update({ loan: max }); }, [max, journey.loan, update]);
@@ -70,7 +69,8 @@ export default function AssetScreen() {
 
   // Shortest tenure that brings EMI under the UPI cap, to suggest a fix
   const fixTenure = p.tenureOptions.find((tn) => tn > journey.tenure && emi(loan, t.annualRate, tn) <= UPI_MANDATE_EMI_CAP);
-  const blocked = overCap && !mvp2Available;
+  // v1.2.9: UPI AutoPay is the only mandate method, so an EMI above the cap always blocks.
+  const blocked = overCap;
   const c = charges(product, loan);
   const [showCharges, setShowCharges] = useState(false);
   const ratePct = `${(t.annualRate * 100).toFixed(1)}%`;
@@ -97,34 +97,17 @@ export default function AssetScreen() {
           </View>
           <Text variant="h1" color={overCap ? colors.warning : colors.primary} style={{ fontVariant: ['tabular-nums'] }}>{inr(monthly)}<Text variant="caption" color={colors.textSecondary} style={{ lineHeight: type.h1.lineHeight }}> /mo</Text></Text>
         </View>
- {overCap && (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: mvp2Available ? colors.warningSoft : colors.dangerSoft, borderRadius: radius.md, padding: space.xs }} accessibilityRole="alert">
-            <Icon name="alert-circle-outline" size={18} color={mvp2Available ? colors.warning : colors.danger} />
-            <Text variant="caption" color={mvp2Available ? colors.warning : colors.danger} style={{ flex: 1, fontFamily: 'Inter_600SemiBold' }}>
-              {mvp2Available ? `Above ${inr(UPI_MANDATE_EMI_CAP)} UPI cap — debit card / net banking mandate will be used` : `Above the ${inr(UPI_MANDATE_EMI_CAP)} UPI AutoPay cap${fixTenure ? `. Try ${fixTenure}+ months` : ' — lower the amount'}`}
+        {overCap && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: colors.dangerSoft, borderRadius: radius.md, padding: space.xs }} accessibilityRole="alert">
+            <Icon name="alert-circle-outline" size={18} color={colors.danger} />
+            <Text variant="caption" color={colors.danger} style={{ flex: 1, fontFamily: 'Inter_600SemiBold' }}>
+              {`Above the ${inr(UPI_MANDATE_EMI_CAP)} UPI AutoPay cap${fixTenure ? `. Try ${fixTenure}+ months` : ' — lower the amount'}`}
             </Text>
           </View>
         )}
         <Button label={cta} iconRight="arrow-right" onPress={() => nav.navigate('FaceKyc')} disabled={blocked}
           accessibilityHint={blocked ? 'Disabled: EMI is above the UPI mandate cap' : undefined} />
       </View>}>
-      {/* Offer summary (merged from the Offer screen to save a tap) */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.md, borderRadius: radius.lg, backgroundColor: colors.successSoft, borderWidth: 1, borderColor: 'rgba(0,160,122,0.25)' }}
-        accessibilityLabel={`Pre-qualified offer for ${journey.offer.customerName}, up to ${inr(journey.offer.amount)}`}>
-        <Icon name="check-decagram" size={32} color={colors.success} />
-        <View style={{ flex: 1 }}>
-          <Text variant="caption" color={colors.textSecondary}>{journey.offer.customerName} · pre-approved up to</Text>
-          <Text variant="h2" color={colors.success} style={{ fontVariant: ['tabular-nums'] }}>{inr(journey.offer.amount)}</Text>
-          <Text variant="caption" color={colors.textSecondary}>Existing customer · {maskMobile(journey.offer.registeredMobile)} · LAN {journey.offer.loanApplicationNumber}</Text>
-          {(journey.offer.waivers.kycOnFile || journey.offer.waivers.mandateOnFile) && (
-            <Text variant="caption" color={colors.success} style={{ fontFamily: 'Inter_600SemiBold' }}>
-              {plan.kyc || plan.mandate
-                ? `On file: ${[plan.kyc && 'KYC', plan.mandate && 'AutoPay mandate'].filter(Boolean).join(' + ')} · ${plan.kyc && plan.mandate ? 'both steps' : 'that step'} skipped`
-                : 'AutoPay mandate on file doesn\'t cover this EMI · a new one is set up'}
-            </Text>
-          )}
-        </View>
-      </View>
       <View style={{ gap: space.xs }} onLayout={sec.at('vehicle')}>
         <Text variant="h2">Select the {used ? 'used ' : ''}{p.label.toLowerCase()}</Text>
         <Text variant="body" color={colors.textSecondary}>Pick the model the customer is buying, then set tenure and amount.</Text>
@@ -185,6 +168,8 @@ export default function AssetScreen() {
 
       <Card style={{ gap: space.xs, borderColor: blocked ? colors.danger : colors.border }}>
         <Text variant="label" color={colors.textSecondary}>Desired loan amount</Text>
+        {/* v1.2.9: the pre-approved tile is gone (the offer celebration shows it); keep the ceiling visible as a plain caption. */}
+        <Text variant="caption" color={colors.textSecondary}>Up to {inr(journey.offer.amount)} pre-approved</Text>
         <Text variant="display" color={colors.primary} style={{ fontVariant: ['tabular-nums'] }}>{inr(loan)}</Text>
         <Slider label="Loan amount" value={loan} min={min} max={max} step={p.loanStep} onChange={(v) => update({ loan: v })} />
         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
@@ -209,12 +194,8 @@ export default function AssetScreen() {
       </Card>
 
       {overCap ? (
-        mvp2Available ? (
-          <Banner tone="warning" title={`EMI above ${inr(UPI_MANDATE_EMI_CAP)} UPI AutoPay cap`} body="UPI mandate isn't available for this EMI. You'll set up a debit card or net banking mandate in the mandate step." />
-        ) : (
-          <Banner tone="danger" title={`EMI above ${inr(UPI_MANDATE_EMI_CAP)} — UPI AutoPay can't be used`}
-            body={`UPI AutoPay mandates go up to ${inr(UPI_MANDATE_EMI_CAP)}/month. ${fixTenure ? `Choose ${fixTenure} months or more, or ` : ''}lower the loan amount. Debit card / net banking mandates for higher EMIs are coming soon.`} />
-        )
+        <Banner tone="danger" title={`EMI above ${inr(UPI_MANDATE_EMI_CAP)} — UPI AutoPay can't be used`}
+          body={`UPI AutoPay mandates go up to ${inr(UPI_MANDATE_EMI_CAP)}/month. ${fixTenure ? `Choose ${fixTenure} months or more, or ` : ''}lower the loan amount.`} />
       ) : (
         <Banner tone="success" title="Eligible for UPI AutoPay" body={`EMI is within the ${inr(UPI_MANDATE_EMI_CAP)} UPI mandate cap.`} />
       )}

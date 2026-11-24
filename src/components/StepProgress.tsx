@@ -1,24 +1,28 @@
 import React from 'react';
 import { View } from 'react-native';
-import { JOURNEY_STEPS, JourneyStep } from '../navigation/types';
+import { FINAL_STEP_NEXT, JOURNEY_STEPS, JourneyStep } from '../navigation/types';
 import { useApp } from '../state/AppState';
 import { colors, fontScaleCap, space } from '../theme/tokens';
 import { waiverPlan } from '../utils/waivers';
 import { Icon, Text } from './ui';
 
 /**
- * Journey progress. Both labels stay on ONE line ("Step 3/6 · Mandate" · "Next: e‑sign"), so the
+ * Journey progress (5 steps). Both labels stay on ONE line ("Step 3/5 · Mandate" · "Next: e‑sign"), so the
  * header keeps the same height on every step. Steps already on file with the bank (KYC / AutoPay
  * mandate for ETB customers) are drawn as gold segments labelled "✓ On file" and never offered as "Next".
  *
  * `interstitial` (the "checking bank records" beat between steps) shows that title with no step number.
+ * A step that is not on the tracker (e.g. 'disbursal', the automatic final screen, or 'offer') renders nothing.
+ * The last step's "Next:" is FINAL_STEP_NEXT ("Auto-disbursal").
  */
 export function StepProgress({ step, interstitial }: { step: JourneyStep; interstitial?: string }) {
   const { journey, product } = useApp();
   const plan = waiverPlan(journey, product);
   const skipped = (k: JourneyStep) => (k === 'kyc' && plan.kyc) || (k === 'mandate' && plan.mandate);
-  const idx = Math.max(0, JOURNEY_STEPS.findIndex((s) => s.key === step));
-  const next = JOURNEY_STEPS.slice(idx + 1).find((s) => !skipped(s.key));
+  const idx = JOURNEY_STEPS.findIndex((s) => s.key === step);
+  if (idx < 0) return null;
+  const last = idx === JOURNEY_STEPS.length - 1;
+  const next = last ? FINAL_STEP_NEXT : JOURNEY_STEPS.slice(idx + 1).find((s) => !skipped(s.key));
   const anySkipped = JOURNEY_STEPS.some((s) => skipped(s.key));
   const skippedLabels = JOURNEY_STEPS.filter((s) => skipped(s.key)).map((s) => s.label);
   const a11y = interstitial

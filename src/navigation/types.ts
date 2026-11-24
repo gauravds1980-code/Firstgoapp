@@ -35,7 +35,9 @@ export const NB_HYPHEN = '\u2011';
 
 /**
  * `label` is the full name (a11y, help); `short` is what the one-line header shows
- * ("Step 3/6 · Mandate", "Next: e‑sign"), so the header never wraps or changes height.
+ * ("Step 3/5 · Mandate", "Next: e‑sign"), so the header never wraps or changes height.
+ * v1.2.9: 5 steps. Disbursal is automatic (the final screen, not a tracker step); the last step's
+ * "Next:" reads FINAL_STEP_NEXT instead.
  */
 export const JOURNEY_STEPS: { key: JourneyStep; label: string; short: string }[] = [
   // Offer is shown on the Vehicle & EMI screen since v1.2 (one screen less).
@@ -45,8 +47,10 @@ export const JOURNEY_STEPS: { key: JourneyStep; label: string; short: string }[]
   { key: 'mandate', label: 'AutoPay mandate', short: 'Mandate' },
   { key: 'esign', label: 'KFS consent & e-sign', short: `e${NB_HYPHEN}sign` },
   { key: 'docs', label: 'Documents', short: 'Documents' },
-  { key: 'disbursal', label: 'Disbursal', short: 'Disbursal' },
 ];
+
+/** What follows the last tracker step (Documents): disbursal happens by itself. */
+export const FINAL_STEP_NEXT = { label: 'Automatic disbursal', short: 'Auto-disbursal' };
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace

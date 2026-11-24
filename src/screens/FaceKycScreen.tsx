@@ -119,8 +119,8 @@ export default function FaceKycScreen() {
 
       {stage === 'done' && journey.ekyc ? (
         <Card style={{ gap: space.xxs }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text variant="label" color={colors.textSecondary}>{journey.ekyc.fromBankRecords ? 'FROM BANK RECORDS' : 'VERIFIED BY UIDAI'}</Text><Pill label={journey.ekyc.fromBankRecords ? 'KYC on file' : 'e\u2011KYC verified'} tone="success" />
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: space.xs }}>
+            <Text variant="label" color={colors.textSecondary} style={{ flexShrink: 1 }}>{journey.ekyc.fromBankRecords ? 'FROM BANK RECORDS' : 'VERIFIED BY UIDAI'}</Text><Pill label={journey.ekyc.fromBankRecords ? 'KYC on file' : 'e\u2011KYC verified'} tone="success" />
           </View>
           <ReadOnlyRow label="Name" value={journey.ekyc.name} />
           <ReadOnlyRow label="Date of birth" value={journey.ekyc.dob} />
