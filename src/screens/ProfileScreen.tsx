@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { logout } from '../services/auth';
-import { View } from 'react-native';
+import { Switch, View } from 'react-native';
 import { JourneyScreen } from '../components/Screen';
 import { Button, Card, Icon, Pill, PressableScale, ReadOnlyRow, Text } from '../components/ui';
 import { featuresFor, Phase, PHASE_LABELS } from '../config/phases';
@@ -10,6 +10,7 @@ import { DEALER_PRODUCTS } from '../config/products';
 import { DEALER_TYPE_LABEL, initials } from '../services/dealer';
 import { maskMobile } from '../utils/finance';
 import { SHOW_DEV_UI } from '../config/devFlags';
+import { setAskBeforeActing, useAskBeforeActing } from '../voice/voiceSettings';
 
 /** Dealer profile & settings (reached from the Home header avatar). The rollout-phase panel is tester-only (SHOW_DEV_UI). */
 export default function ProfileScreen() {
@@ -17,6 +18,7 @@ export default function ProfileScreen() {
   const [out, setOut] = useState(false);
   const doLogout = async () => { setOut(true); await logout(session); await signOut(); /* auth gate swaps to DealerLogin */ };
   const f = featuresFor(phase);
+  const askFirst = useAskBeforeActing();
   return (
     <JourneyScreen title="Profile" assistant="profile" showTerms={false} footer={<Button label="Log out" variant="secondary" icon="logout" onPress={doLogout} loading={out} />}>
       <Card style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
@@ -60,6 +62,16 @@ export default function ProfileScreen() {
         <ReadOnlyRow label="Account" value="••••4321 (Current)" />
         <ReadOnlyRow label="IFSC" value="IDFB0040101" />
       </Card>
+      <View style={{ minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.md, paddingVertical: space.sm, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border }}>
+        <Icon name="microphone-message" size={22} color={colors.primary} />
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text variant="bodyStrong">Ask before acting</Text>
+          <Text variant="caption" color={colors.textSecondary}>When off, Zippy acts on high-confidence commands and shows an Undo toast.</Text>
+        </View>
+        <Switch value={askFirst} onValueChange={setAskBeforeActing} accessibilityLabel="Ask before acting"
+          accessibilityHint="When on, Zippy asks you to confirm every voice command"
+          trackColor={{ false: colors.borderStrong, true: colors.primary }} thumbColor={colors.surface} ios_backgroundColor={colors.borderStrong} />
+      </View>
       {[['account-group-outline', 'Manage staff logins'], ['bell-outline', 'Notification settings'], ['lifebuoy', 'Help & support'], ['shield-lock-outline', 'Privacy & terms']].map(([ic, l]) => (
         <PressableScale key={l} accessibilityRole="button" accessibilityLabel={l} style={{ minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.md, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border }}>
           <Icon name={ic as never} size={22} color={colors.primary} />

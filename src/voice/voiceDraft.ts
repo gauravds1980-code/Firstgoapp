@@ -66,6 +66,8 @@ export const voiceDraft = {
   /** Read and clear (apply once). */
   consume(): VoiceDraft | null { const d = fresh(); if (current) { current = null; emit(); } return d; },
   clear() { if (current) { current = null; emit(); } },
+  /** Put back a draft captured earlier with peek() (voice Undo). */
+  restore(d: VoiceDraft | null) { current = d ? { ...d, slots: { ...d.slots } } : null; emit(); },
 };
 
 export function useVoiceDraft(): VoiceDraft | null {

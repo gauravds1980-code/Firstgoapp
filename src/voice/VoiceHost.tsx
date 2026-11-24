@@ -4,13 +4,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TIPS, ROUTE_CONTEXT } from '../components/assistant/tips';
 import { zippyDock } from '../components/assistant/zippyStore';
 import { Icon, Text } from '../components/ui';
-import { colors, elevation, gutter, radius, space } from '../theme/tokens';
+import { colors, elevation, gutter, radius, space, touch } from '../theme/tokens';
 import { VOICE_EXAMPLES } from './applyCommand';
 import type { AssistantActionName } from './types';
 import { useVoiceCommand } from './useVoiceCommand';
 import { installVoiceDemo } from './voiceDemo';
 import { VoicePreviewSheet } from './VoicePreviewSheet';
 import { useVoiceSession, voiceSession } from './voiceSession';
+import { loadVoiceSettings } from './voiceSettings';
 
 /** Banner sits just under the header row (where the docked mic lives). */
 const HEADER_H = 60;
@@ -51,6 +52,9 @@ export function VoiceHost({ route }: { route?: string }) {
   }, [show]);
 
   const voice = useVoiceCommand({ onTranscript, onNavigate, readOut });
+  useEffect(() => { void loadVoiceSettings(); }, []);
+  // The auto-act toast replaces any read-out banner (one message at a time under the header).
+  useEffect(() => { if (voice.toast) setBanner(null); }, [voice.toast]);
 
   useEffect(() => {
     voiceSession.bind({
@@ -103,6 +107,18 @@ export function VoiceHost({ route }: { route?: string }) {
           <Icon name={banner.kind === 'error' ? 'alert-circle-outline' : 'chat-processing-outline'} size={18} color={banner.kind === 'error' ? colors.danger : colors.primary} />
           <Text variant="caption" color={colors.text} style={{ flex: 1 }}>{banner.text}</Text>
         </Pressable>
+      )}
+      {voice.toast && (
+        <View key={voice.toast.id} accessibilityRole="alert" accessibilityLiveRegion="polite"
+          style={[{ position: 'absolute', top: top + (status ? 48 : 0), left: gutter.screen, right: gutter.screen, zIndex: 65, flexDirection: 'row', alignItems: 'center', gap: space.xs,
+            paddingLeft: space.md, paddingRight: space.xxs, minHeight: touch.min + space.xs, borderRadius: radius.md, backgroundColor: colors.textStrong }, elevation.card]}>
+          <Icon name={voice.toast.icon === 'navigate' ? 'arrow-right-circle-outline' : voice.toast.icon === 'select' ? 'check-circle-outline' : 'form-textbox'} size={20} color={colors.onPrimary} />
+          <Text variant="bodyStrong" color={colors.onPrimary} numberOfLines={2} style={{ flex: 1 }}>{voice.toast.text}</Text>
+          <Pressable onPress={voice.undo} accessibilityRole="button" accessibilityLabel={`Undo: ${voice.toast.text}`} hitSlop={8}
+            style={({ pressed }) => ({ minWidth: touch.min, minHeight: touch.min, paddingHorizontal: space.sm, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, opacity: pressed ? 0.7 : 1 })}>
+            <Text variant="label" color={colors.cta}>Undo</Text>
+          </Pressable>
+        </View>
       )}
       {showPreview && (
         <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { zIndex: 70 }]}>

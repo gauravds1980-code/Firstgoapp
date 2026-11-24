@@ -1,23 +1,36 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ZippyMood } from '../components/assistant/zippyStore';
 import { haptic } from '../utils/haptics';
-import { applyCommand, planCommand, speak, stopSpeaking, type ApplyOutcome } from './applyCommand';
+import { applyCommand, planCommand, ROUTE_LABEL, speak, stopSpeaking, type ApplyOutcome } from './applyCommand';
 import { isSpeaking } from './piper';
 import { getSttProvider } from './sttClient';
 import { voiceErrorMessage, type AssistantActionName, type CommandResponse, type IntentCandidate, type NormalizedField, type VoiceExpect } from './types';
 import { usePushToTalk } from './usePushToTalk';
 import { currentCommandContext } from './voiceContext';
-import { isOtpCommand, safeTranscript, withCandidate, withTypedValue } from './voiceLogic';
+import { autoToastText, isOtpCommand, planTarget, safeTranscript, shouldAutoExecute, undoSlotsFor, withCandidate, withTypedValue } from './voiceLogic';
+import { voiceSession } from './voiceSession';
+import { getAskBeforeActing } from './voiceSettings';
+import { captureUndo, runUndo, type UndoRecord } from './voiceUndo';
 import type { VoiceUiPhase } from './VoiceMicButton';
 
 /** `expect` is what the screen asked for when the clip was sent (used for "Type it instead" with no row). */
 export type VoicePreview = { command: CommandResponse; plan: ApplyOutcome; expect?: VoiceExpect };
 
+/** Non-blocking "Opening QR journey · Undo" toast after an auto-acted command. Text is OTP-safe. */
+export type VoiceToast = { id: number; text: string; icon: 'navigate' | 'select' | 'fill' };
+
+/** How long the auto-act toast (and its Undo) stays up. */
+export const AUTO_TOAST_MS = 3000;
+
+const isActed = (k: ApplyOutcome['kind']): k is 'navigated' | 'selected' | 'filled' => k === 'navigated' || k === 'selected' || k === 'filled';
+
 export const WAIT_FOR_ZIPPY = 'Wait until Zippy finishes speaking.';
 
 /**
  * The app's ONE voice session: hold mic → record → POST /command → staged preview → Confirm / Cancel.
- * Nothing navigates or fills until `confirm()`. Owned by VoiceHost (mounted once in RootNavigator) and
+ * Low / mid confidence: nothing navigates or fills until `confirm()`. High confidence (v1.2.7,
+ * `shouldAutoExecute`, "Ask before acting" off): the command is applied at once, Zippy's read-out starts
+ * at the same time (never delaying the action), and a 3 s toast offers Undo. Owned by VoiceHost (mounted once in RootNavigator) and
  * shared with the header badge, the floating badge and the sheet mic through `voiceSession`.
  *
  * While Zippy is speaking (the preview read-back or a help answer) a hold is ignored: the read-out is
@@ -38,6 +51,10 @@ export function useVoiceCommand({ onTranscript, onNavigate, readOut }: {
   const [cheer, setCheer] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const req = useRef(0);
+  const [toast, setToast] = useState<VoiceToast | null>(null);
+  const undoRef = useRef<{ id: number; record: UndoRecord } | null>(null);
+  /** Set when an auto-act closes the sheet: that close must not cut the read-out that just started. */
+  const keepSpeech = useRef(false);
 
   const say = useCallback((text: string, precomputed?: { audioBase64?: string; audioDurationSec?: number }) => {
     setSpeaking(true);
@@ -48,9 +65,34 @@ export function useVoiceCommand({ onTranscript, onNavigate, readOut }: {
   const abort = useCallback(() => {
     req.current += 1;
     ptt.cancel();
-    stopSpeaking();
-    setThinking(false); setError(null); setPreview(null); setSpeaking(false);
+    const keep = keepSpeech.current;
+    keepSpeech.current = false;
+    if (!keep) { stopSpeaking(); setSpeaking(false); }
+    setThinking(false); setError(null); setPreview(null);
   }, [ptt.cancel]);
+
+  // Toast auto-dismiss: after AUTO_TOAST_MS the action stands and Undo is gone.
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => {
+      setToast((cur) => (cur?.id === toast.id ? null : cur));
+      if (undoRef.current?.id === toast.id) undoRef.current = null;
+    }, AUTO_TOAST_MS);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  /** One-shot Undo of the last auto-act. Never presses Verify / Continue / Submit. */
+  const undo = useCallback(() => {
+    const u = undoRef.current;
+    undoRef.current = null;
+    setToast(null);
+    if (!u) return;
+    stopSpeaking(); setSpeaking(false);
+    runUndo(u.record);
+    haptic.select();
+  }, []);
+
+  const dismissToast = useCallback(() => { undoRef.current = null; setToast(null); }, []);
 
   useEffect(() => () => { req.current += 1; stopSpeaking(); }, []);
   useEffect(() => { if (!cheer) return; const t = setTimeout(() => setCheer(false), 1500); return () => clearTimeout(t); }, [cheer]);
@@ -75,12 +117,44 @@ export function useVoiceCommand({ onTranscript, onNavigate, readOut }: {
       const command = await getSttProvider().command(r.base64, r.mimeType, ctx);
       if (id !== req.current) return;
       onTranscript(safeTranscript(command));
-      setPreview({ command, plan: planCommand(command), ...(ctx.expect ? { expect: ctx.expect } : {}) });
+      const plan = planCommand(command);
       // Zippy reads the result back with the Piper WAV the server already made (no second /tts call).
       // For OTP the server's text is already safe ("OTP captured, six digits"); never speak digits here.
-      const text = (isOtpCommand(command) ? command.readBack ?? command.responseText : command.responseText ?? command.readBack) ?? '';
-      if (command.audioBase64) say(text, { audioBase64: command.audioBase64, audioDurationSec: command.audioDurationSec });
-      else if (command.readBack) say(command.readBack);
+      const readBack = () => {
+        const text = (isOtpCommand(command) ? command.readBack ?? command.responseText : command.responseText ?? command.readBack) ?? '';
+        if (command.audioBase64) say(text, { audioBase64: command.audioBase64, audioDurationSec: command.audioDurationSec });
+        else if (command.readBack) say(command.readBack);
+      };
+
+      // High confidence: act now, speak at the same time, offer Undo. No Confirm sheet.
+      if (isActed(plan.kind) && shouldAutoExecute(command, getAskBeforeActing())) {
+        const target = planTarget(command);
+        const record = captureUndo(undoSlotsFor(target), plan.kind === 'navigated');
+        const out = applyCommand(command, { navDelayMs: 0 });
+        if (isActed(out.kind)) {
+          const tid = Date.now();
+          undoRef.current = { id: tid, record };
+          setPreview(null);
+          setToast({
+            id: tid,
+            text: autoToastText(command, target, out.kind === 'navigated' ? ROUTE_LABEL[out.route] : undefined),
+            icon: out.kind === 'navigated' ? 'navigate' : out.kind === 'selected' ? 'select' : 'fill',
+          });
+          haptic.success();
+          setCheer(true);
+          // Closing the sheet (if open) runs abort(); keep the read-out that starts below.
+          if (voiceSession.sheet()) {
+            keepSpeech.current = true;
+            setTimeout(() => { keepSpeech.current = false; }, 1500);
+          }
+          onNavigate();
+          readBack();
+          return;
+        }
+      }
+
+      setPreview({ command, plan, ...(ctx.expect ? { expect: ctx.expect } : {}) });
+      readBack();
     } catch (e) {
       if (id !== req.current) return;
       haptic.error();
@@ -88,7 +162,7 @@ export function useVoiceCommand({ onTranscript, onNavigate, readOut }: {
     } finally {
       if (id === req.current) setThinking(false);
     }
-  }, [ptt.pressOut, onTranscript, say]);
+  }, [ptt.pressOut, onTranscript, onNavigate, say]);
 
   // Auto-stop at the max hold length behaves like letting go.
   ptt.onAutoStop.current = () => { void pressOut(); };
@@ -140,5 +214,5 @@ export function useVoiceCommand({ onTranscript, onNavigate, readOut }: {
   const actionable = preview && (preview.plan.kind === 'navigated' || preview.plan.kind === 'assistant' || preview.plan.kind === 'filled' || preview.plan.kind === 'selected');
   const mood: ZippyMood | null = phase !== 'idle' ? 'thinking' : cheer ? 'cheer' : actionable ? 'happy' : null;
 
-  return { phase, error, preview, mood, speaking, pressIn, pressOut, confirm, cancel, choose, editField, abort, stagePreview };
+  return { phase, error, preview, mood, speaking, toast, undo, dismissToast, pressIn, pressOut, confirm, cancel, choose, editField, abort, stagePreview };
 }

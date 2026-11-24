@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { checkSpeech, parseResponse } from '../sttClient';
 import type { CommandResponse } from '../types';
 import {
+  autoToastText, COMMAND_AUTO_THRESHOLD, DESTRUCTIVE_INTENTS, OPTION_AUTO_THRESHOLD, shouldAutoExecute, undoSlotsFor,
   displayFields, expectFor, hideFieldForSelect, planTarget, safeTranscript, slotsForSelect, slotsFromFields, validFields, withCandidate, withTypedValue,
 } from '../voiceLogic';
 import { clearVoiceOptions, getVoiceOptions, matchVehicleRow, setVoiceOptions, vehicleLabel } from '../voiceOptions';
@@ -228,4 +229,133 @@ test('option registry: labels, route scoping and token-safe clearing', () => {
   assert.equal(getVoiceOptions('Home').length, 1);
   clearVoiceOptions(b);
   assert.equal(getVoiceOptions().length, 0);
+});
+
+// ---------------------------------------------------------------------------------------------
+// v1.2.7 auto-act on high-confidence voice commands
+// ---------------------------------------------------------------------------------------------
+
+const XTREME_SELECT = { type: 'select', kind: 'vehicle_model', id: 'hero-xtreme', label: 'Hero Xtreme 125R', value: 'hero-xtreme' } as const;
+const xtreme = (over: Partial<CommandResponse> = {}) => base({ intent: 'SELECT_VEHICLE_MODEL', status: 'ok', action: { ...XTREME_SELECT }, ...over });
+
+test('parseResponse reads autoExecute / confidenceBand / autoReason and stays backward compatible', () => {
+  const p = parseResponse({ transcript: 'go home', intent: 'GO_HOME', score: 0.9, autoExecute: true, confidenceBand: 'auto', autoReason: 'semantic', matchMethod: 'semantic' });
+  assert.equal(p.autoExecute, true);
+  assert.equal(p.confidenceBand, 'auto');
+  assert.equal(p.autoReason, 'semantic');
+  assert.equal(p.method, 'semantic');
+  const old = parseResponse({ transcript: 'go home', intent: 'GO_HOME', score: 0.9 });
+  assert.equal(old.autoExecute, undefined);
+  assert.equal(old.confidenceBand, undefined);
+  assert.equal(parseResponse({ transcript: 'x', confidenceBand: 'bogus', autoExecute: 'yes' }).confidenceBand, undefined);
+  assert.equal(parseResponse({ transcript: 'x', autoExecute: 'yes' }).autoExecute, undefined);
+});
+
+test('option select auto-acts at 1.0 / 0.78 / 0.65, not at 0.58 or for clarify / retry', () => {
+  assert.equal(OPTION_AUTO_THRESHOLD, 0.65);
+  for (const score of [1.0, 0.78, 0.65]) {
+    assert.equal(shouldAutoExecute(xtreme({ score, autoExecute: true, confidenceBand: 'auto', autoReason: 'option' }), false), true, `server ${score}`);
+    assert.equal(shouldAutoExecute(xtreme({ score }), false), true, `fallback ${score}`);
+  }
+  // Slots-only SELECT_* intent (no action) also uses the fallback.
+  assert.equal(shouldAutoExecute(base({ intent: 'SELECT_VEHICLE_MODEL', score: 0.7, slots: { assetId: 'hero-xtreme', vehicle: 'Hero Xtreme 125R' } }), false), true);
+  assert.equal(shouldAutoExecute(xtreme({ score: 0.58 }), false), false);
+  assert.equal(shouldAutoExecute(xtreme({ score: 0.58, autoExecute: false, confidenceBand: 'confirm' }), false), false);
+  for (const status of ['clarify', 'retry', 'reprompt'] as const) {
+    assert.equal(shouldAutoExecute(xtreme({ score: 0.9, status, autoExecute: true }), false), false, status);
+  }
+  // The server's explicit "no" wins over a high fallback score.
+  assert.equal(shouldAutoExecute(xtreme({ score: 0.95, autoExecute: false }), false), false);
+});
+
+test('semantic GO_HOME / START_QR_JOURNEY auto-act at 0.90, not at 0.80', () => {
+  assert.equal(COMMAND_AUTO_THRESHOLD, 0.85);
+  for (const intent of ['GO_HOME', 'START_QR_JOURNEY']) {
+    assert.equal(shouldAutoExecute(base({ intent, score: 0.9, method: 'semantic' }), false), true, `${intent} fallback`);
+    assert.equal(shouldAutoExecute(base({ intent, score: 0.9, method: 'semantic', autoExecute: true, confidenceBand: 'auto' }), false), true, intent);
+    assert.equal(shouldAutoExecute(base({ intent, score: 0.8, method: 'semantic' }), false), false, `${intent} 0.80`);
+    assert.equal(shouldAutoExecute(base({ intent, score: 0.8, method: 'semantic', autoExecute: false, confidenceBand: 'confirm' }), false), false, `${intent} confirm`);
+  }
+  // Older servers that call it matchMethod.
+  assert.equal(shouldAutoExecute(base({ intent: 'GO_HOME', score: 0.9, matchMethod: 'semantic' }), false), true);
+  // Keyword match without autoExecute: the client does not guess.
+  assert.equal(shouldAutoExecute(base({ intent: 'GO_HOME', score: 0.9, method: 'keyword' }), false), false);
+  // Unique exact keyword the server marked auto.
+  assert.equal(shouldAutoExecute(base({ intent: 'GO_HOME', score: 1, method: 'keyword', autoExecute: true, autoReason: 'keyword_exact' }), false), true);
+});
+
+test('destructive intents never auto-act, even at 0.99 with autoExecute true', () => {
+  for (const intent of ['CONFIRM_OFFER', 'START_ESIGN', 'SETUP_UPI_MANDATE', 'OPEN_UPI_APP', 'UPLOAD_RC', 'TAKE_DELIVERY_PHOTO']) {
+    assert.ok(DESTRUCTIVE_INTENTS.has(intent), intent);
+    const route = intent === 'OPEN_UPI_APP' ? { action: { type: 'navigate' as const, route: 'Mandate' } } : {};
+    assert.equal(shouldAutoExecute(base({ intent, score: 0.99, method: 'semantic', autoExecute: true, confidenceBand: 'auto', ...route }), false), false, intent);
+  }
+  // Server-tagged destructive, and a navigate that presses a CTA.
+  assert.equal(shouldAutoExecute(base({ intent: 'GO_HOME', score: 0.99, autoExecute: true, autoReason: 'destructive' }), false), false);
+  assert.equal(shouldAutoExecute(base({ intent: 'SOMETHING', score: 0.99, autoExecute: true, action: { type: 'navigate', route: 'Offer', filter: 'confirm' } }), false), false);
+  assert.equal(shouldAutoExecute(base({ intent: 'VERIFY_OTP', score: 0.99, autoExecute: true, normalizedFields: OTP_REAL, hasOtpField: true }), false), false);
+});
+
+test('Ask before acting ON always shows Confirm, even at 0.99', () => {
+  assert.equal(shouldAutoExecute(xtreme({ score: 0.99, autoExecute: true, confidenceBand: 'auto' }), true), false);
+  assert.equal(shouldAutoExecute(base({ intent: 'GO_HOME', score: 0.99, method: 'semantic', autoExecute: true }), true), false);
+  assert.equal(shouldAutoExecute(base({ hasOtpField: true, normalizedFields: OTP_REAL, autoExecute: true, autoReason: 'field:OTP' }), true), false);
+});
+
+test('a valid OTP field auto-FILLS only; the toast and display stay masked', () => {
+  const cmd = base({ transcript: '[otp utterance]', intent: 'UNKNOWN', hasOtpField: true, normalizedFields: OTP_REAL, normalizedFieldsDisplay: OTP_SHOWN, autoExecute: true, confidenceBand: 'auto', autoReason: 'field:OTP' });
+  assert.equal(shouldAutoExecute(cmd, false), true);
+  const t = planTarget(cmd);
+  assert.equal(t.kind, 'fill');
+  assert.deepEqual(undoSlotsFor(t), ['otp']);
+  const text = autoToastText(cmd, t);
+  assert.equal(text, 'OTP captured, six digits');
+  assert.ok(!/\d/.test(text));
+  // Regression: display copies still masked.
+  assert.equal(displayFields(cmd)[0].display, '••••••');
+  assert.ok(!JSON.stringify(displayFields(cmd)).includes('482913'));
+  assert.equal(safeTranscript(base({ transcript: '4 8 2 9 1 3', hasOtpField: true })), '[otp utterance]');
+  // Invalid OTP never auto-fills (it stays reprompt / say again).
+  const bad = base({ hasOtpField: true, status: 'reprompt', normalizedFields: [{ type: 'OTP', value: '48', valid: false, display: '••' }], autoExecute: false });
+  assert.equal(shouldAutoExecute(bad, false), false);
+  // Fallback (no autoExecute): a valid phone fill auto-acts.
+  const phone = base({ normalizedFields: [{ type: 'PHONE', value: '9876543210', valid: true, display: '98765 43210' }] });
+  assert.equal(shouldAutoExecute(phone, false), true);
+  assert.equal(autoToastText(phone, planTarget(phone)), 'Mobile number 98765 43210');
+  assert.deepEqual(undoSlotsFor(planTarget(phone)), ['mobile']);
+});
+
+test('toast text for select and navigation', () => {
+  const sel = xtreme({ score: 0.9 });
+  assert.equal(autoToastText(sel, planTarget(sel)), 'Selected Hero Xtreme 125R');
+  assert.deepEqual(undoSlotsFor(planTarget(sel)), ['asset']);
+  const qr = base({ intent: 'START_QR_JOURNEY', responseText: 'Sure! Opening the QR scanner for you. Point it at the code?' });
+  assert.equal(autoToastText(qr, planTarget(qr), 'Scan customer QR'), 'Opening QR journey');
+  assert.equal(autoToastText(base({ intent: 'GO_HOME' }), planTarget(base({ intent: 'GO_HOME' }))), 'Opening Home');
+  assert.equal(autoToastText(base({ intent: 'START_MOBILE_JOURNEY' }), planTarget(base({ intent: 'START_MOBILE_JOURNEY' }))), 'Starting the mobile number journey');
+  const port = base({ intent: 'OPEN_PORTFOLIO', responseText: 'Opening your portfolio.' });
+  assert.equal(autoToastText(port, planTarget(port), 'Portfolio'), 'Opening your portfolio');
+  const longer = base({ intent: 'OPEN_PAYOUTS', responseText: 'Here are your payouts. Want me to filter them by month?' });
+  assert.equal(autoToastText(longer, planTarget(longer), 'Payouts'), 'Opening Payouts');
+  const tenure = base({ intent: 'SELECT_OPTION', action: { type: 'select', kind: 'tenure', id: 'tenure-24', label: '24 months', value: '24' } });
+  assert.deepEqual(undoSlotsFor(planTarget(tenure)), ['tenure']);
+});
+
+test('clarify xtrem pair: picking a candidate plans a select (not clarify) and drops stale server flags', () => {
+  const pair = [
+    { intent: 'SELECT_VEHICLE_MODEL', phrase: 'Hero Xtreme 125R', score: 0.62, option: { id: 'hero-xtreme', kind: 'vehicle_model', label: 'Hero Xtreme 125R', value: 'hero-xtreme' } },
+    { intent: 'SELECT_VEHICLE_MODEL', phrase: 'Hero Xtreme 160R', score: 0.61, option: { id: 'hero-xtreme-160', kind: 'vehicle_model', label: 'Hero Xtreme 160R', value: 'hero-xtreme-160' } },
+  ];
+  const cmd = base({ transcript: 'xtrem', intent: 'SELECT_VEHICLE_MODEL', status: 'clarify', candidates: pair, autoExecute: false, confidenceBand: 'clarify' });
+  assert.equal(shouldAutoExecute(cmd, false), false);
+  const picked = withCandidate(cmd, pair[1]);
+  assert.equal(picked.status, 'ok');
+  assert.equal(picked.confidenceBand, undefined);
+  assert.equal(picked.autoExecute, undefined);
+  const t = planTarget(picked);
+  assert.equal(t.kind, 'select');
+  assert.equal(t.kind === 'select' && t.id, 'hero-xtreme-160');
+  // Either Confirm or auto is fine after a manual pick; this one is a boolean decision, not clarify.
+  assert.equal(typeof shouldAutoExecute(picked, false), 'boolean');
+  assert.equal(shouldAutoExecute(picked, true), false);
 });

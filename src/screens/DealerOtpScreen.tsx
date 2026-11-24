@@ -10,6 +10,7 @@ import { colors, space, touch } from '../theme/tokens';
 import { haptic } from '../utils/haptics';
 import { maskMobile } from '../utils/finance';
 import { useVoiceDraft, voiceDraft } from '../voice/voiceDraft';
+import { useUndoSource } from '../voice/voiceUndo';
 
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
@@ -53,6 +54,9 @@ function DealerOtpForm() {
     const code = voiceDraft.take('otp');
     if (code) { setOtp(code.slice(0, 6)); setErr(null); }
   }, [draft, locked, loading]);
+
+  // Voice Undo (auto-filled OTP): put the previous boxes back. Never verifies.
+  useUndoSource('otp', () => otp, (v) => { setOtp(v); setErr(null); });
 
   const verify = async (code = otp) => {
     if (locked || loading || code.length !== 6) return;

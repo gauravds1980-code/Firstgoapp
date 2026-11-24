@@ -1,6 +1,6 @@
 import { commandUrl, isVoiceConfigured, streamUrl, STT_PROVIDER, STT_TIMEOUT_MS, VOICE_STREAMING, type SttProviderName } from './config';
 import {
-  VoiceError, type CommandContext, type CommandResponse, type CommandStatus, type IntentCandidate, type NormalizedField,
+  VoiceError, type CommandContext, type CommandResponse, type CommandStatus, type ConfidenceBand, type IntentCandidate, type NormalizedField,
   type VoiceAction, type VoiceReference,
 } from './types';
 
@@ -14,6 +14,7 @@ const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 
 const STATUSES: readonly CommandStatus[] = ['ok', 'clarify', 'retry', 'reprompt'];
+const BANDS: readonly ConfidenceBand[] = ['auto', 'confirm', 'clarify', 'retry', 'reprompt'];
 
 /** Numbers (tenure months, asset values) arrive as numbers or strings; keep them as strings. */
 const strOrNum = (v: unknown): string | undefined => (typeof v === 'string' ? v : typeof v === 'number' && Number.isFinite(v) ? String(v) : undefined);
@@ -122,6 +123,10 @@ export function parseResponse(body: unknown): CommandResponse {
     ...(typeof b.offerKeyboard === 'boolean' ? { offerKeyboard: b.offerKeyboard } : {}),
     ...(typeof b.repromptCount === 'number' ? { repromptCount: b.repromptCount } : {}),
     ...(b.hasOtpField === true ? { hasOtpField: true } : {}),
+    ...(typeof b.matchMethod === 'string' ? { matchMethod: b.matchMethod, ...(typeof b.method === 'string' ? {} : { method: b.matchMethod }) } : {}),
+    ...(typeof b.autoExecute === 'boolean' ? { autoExecute: b.autoExecute } : {}),
+    ...(BANDS.includes(b.confidenceBand as ConfidenceBand) ? { confidenceBand: b.confidenceBand as ConfidenceBand } : {}),
+    ...(typeof b.autoReason === 'string' ? { autoReason: b.autoReason } : {}),
   };
 }
 

@@ -124,7 +124,17 @@ export interface CommandResponse {
   offerKeyboard?: boolean;
   repromptCount?: number;
   hasOtpField?: boolean;
+  /** Older servers name the match method `matchMethod`; parseResponse copies it into `method` too. */
+  matchMethod?: string;
+  /** v1.2.7 auto-act contract (all optional). true = the server is sure enough to act without Confirm. */
+  autoExecute?: boolean;
+  confidenceBand?: ConfidenceBand;
+  /** 'option' | 'semantic' | 'keyword_exact' | 'field:PHONE' | 'destructive' | … */
+  autoReason?: string;
 }
+
+/** How the server banded this command's confidence (v1.2.7). */
+export type ConfidenceBand = 'auto' | 'confirm' | 'clarify' | 'retry' | 'reprompt';
 
 export type VoiceErrorCode =
   | 'permission_denied'

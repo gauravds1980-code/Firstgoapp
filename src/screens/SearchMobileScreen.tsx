@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View } from 'react-native';
-import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
+import { RouteProp, useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
 import { JourneyScreen } from '../components/Screen';
 import { useZippyMood } from '../components/assistant/zippyStore';
 import { useSectionTracker, useZippyPending } from '../components/assistant/zippySection';
@@ -14,6 +14,7 @@ import { haptic, hapticMoment } from '../utils/haptics';
 import { maskMobile } from '../utils/finance';
 import { SHOW_DEV_UI } from '../config/devFlags';
 import { useVoiceDraft, voiceDraft } from '../voice/voiceDraft';
+import { useUndoSource } from '../voice/voiceUndo';
 
 type Stage = 'enter' | 'otp' | 'none';
 
@@ -63,6 +64,11 @@ export default function SearchMobileScreen() {
       if (code) { setOtp(code.slice(0, 6)); setErr(null); }
     }
   }, [draft, stage, loading]);
+
+  // Voice Undo (auto-filled mobile / OTP): put the previous value back. Never verifies.
+  const focused = useIsFocused();
+  useUndoSource('mobile', () => mobile, (v) => { setMobile(v); setTouched(v !== ''); }, focused && stage === 'enter');
+  useUndoSource('otp', () => otp, (v) => { setOtp(v); setErr(null); }, focused && stage === 'otp');
 
   const sec = useSectionTracker<'mobile' | 'otp'>('mobile');
   useEffect(() => { sec.set(stage === 'otp' ? 'otp' : 'mobile'); }, [stage, sec]);

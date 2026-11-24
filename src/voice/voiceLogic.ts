@@ -226,6 +226,9 @@ export function withTypedValue(cmd: CommandResponse, index: number, type: Normal
   };
 }
 
+/** A picked candidate is a new decision: the server's auto flags for the clarify reply no longer apply. */
+const CLEAR_AUTO = { autoExecute: undefined, confidenceBand: undefined, autoReason: undefined } as const;
+
 /** Re-stage a clarify command with the candidate the dealer picked (Confirm still required). */
 export function withCandidate(cmd: CommandResponse, c: IntentCandidate): CommandResponse {
   if (c.option) {
@@ -239,6 +242,7 @@ export function withCandidate(cmd: CommandResponse, c: IntentCandidate): Command
       score: c.score,
       matchedPhrase: c.phrase,
       candidates: undefined,
+      ...CLEAR_AUTO,
       action: { type: 'select', kind: o.kind, id: o.id, label: o.label, ...(o.value !== undefined ? { value: o.value } : {}) },
       slots: slotsForSelect(target),
     };
@@ -251,6 +255,7 @@ export function withCandidate(cmd: CommandResponse, c: IntentCandidate): Command
     score: c.score,
     matchedPhrase: c.phrase,
     candidates: undefined,
+    ...CLEAR_AUTO,
     action: nav ? { type: 'navigate', route: nav.route, ...(nav.filter ? { filter: nav.filter } : {}) } : { type: 'none' },
   };
 }
@@ -273,4 +278,135 @@ export function expectFor(route: string | undefined, params?: unknown): VoiceExp
     if (stage === undefined || stage === 'enter' || stage === 'mobile') return 'phone';
   }
   return undefined;
+}
+
+// ---------------------------------------------------------------------------------------------
+// v1.2.7 auto-act: high-confidence commands act at once (toast + Undo) instead of opening Confirm.
+// ---------------------------------------------------------------------------------------------
+
+/** Option (vehicle / tenure chip) score at or above which a unique match acts without Confirm. */
+export const OPTION_AUTO_THRESHOLD = 0.65;
+/** Option scores in [OPTION_CONFIRM_THRESHOLD, OPTION_AUTO_THRESHOLD) open Confirm; below is "say again". */
+export const OPTION_CONFIRM_THRESHOLD = 0.5;
+/** LaBSE cosine at or above which a semantic command match acts without Confirm. */
+export const COMMAND_AUTO_THRESHOLD = 0.85;
+/** Command cosine in [COMMAND_CONFIRM_THRESHOLD, COMMAND_AUTO_THRESHOLD) opens Confirm. */
+export const COMMAND_CONFIRM_THRESHOLD = 0.75;
+/** Command cosine in [COMMAND_CLARIFY_THRESHOLD, COMMAND_CONFIRM_THRESHOLD) shows two buttons. */
+export const COMMAND_CLARIFY_THRESHOLD = 0.6;
+
+/**
+ * Intents that submit, verify, sign, pay or upload: NEVER auto-executed, whatever the server says.
+ * (An OTP may be auto-FILLED into the boxes; Verify is always the dealer's tap.)
+ */
+export const DESTRUCTIVE_INTENTS: ReadonlySet<string> = new Set([
+  'CONFIRM_OFFER', 'START_ESIGN', 'SETUP_UPI_MANDATE', 'OPEN_UPI_APP', 'UPLOAD_RC', 'TAKE_DELIVERY_PHOTO',
+  'VERIFY_OTP', 'SUBMIT_OTP', 'SUBMIT', 'SUBMIT_APPLICATION', 'CONFIRM', 'CONFIRM_DISBURSAL', 'ESIGN', 'PRESS_CONTINUE',
+]);
+/** Any other intent whose name says it verifies / submits / confirms / signs / pays. */
+const DESTRUCTIVE_INTENT_RE = /(^|_)(VERIFY|SUBMIT|CONFIRM|ESIGN|SIGN|PAY|PAYMENT|DISBURSE|DISBURSAL|MANDATE|UPLOAD|APPROVE|DELETE|CANCEL|REJECT)(_|$)/;
+/** Screens that start an irreversible step on open, and navigate filters that mean "press the CTA". */
+const DESTRUCTIVE_ROUTES: ReadonlySet<string> = new Set(['Esign', 'Mandate', 'Disbursal']);
+const DESTRUCTIVE_FILTERS: ReadonlySet<string> = new Set(['confirm', 'submit', 'verify', 'esign', 'rc', 'delivery_photo']);
+
+/** Field types a validated spoken value may auto-fill. */
+const AUTO_FIELD_TYPES: ReadonlySet<string> = new Set(['PHONE', 'OTP', 'AMOUNT', 'PIN', 'PINCODE']);
+
+/** Would this command verify / submit / confirm / sign / pay / upload (directly or via its target)? */
+export function isDestructiveCommand(cmd: CommandResponse): boolean {
+  if (cmd.autoReason === 'destructive') return true;
+  if (DESTRUCTIVE_INTENTS.has(cmd.intent) || (!SELECT_INTENTS.has(cmd.intent) && DESTRUCTIVE_INTENT_RE.test(cmd.intent))) return true;
+  const nav = cmd.action.type === 'navigate' ? cmd.action : cmd.action.type === 'none' ? INTENT_ROUTE[cmd.intent] : undefined;
+  if (nav && (DESTRUCTIVE_ROUTES.has(nav.route) || (nav.filter !== undefined && DESTRUCTIVE_FILTERS.has(nav.filter)))) return true;
+  return false;
+}
+
+/**
+ * Act on this command right away (toast + Undo) instead of opening Confirm?
+ * 1. "Ask before acting" on → never.  2. Not status ok / nothing to do → never.
+ * 3. Destructive (submit / verify / sign / pay / upload) → never.  4. Server autoExecute decides when sent.
+ * 5. Older server (no autoExecute): option ≥ 0.65, semantic ≥ 0.85, or a valid phone / OTP / amount / PIN fill.
+ */
+export function shouldAutoExecute(cmd: CommandResponse, askBeforeActing: boolean): boolean {
+  if (askBeforeActing) return false;
+  if ((cmd.status ?? 'ok') !== 'ok') return false;
+  if (cmd.confidenceBand && cmd.confidenceBand !== 'auto' && cmd.autoExecute !== true) return false;
+  const t = planTarget(cmd);
+  if (t.kind === 'none' || t.kind === 'assistant') return false;
+  if (isDestructiveCommand(cmd)) return false;
+  if (t.kind === 'fill' && !t.fields.every((f) => f.valid && AUTO_FIELD_TYPES.has(f.type))) return false;
+  if (cmd.autoExecute !== undefined) return cmd.autoExecute;
+  // Fallback for servers that do not send autoExecute.
+  if (t.kind === 'select') return cmd.score >= OPTION_AUTO_THRESHOLD;
+  if (t.kind === 'navigate') return (cmd.method ?? cmd.matchMethod) === 'semantic' && cmd.score >= COMMAND_AUTO_THRESHOLD;
+  return t.kind === 'fill';
+}
+
+/** Draft slots a screen registers for Undo, per plan target. */
+export type UndoSlot = 'asset' | 'tenure' | 'mobile' | 'otp' | 'amount';
+
+/** Which screen values an auto-act may change (snapshotted before it runs). */
+export function undoSlotsFor(t: PlanTarget): UndoSlot[] {
+  if (t.kind === 'select') return t.optionKind === 'vehicle_model' ? ['asset'] : t.optionKind === 'tenure' ? ['tenure'] : [];
+  const fields = t.kind === 'fill' ? t.fields : [];
+  const out = new Set<UndoSlot>();
+  for (const f of fields) {
+    if (f.type === 'PHONE') out.add('mobile');
+    else if (f.type === 'OTP') out.add('otp');
+    else if (f.type === 'AMOUNT') out.add('amount');
+  }
+  return [...out];
+}
+
+/** Short toast lines for common navigations ("Opening QR journey"). */
+const NAV_TOAST: Readonly<Record<string, string>> = {
+  START_QR_JOURNEY: 'Opening QR journey',
+  SCAN_QR: 'Opening QR journey',
+  START_MOBILE_JOURNEY: 'Starting the mobile number journey',
+  START_NEW_LOAN: 'Starting the mobile number journey',
+  SEARCH_MOBILE_NUMBER: 'Starting the mobile number journey',
+  SEARCH_CUSTOMER: 'Starting the mobile number journey',
+  NEW_TWO_WHEELER_LOAN: 'Starting a two-wheeler loan',
+  NEW_CAR_LOAN: 'Starting a car loan',
+  NEW_CONSUMER_DURABLE_LOAN: 'Starting a consumer durable loan',
+  GO_HOME: 'Opening Home',
+};
+
+const OTP_WORDS: Readonly<Record<number, string>> = { 4: 'four', 5: 'five', 6: 'six', 7: 'seven', 8: 'eight' };
+
+/** One short sentence: no trailing "?" / ".", max ~60 chars, otherwise null. */
+function shortLine(text: string | undefined): string | null {
+  const t = (text ?? '').trim().replace(/[.!]+$/, '');
+  if (!t || t.length > 60 || /[?]/.test(t) || /[.!?]\s/.test(t)) return null;
+  return t;
+}
+
+/**
+ * Toast text for an auto-acted command. OTP is NEVER shown: "OTP captured, six digits".
+ * `routeLabel` is the screen's human name ("Scan customer QR"), used when nothing better exists.
+ */
+export function autoToastText(cmd: CommandResponse, t: PlanTarget, routeLabel?: string): string {
+  if (t.kind === 'select') return `Selected ${t.label}`;
+  if (t.kind === 'fill') {
+    const f = t.fields[0];
+    if (!f) return 'Filled';
+    if (f.type === 'OTP') {
+      const n = f.value.replace(/\D/g, '').length;
+      return `OTP captured, ${OTP_WORDS[n] ?? 'all'} digits`;
+    }
+    const shown = displayFields(cmd).find((d) => d.type === f.type)?.display || f.display || f.value;
+    if (f.type === 'PHONE') return `Mobile number ${shown}`;
+    if (f.type === 'AMOUNT') return `Amount ${shown}`;
+    if (f.type === 'PIN' || f.type === 'PINCODE') return `PIN code ${shown}`;
+    return `Filled ${shown}`;
+  }
+  if (t.kind === 'navigate') {
+    const fixed = NAV_TOAST[cmd.intent];
+    if (fixed) return fixed;
+    // Server line only when it has no digits that could be an OTP and reads as one short sentence.
+    const line = isOtpCommand(cmd) ? null : shortLine(cmd.readBack ?? cmd.responseText);
+    if (line) return line;
+    return `Opening ${routeLabel ?? t.route}`;
+  }
+  return 'Done';
 }

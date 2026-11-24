@@ -15,6 +15,7 @@ import { waiverPlan } from '../utils/waivers';
 import { NB_HYPHEN } from '../navigation/types';
 import { useVoiceDraft, voiceDraft } from '../voice/voiceDraft';
 import { clearVoiceOptions, matchVehicleRow, setVoiceOptions, vehicleLabel } from '../voice/voiceOptions';
+import { useUndoSource } from '../voice/voiceUndo';
 
 export default function AssetScreen() {
   const nav = useNavigation();
@@ -62,6 +63,10 @@ export default function AssetScreen() {
       if (tn !== undefined) { update({ tenure: tn }); haptic.select(); }
     }
   }, [draft, focused, catalogue, tenureOptions, journey.asset.id, journey.offer.amount, journey.condition, product, update]);
+
+  // Voice Undo (auto-acted select): restore the previous model / tenure the same way a chip press does.
+  useUndoSource('asset', () => journey.asset, (a) => update({ asset: a, loan: maxLoan(product, journey.offer.amount, a.onRoadPrice, journey.condition) }), focused);
+  useUndoSource('tenure', () => journey.tenure, (tn) => update({ tenure: tn }), focused);
 
   // Shortest tenure that brings EMI under the UPI cap, to suggest a fix
   const fixTenure = p.tenureOptions.find((tn) => tn > journey.tenure && emi(loan, t.annualRate, tn) <= UPI_MANDATE_EMI_CAP);
