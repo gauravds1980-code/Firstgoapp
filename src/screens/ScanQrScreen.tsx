@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { APP_NAME } from '../config/brand';
-import { ActivityIndicator, Animated, Linking, Platform, View } from 'react-native';
+import { ActivityIndicator, Animated, Linking, View } from 'react-native';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera';
@@ -12,7 +12,6 @@ import { colors, radius, space, touch } from '../theme/tokens';
 import { haptic, hapticMoment } from '../utils/haptics';
 import { HeaderDockSlot } from '../components/assistant/HeaderDockSlot';
 import { ZippyTipSlot } from '../components/assistant/ZippyTipSlot';
-import { SHOW_DEV_UI } from '../config/devFlags';
 
 const FRAME = 260;
 
@@ -20,7 +19,7 @@ const FRAME = 260;
  * Live camera QR scanner (expo-camera CameraView barcode scanning, QR only).
  * The customer's IDFC FIRST app QR carries a signed offer token → resolveOfferFromQr.
  * Handles: permission loading / ask / denied (retry + open settings), mount errors, bad QR.
- * "Simulate successful scan" is a tester-only fallback (SHOW_DEV_UI), hidden in release builds.
+ * "Simulate successful scan" is shown in every build (live QR isn't switched on yet) and resolves a demo token.
  * Zippy's tip appears above the bottom buttons (ZippyTipSlot), never over the frame.
  */
 export default function ScanQrScreen() {
@@ -124,14 +123,9 @@ export default function ScanQrScreen() {
       <ZippyTipSlot onDark />
       <View style={{ padding: space.md, paddingBottom: Math.max(insets.bottom, space.md), gap: space.xxs }}>
         <Button label="Search by mobile number instead" variant="secondary" icon="cellphone-text" onPress={() => nav.navigate('SearchMobile', { stage: 'enter' })} />
-        {SHOW_DEV_UI && (
-          <PressableScale onPress={() => resolve('MOCK_SIGNED_TOKEN')} accessibilityRole="button" accessibilityLabel="Simulate successful scan"
-            style={{ minHeight: touch.min, alignItems: 'center', justifyContent: 'center' }}>
-            <Text variant="caption" color="rgba(255,255,255,0.7)" style={{ textDecorationLine: 'underline' }}>
-              {Platform.OS === 'web' ? 'Simulate successful scan (web / testing)' : 'Simulate successful scan (testing)'}
-            </Text>
-          </PressableScale>
-        )}
+        {/* Always visible (release too): live QR isn't switched on yet, so dealers continue the QR journey with a demo offer. */}
+        <Button label="Simulate successful scan" variant="secondary" icon="qrcode-scan" onPress={() => resolve('MOCK_SIGNED_TOKEN')}
+          accessibilityHint="Continues with a demo offer, as if the customer's QR was read" />
       </View>
     </View>
   );

@@ -278,7 +278,7 @@ export function ZippyBubble({ route }: { route?: string }) {
           {/* Push-to-talk badge: a sibling of the pan view (not a child), so tap = sheet / long-press = dock still
               belong to the orb. Sits on the inward side so it stays visible when Zippy peeks behind the edge. */}
           {floating && (
-            <VoiceMicBadge size={22} style={{ bottom: -2, ...(side === 'right' ? { left: -2 } : { right: -2 }) }}
+            <VoiceMicBadge style={{ bottom: -2, ...(side === 'right' ? { left: -2 } : { right: -2 }) }}
               onPressIn={() => { clearPeek(); peek.value = withSpring(0, { damping: 16 }); }} onPressOut={() => schedulePeek()} />
           )}
         </Animated.View>

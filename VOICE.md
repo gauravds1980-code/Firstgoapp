@@ -40,7 +40,7 @@ API key or Sarvam key to the app, `app.json`, or any `EXPO_PUBLIC_*` variable (t
 
 ## Where the mic lives
 
-- **Docked Zippy (default)** — a 20 px mic badge on the lower-right of the header slot (`HeaderDockSlot`).
+- **Docked Zippy (default)** — a 28 px mic badge on the lower-right of the header slot (`HeaderDockSlot`).
   It sits on top of the face as a separate control: tapping the face still opens the help sheet and
   long-pressing it still floats Zippy; only presses on the badge record.
 - **Floating Zippy** — the same badge on the orb's inward lower corner (stays visible when Zippy peeks).
@@ -60,7 +60,7 @@ overrides the route mood on the docked face and the floating orb.
 | --- | --- | --- |
 | Press & hold mic | Mic permission asked on first use, then recording (AAC .m4a, 16 kHz mono) | `thinking` (mic turns brand red) |
 | Release < 250 ms | Treated as a tap; nothing is sent ("Hold the mic while you speak") | idle |
-| Release | `POST ${EXPO_PUBLIC_STT_URL}/command` `{ audio: <base64>, mimeType: "audio/mp4" }`, 15 s timeout. Recording file is deleted right after reading. | `thinking` |
+| Release | `POST ${EXPO_PUBLIC_STT_URL}/command` `{ audio: <base64>, mimeType: "audio/mp4", sessionId, screen, context: { route }, expect? }`, 45 s timeout. Recording file is deleted right after reading. | `thinking` |
 | Response | Transcript appended as a user bubble; preview sheet opens | `happy` |
 | Confirm | `navigate` → sheet closes and `navRef.navigate(route)`; slots/filter saved to `voiceDraft`. `assistant` → answer added to the thread and spoken with **Piper** (`POST /tts`) | `cheer` |
 | Cancel | Preview closes; nothing changes | idle |
@@ -117,6 +117,27 @@ draft; Cases / Offer don't apply them yet.
 - Screens don't consume `voiceDraft` / `filter` yet.
 - No streaming / partial transcripts (the proxy does batch recognize).
 - Screen-reader users: hold-to-talk needs a hold gesture; a tap-to-toggle mode would help VoiceOver/TalkBack.
-  The header badge is small (20 px + hit slop) by design so the header doesn't grow; the sheet mic is the large target.
+  The header badge is small (28 px + hit slop) by design so the header doesn't grow; the sheet mic is the large target.
 - Sheet closed + "help / explain screen" read-outs use the screen tip (the sheet's section-aware text needs it open).
 - Use dummy customers only while prototyping; recordings aren't stored on the device.
+
+## v1.2.6 contract and behaviour
+
+- **Request**: every `/command`, `/tts` and `/tts/done` carries the in-memory `sessionId` (`src/voice/voiceContext.ts`).
+  `/command` also sends `screen`, `context.route` and `expect` — `otp` on DealerOtp and on SearchMobile's OTP stage,
+  `phone` on SearchMobile's number stage (SearchMobile mirrors its stage into route params for this).
+- **Response** (all optional): `status` (`ok` / `clarify` / `retry` / `reprompt`), `candidates`, `normalizedFields`
+  (real values — fill-on-Confirm only, never shown or logged), `normalizedFieldsDisplay` (OTP masked — what the UI shows),
+  `readBack`, `reference`, `offerKeyboard`, `repromptCount`, `hasOtpField`. Parsing lives in `sttClient.parseResponse`;
+  pure helpers in `voiceLogic.ts` (tested by `npm run test:voice`).
+- **Read-back**: the preview plays the Piper WAV from the `/command` response (no second `/tts`). The mic ignores holds
+  while Zippy is speaking ("Wait until Zippy finishes speaking."); playback end or stop posts `/tts/done`. HTTP 409 shows
+  "Zippy is still speaking…".
+- **Preview**: `clarify` → "Did you mean…?" with two candidate buttons; `retry` → "Sorry, say that again." with examples;
+  `reprompt` → field error + "Type it instead" (prominent when `offerKeyboard` or `repromptCount >= 2`); a digit-only
+  utterance → "Use this number / amount / OTP". OTP rows are always masked; typed OTPs use a secure input.
+- **Fill**: Confirm writes PHONE → `mobileNumber`, AMOUNT → `downPayment`, OTP → `otp` into `voiceDraft`. SearchMobile fills the
+  mobile field; SearchMobile (OTP stage) and DealerOtp fill the OTP boxes. Nothing is auto-submitted.
+- **Streaming**: `EXPO_PUBLIC_VOICE_STREAMING=1` (default off) enables the HTTP chunked client (`/stream/{id}/start|chunk|end`),
+  but the server's chunks must be raw s16le PCM and expo-audio records AAC, so today every clip still goes through
+  whole-clip `/command`. No WebSockets (the Expo tunnel strips Upgrade).

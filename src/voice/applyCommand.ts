@@ -1,7 +1,8 @@
 import { navRef } from '../navigation/navRef';
 import type { RootStackParamList } from '../navigation/types';
 import { voiceDraft } from './voiceDraft';
-import type { AssistantActionName, CommandResponse, VoiceSlots } from './types';
+import type { AssistantActionName, CommandResponse, NormalizedField, VoiceSlots } from './types';
+import { maskOtp, planTarget, safeTranscript, slotsFromFields, validFields } from './voiceLogic';
 
 /** Routes the proxy may send that take no required params (safe to navigate to by name). */
 const NAVIGABLE = new Set<keyof RootStackParamList>([
@@ -24,6 +25,8 @@ export function canNavigate(route: string): route is NavigableRoute {
 export type ApplyOutcome =
   | { kind: 'navigated'; route: NavigableRoute }
   | { kind: 'assistant'; action: AssistantActionName }
+  /** Confirm writes spoken numbers into the draft for the current screen (no navigation). */
+  | { kind: 'filled'; fields: NormalizedField[] }
   | { kind: 'blocked'; reason: string }
   | { kind: 'none' };
 
@@ -31,12 +34,13 @@ export type ApplyOutcome =
  * Plan what Confirm will do (no side effects). The preview sheet uses this to label the CTA.
  */
 export function planCommand(cmd: CommandResponse): ApplyOutcome {
-  const a = cmd.action;
-  if (cmd.intent === 'UNKNOWN' || a.type === 'none') return { kind: 'none' };
-  if (a.type === 'assistant') return { kind: 'assistant', action: a.action };
-  if (!isNavigable(a.route)) return { kind: 'blocked', reason: 'That screen isn’t available from voice yet.' };
-  if (!canNavigate(a.route)) return { kind: 'blocked', reason: 'Sign in first, then try that again.' };
-  return { kind: 'navigated', route: a.route };
+  const t = planTarget(cmd);
+  if (t.kind === 'none') return { kind: 'none' };
+  if (t.kind === 'assistant') return cmd.action.type === 'assistant' ? { kind: 'assistant', action: cmd.action.action } : { kind: 'none' };
+  if (t.kind === 'fill') return { kind: 'filled', fields: t.fields };
+  if (!isNavigable(t.route)) return { kind: 'blocked', reason: 'That screen isn’t available from voice yet.' };
+  if (!canNavigate(t.route)) return { kind: 'blocked', reason: 'Sign in first, then try that again.' };
+  return { kind: 'navigated', route: t.route };
 }
 
 /**
@@ -46,11 +50,16 @@ export function planCommand(cmd: CommandResponse): ApplyOutcome {
  */
 export function applyCommand(cmd: CommandResponse, opts: { navDelayMs?: number } = {}): ApplyOutcome {
   const plan = planCommand(cmd);
-  const a = cmd.action;
-  const route = a.type === 'navigate' ? a.route : undefined;
-  const filter = a.type === 'navigate' ? a.filter : undefined;
-  if (plan.kind === 'navigated' && (hasSlots(cmd.slots) || filter)) {
-    voiceDraft.set({ intent: cmd.intent, transcript: cmd.transcript, route, filter, slots: cmd.slots ?? {} });
+  const target = planTarget(cmd);
+  const route = target.kind === 'navigate' ? target.route : undefined;
+  const filter = target.kind === 'navigate' ? target.filter : undefined;
+  // Spoken numbers (PHONE / AMOUNT / OTP) go into the draft on Confirm; screens fill their inputs from it.
+  const filled = slotsFromFields(validFields(cmd));
+  const transcript = safeTranscript(cmd);
+  if (plan.kind === 'navigated' && (hasSlots(cmd.slots) || filter || hasSlots(filled))) {
+    voiceDraft.set({ intent: cmd.intent, transcript, route, filter, slots: { ...cmd.slots, ...filled } });
+  } else if (plan.kind === 'filled' && hasSlots(filled)) {
+    voiceDraft.merge({ transcript, slots: filled });
   }
   if (plan.kind === 'navigated') {
     const go = () => { if (canNavigate(plan.route)) navRef.navigate(plan.route); };
@@ -78,6 +87,7 @@ export const SLOT_LABELS: Record<keyof VoiceSlots, string> = {
   downPayment: 'Down payment',
   tenureMonths: 'Tenure',
   mobileNumber: 'Mobile',
+  otp: 'OTP',
 };
 
 const CATEGORY_LABEL: Record<string, string> = { TWO_WHEELER: 'Two-wheeler', CAR: 'Car', CONSUMER_DURABLE: 'Consumer durable' };
@@ -88,6 +98,7 @@ export function formatSlot(key: keyof VoiceSlots, v: VoiceSlots[keyof VoiceSlots
   if (key === 'tenureMonths' && typeof v === 'number') return `${v} months`;
   if (key === 'vehicleCategory' && typeof v === 'string') return CATEGORY_LABEL[v] ?? v;
   if (key === 'mobileNumber' && typeof v === 'string' && v.length >= 4) return `•••••${v.slice(-4)}`;
+  if (key === 'otp') return maskOtp(String(v).length); // never the digits
   return String(v);
 }
 

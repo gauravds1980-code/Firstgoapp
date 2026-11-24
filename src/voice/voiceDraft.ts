@@ -5,10 +5,11 @@ import type { VoiceSlots } from './types';
  * In-memory draft written when the dealer CONFIRMS a voice command that carried slots or a filter
  * (e.g. "New loan for Ramesh, Activa 125, down payment 15,000, 24 months").
  *
- * Nothing reads it yet: SearchMobile / Offer / Asset / Cases have no form-state hook today. A screen
- * that wants it calls `useVoiceDraft()` (or `voiceDraft.peek()`), applies what it understands, then
- * `voiceDraft.consume()` so it is applied once. Never persisted; cleared on consume or after
- * DRAFT_TTL_MS. Do not put real customer data here beyond what the dealer just spoke.
+ * Also the FILL CHANNEL for confirmed spoken numbers (`voiceDraft.merge`): PHONE → slots.mobileNumber,
+ * AMOUNT → slots.downPayment, OTP → slots.otp. SearchMobile reads mobileNumber; SearchMobile (OTP stage)
+ * and DealerOtp read otp. A screen calls `useVoiceDraft()`, applies what it understands, and removes
+ * just that slot with `voiceDraft.take(key)` so other slots survive for later screens. Never persisted;
+ * cleared after DRAFT_TTL_MS. `slots.otp` is a secret: never log it, never render it unmasked.
  *
  * Shape:
  * {
@@ -37,6 +38,30 @@ const fresh = () => (current && Date.now() - current.createdAt > DRAFT_TTL_MS ? 
 
 export const voiceDraft = {
   set(d: Omit<VoiceDraft, 'createdAt'>) { current = { ...d, createdAt: Date.now() }; emit(); },
+  /** Add confirmed slots to the current draft (or start one), keeping slots already there. */
+  merge(d: Partial<Omit<VoiceDraft, 'createdAt' | 'slots'>> & { slots: VoiceSlots }) {
+    const prev = fresh();
+    current = {
+      intent: d.intent ?? prev?.intent ?? 'UNKNOWN',
+      transcript: d.transcript ?? prev?.transcript ?? '',
+      route: d.route ?? prev?.route,
+      filter: d.filter ?? prev?.filter,
+      slots: { ...prev?.slots, ...d.slots },
+      createdAt: Date.now(),
+    };
+    emit();
+  },
+  /** Read one slot and remove it, leaving the rest of the draft. */
+  take<K extends keyof VoiceSlots>(key: K): VoiceSlots[K] | undefined {
+    const d = fresh();
+    if (!d || d.slots[key] === undefined) return undefined;
+    const v = d.slots[key];
+    const rest = { ...d.slots };
+    delete rest[key];
+    current = { ...d, slots: rest };
+    emit();
+    return v;
+  },
   peek(): VoiceDraft | null { return fresh(); },
   /** Read and clear (apply once). */
   consume(): VoiceDraft | null { const d = fresh(); if (current) { current = null; emit(); } return d; },

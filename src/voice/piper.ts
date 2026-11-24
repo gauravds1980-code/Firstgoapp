@@ -4,7 +4,8 @@
  */
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer, type AudioStatus } from 'expo-audio';
 import { File, Paths } from 'expo-file-system';
-import { STT_TIMEOUT_MS, isVoiceConfigured, ttsUrl } from './config';
+import { STT_TIMEOUT_MS, isVoiceConfigured, ttsDoneUrl, ttsUrl } from './config';
+import { VOICE_SESSION_ID } from './voiceContext';
 
 interface TtsResponse {
   audioBase64?: string;
@@ -15,18 +16,41 @@ interface TtsResponse {
 let player: AudioPlayer | null = null;
 let sub: { remove(): void } | null = null;
 let doneTimer: ReturnType<typeof setTimeout> | null = null;
+/** A speak() is fetching / preparing audio (not playing yet). */
+let pending = false;
+/** Bumped by stopSpeaking so a speak() still fetching its WAV does not start playing afterwards. */
+let gen = 0;
 
-function clearPlayer() {
+/** Returns true if a player was active. */
+function clearPlayer(): boolean {
+  const had = player !== null;
   if (doneTimer) { clearTimeout(doneTimer); doneTimer = null; }
   try { sub?.remove(); } catch { /* already gone */ }
   sub = null;
   try { player?.pause(); } catch { /* already gone */ }
   try { player?.remove(); } catch { /* already gone */ }
   player = null;
+  return had;
 }
 
+/** Fire-and-forget: tell the server the read-out is over so it accepts the next /command (else 409). */
+function notifyTtsDone() {
+  if (!isVoiceConfigured()) return;
+  fetch(ttsDoneUrl(), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sessionId: VOICE_SESSION_ID }),
+  }).catch(() => { /* ignore */ });
+}
+
+/** Zippy is speaking (or about to): the mic must not open until this is false. */
+export const isSpeaking = (): boolean => pending || player !== null;
+
 export async function stopSpeaking() {
-  clearPlayer();
+  gen += 1;
+  const wasPending = pending;
+  pending = false;
+  if (clearPlayer() || wasPending) notifyTtsDone();
 }
 
 async function fetchPiperWav(text: string): Promise<string> {
@@ -37,7 +61,7 @@ async function fetchPiperWav(text: string): Promise<string> {
     const res = await fetch(ttsUrl(), {
       method: 'POST',
       headers: { 'content-type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, sessionId: VOICE_SESSION_ID }),
       signal: ctrl.signal,
     });
     const body = await res.json().catch(() => null) as TtsResponse | null;
@@ -59,6 +83,7 @@ async function playWavBase64(audioBase64: string, durationSec: number | undefine
   const finish = () => {
     if (player !== next) return;
     clearPlayer();
+    notifyTtsDone();
     cb?.onDone?.();
   };
   sub = next.addListener('playbackStatusUpdate', (status: AudioStatus) => {
@@ -80,12 +105,18 @@ export async function speak(
   precomputed?: { audioBase64?: string; audioDurationSec?: number },
 ) {
   const trimmed = text.trim();
-  if (!trimmed) { cb?.onDone?.(); return; }
+  if (!trimmed && !precomputed?.audioBase64) { cb?.onDone?.(); return; }
   await stopSpeaking();
+  const mine = gen;
+  pending = true;
   try {
     const audioBase64 = precomputed?.audioBase64 || await fetchPiperWav(trimmed);
+    if (mine !== gen) { cb?.onDone?.(); return; } // stopped while fetching
     await playWavBase64(audioBase64, precomputed?.audioDurationSec, cb);
   } catch {
+    if (mine === gen) { clearPlayer(); notifyTtsDone(); }
     cb?.onDone?.();
+  } finally {
+    if (mine === gen) pending = false;
   }
 }

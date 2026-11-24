@@ -32,7 +32,8 @@ const rawProvider = (process.env.EXPO_PUBLIC_STT_PROVIDER ?? 'google').trim().to
  */
 export const STT_PROVIDER: SttProviderName = rawProvider === 'sarvam' ? 'sarvam' : 'google';
 
-export const STT_TIMEOUT_MS = 15_000;
+/** Google fallback + Piper synthesis + the Expo tunnel can together take well over 15 s. */
+export const STT_TIMEOUT_MS = 45_000;
 /** Presses shorter than this are treated as a tap and never sent (no silent uploads). */
 export const PTT_MIN_HOLD_MS = 250;
 /** Hard cap on a single push-to-talk recording. */
@@ -41,3 +42,16 @@ export const PTT_MAX_HOLD_MS = 15_000;
 export const isVoiceConfigured = (): boolean => STT_BASE_URL.length > 0;
 export const commandUrl = (): string => `${STT_BASE_URL}/command`;
 export const ttsUrl = (): string => `${STT_BASE_URL}/tts`;
+/** Tells the server the read-out finished (or was stopped) so it accepts the next /command. */
+export const ttsDoneUrl = (): string => `${STT_BASE_URL}/tts/done`;
+
+/**
+ * EXPO_PUBLIC_VOICE_STREAMING — DEFAULT OFF ('0'). When '1', a command is sent through the HTTP chunked
+ * endpoints (/stream/{sessionId}/start|chunk|end) and falls back to the whole-clip POST /command if
+ * anything throws. WebSockets are deliberately not used: the Expo tunnel / Metro proxy strips the
+ * Upgrade header. Note expo-audio only hands over the finished AAC clip, so chunks are uploaded after
+ * release (PTT release is the end-of-speech signal); there is no latency win until live PCM is available.
+ */
+export const VOICE_STREAMING: boolean = (process.env.EXPO_PUBLIC_VOICE_STREAMING ?? '0').trim() === '1';
+export const streamUrl = (sessionId: string, step: 'start' | 'chunk' | 'end'): string =>
+  `${STT_BASE_URL}/stream/${encodeURIComponent(sessionId)}/${step}`;

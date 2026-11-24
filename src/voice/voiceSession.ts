@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type { ZippyMood } from '../components/assistant/zippyStore';
-import type { AssistantActionName } from './types';
+import type { AssistantActionName, IntentCandidate, NormalizedField } from './types';
 import type { VoicePreview } from './useVoiceCommand';
 import type { VoiceUiPhase } from './VoiceMicButton';
 
@@ -27,10 +27,16 @@ export type SheetVoiceHandlers = {
   onNavigate: () => void;
 };
 
-type Actions = { pressIn: () => void; pressOut: () => void; confirm: () => void; cancel: () => void; abort: () => void };
+type Actions = {
+  pressIn: () => void; pressOut: () => void; confirm: () => void; cancel: () => void; abort: () => void;
+  /** "Did you mean…?" pick. */
+  choose: (c: IntentCandidate) => void;
+  /** "Type it instead" value for field `index` (-1 = new row of `type`). */
+  editField: (index: number, type: NormalizedField['type'], text: string) => void;
+};
 
 const noop = () => {};
-let actions: Actions = { pressIn: noop, pressOut: noop, confirm: noop, cancel: noop, abort: noop };
+let actions: Actions = { pressIn: noop, pressOut: noop, confirm: noop, cancel: noop, abort: noop, choose: noop, editField: noop };
 let sheet: { current: SheetVoiceHandlers } | null = null;
 
 let snap: VoiceSessionState = { phase: 'idle', error: null, preview: null, mood: null, speaking: false, sheetOpen: false };
@@ -56,6 +62,8 @@ export const voiceSession = {
   pressOut: () => actions.pressOut(),
   confirm: () => actions.confirm(),
   cancel: () => actions.cancel(),
+  choose: (c: IntentCandidate) => actions.choose(c),
+  editField: (index: number, type: NormalizedField['type'], text: string) => actions.editField(index, type, text),
 
   // ---- VoiceHost only ----
   /** VoiceHost binds the live hook callbacks every render. */

@@ -53,7 +53,10 @@ export function VoiceHost({ route }: { route?: string }) {
   const voice = useVoiceCommand({ onTranscript, onNavigate, readOut });
 
   useEffect(() => {
-    voiceSession.bind({ pressIn: voice.pressIn, pressOut: () => { void voice.pressOut(); }, confirm: voice.confirm, cancel: voice.cancel, abort: voice.abort });
+    voiceSession.bind({
+      pressIn: voice.pressIn, pressOut: () => { void voice.pressOut(); }, confirm: voice.confirm, cancel: voice.cancel, abort: voice.abort,
+      choose: voice.choose, editField: voice.editField,
+    });
   });
   // __DEV__ + web only: window.__voiceDemo() or ?voiceDemo=1 stages a sample preview (screenshots).
   const stageRef = useRef(voice.stagePreview);
@@ -103,7 +106,8 @@ export function VoiceHost({ route }: { route?: string }) {
       )}
       {showPreview && (
         <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { zIndex: 70 }]}>
-          <VoicePreviewSheet command={voice.preview?.command ?? null} plan={voice.preview?.plan ?? null} onConfirm={voice.confirm} onCancel={voice.cancel} />
+          <VoicePreviewSheet command={voice.preview?.command ?? null} plan={voice.preview?.plan ?? null} expect={voice.preview?.expect}
+            onConfirm={voice.confirm} onCancel={voice.cancel} onChoose={voice.choose} onEditField={voice.editField} />
         </View>
       )}
     </>

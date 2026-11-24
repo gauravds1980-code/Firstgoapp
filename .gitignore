@@ -54,3 +54,6 @@ public/*.zip
 # local tooling
 .idea/
 *.log
+
+# compiled voice unit tests (npm run test:voice)
+/.voicetest

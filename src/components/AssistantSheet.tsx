@@ -223,7 +223,8 @@ export function AssistantSheet({ visible, onClose, context, route, product, dock
           </>
         )}
       </View>
-      <VoicePreviewSheet command={voice.preview?.command ?? null} plan={voice.preview?.plan ?? null} onConfirm={voiceSession.confirm} onCancel={voiceSession.cancel} />
+      <VoicePreviewSheet command={voice.preview?.command ?? null} plan={voice.preview?.plan ?? null} expect={voice.preview?.expect}
+        onConfirm={voiceSession.confirm} onCancel={voiceSession.cancel} onChoose={voiceSession.choose} onEditField={voiceSession.editField} />
     </Modal>
   );
 }

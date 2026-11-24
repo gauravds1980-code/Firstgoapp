@@ -6,7 +6,7 @@ import { Icon } from '../components/ui';
 import { haptic } from '../utils/haptics';
 import { useVoiceSession, voiceSession } from './voiceSession';
 
-export const MIC_BADGE_SIZE = 20;
+export const MIC_BADGE_SIZE = 28;
 
 /**
  * Compact push-to-talk badge drawn on Zippy (docked header face and floating orb). A sibling ON TOP of
@@ -27,8 +27,8 @@ export function VoiceMicBadge({ size = MIC_BADGE_SIZE, disabled = false, style, 
       onPressIn={() => { if (off) return; haptic.tap(); onPressIn?.(); voiceSession.pressIn(); }}
       onPressOut={() => { if (off) return; voiceSession.pressOut(); onPressOut?.(); }}
       disabled={disabled}
-      // Extend the target mostly outward (right / down), away from Zippy's face.
-      hitSlop={{ top: 4, left: 4, right: 10, bottom: 10 }}
+      // ~12 pt all round, biased outward (right / down) so it doesn't swallow taps on Zippy's face.
+      hitSlop={{ top: 8, left: 8, right: 14, bottom: 14 }}
       accessibilityRole="button"
       accessibilityLabel={live ? 'Listening, let go to send' : busy ? `${ASSISTANT_NAME} is working it out` : `Hold to talk to ${ASSISTANT_NAME}`}
       accessibilityHint="Press and hold, say a command, then let go. You'll see what I heard before anything happens."

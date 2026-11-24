@@ -13,6 +13,7 @@ import { colors, radius, space, touch } from '../theme/tokens';
 import { haptic, hapticMoment } from '../utils/haptics';
 import { maskMobile } from '../utils/finance';
 import { SHOW_DEV_UI } from '../config/devFlags';
+import { useVoiceDraft, voiceDraft } from '../voice/voiceDraft';
 
 type Stage = 'enter' | 'otp' | 'none';
 
@@ -46,6 +47,23 @@ export default function SearchMobileScreen() {
     : touched && !valid ? (mobile.length < 10 ? `Enter all 10 digits (${mobile.length}/10)` : 'Indian mobile numbers start with 6, 7, 8 or 9') : undefined;
   const otpErr = err; // partial OTPs get a live digit counter, not an error
 
+  // Mirror the stage into route params so voice can tell the server what to expect (phone vs OTP).
+  useEffect(() => { if (route.params?.stage !== stage) nav.setParams({ stage }); }, [stage]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Confirmed voice fills: take only the slot this stage uses, leave the rest of the draft for later screens.
+  // The OTP is only placed in the boxes; the dealer still taps Verify (no auto-submit from voice).
+  const draft = useVoiceDraft();
+  useEffect(() => {
+    if (!draft || loading) return;
+    if (stage === 'enter' && draft.slots.mobileNumber && /^[6-9]\d{9}$/.test(draft.slots.mobileNumber)) {
+      const m = voiceDraft.take('mobileNumber');
+      if (m) { setMobile(m); setTouched(true); }
+    } else if (stage === 'otp' && draft.slots.otp && /^\d{4,6}$/.test(draft.slots.otp)) {
+      const code = voiceDraft.take('otp');
+      if (code) { setOtp(code.slice(0, 6)); setErr(null); }
+    }
+  }, [draft, stage, loading]);
+
   const sec = useSectionTracker<'mobile' | 'otp'>('mobile');
   useEffect(() => { sec.set(stage === 'otp' ? 'otp' : 'mobile'); }, [stage, sec]);
   useZippyPending(stage === 'enter' && !valid ? [{ id: 'mobile', label: "Customer's 10-digit mobile", detail: mobileErr ?? 'The number registered with IDFC FIRST Bank.' }]
@@ -59,6 +77,7 @@ export default function SearchMobileScreen() {
     setLoading(false);
     if (!r.ok) { haptic.error(); setNetErr(r.message); return; }
     hapticMoment.offerSent(); // consent OTP is on its way to the customer
+    voiceDraft.take('otp'); // a spoken code from before this OTP was sent is stale
     setOtp(''); setTouched(false); setResendIn(30); setStage('otp');
   };
 

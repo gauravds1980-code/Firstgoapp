@@ -9,6 +9,7 @@ import { useApp } from '../state/AppState';
 import { colors, space, touch } from '../theme/tokens';
 import { haptic } from '../utils/haptics';
 import { maskMobile } from '../utils/finance';
+import { useVoiceDraft, voiceDraft } from '../voice/voiceDraft';
 
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
@@ -42,6 +43,16 @@ function DealerOtpForm() {
   useEffect(() => { if (cooldown === 0 && attemptsLeft === 0) { setAttemptsLeft(MAX_OTP_ATTEMPTS); setErr(null); } }, [cooldown, attemptsLeft]);
 
   const locked = cooldown > 0;
+
+  // A confirmed voice OTP only fills the boxes; the dealer taps "Verify & log in" themselves.
+  // Anything spoken before this screen opened is stale, so drop it first.
+  useEffect(() => { voiceDraft.take('otp'); }, []);
+  const draft = useVoiceDraft();
+  useEffect(() => {
+    if (!draft?.slots.otp || locked || loading || !/^\d{4,6}$/.test(draft.slots.otp)) return;
+    const code = voiceDraft.take('otp');
+    if (code) { setOtp(code.slice(0, 6)); setErr(null); }
+  }, [draft, locked, loading]);
 
   const verify = async (code = otp) => {
     if (locked || loading || code.length !== 6) return;
