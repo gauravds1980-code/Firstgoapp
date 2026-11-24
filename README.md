@@ -2,22 +2,22 @@
 
 Dealer first go app.
 
-FIRSTgo v1.2.4 is the IDFC FIRST Bank dealer-side two-wheeler and car loan origination prototype. Dealers log in, pull a pre-qualified offer (scan the customer’s QR or search by mobile), and walk a new-vehicle journey through KYC, mandate, agreement, and disbursal. All data is mock. There are no real bank APIs — the integrations in `src/services/` are typed stubs.
+FIRSTgo v1.2.5 is the IDFC FIRST Bank dealer-side two-wheeler and car loan origination prototype. Dealers log in, pull a pre-qualified offer (scan the customer’s QR or search by mobile), and walk a new-vehicle journey through KYC, mandate, agreement, and disbursal. All data is mock. There are no real bank APIs — the integrations in `src/services/` are typed stubs.
 
 ## Download the Android APK
 
-[FIRSTgo-v1.2.4-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.4-arm64.apk) (arm64, v1.2.4).
+[FIRSTgo-v1.2.5-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.5-arm64.apk) (arm64, v1.2.5).
 
-Direct link: https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.4-arm64.apk
+Direct link: https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.5-arm64.apk
 
-What's new in v1.2.4:
+What's new in v1.2.5:
 
-- Face KYC with front camera, oval guide and "Okay, blink" that auto-advances (blink simulated in this demo)
-- UPI AutoPay Scan & Setup mandate with QR, Open UPI app, and UMRN success
-- v1.2.3 Zippy close control moved to the side
-- 10 design-review fixes: header-docked Zippy, one-line IDFC FIRST Bank lockup, dev text hidden in release, cleaner status pills, tenure grid, consistent masking, compact amounts, FAB clearance
+- Zippy voice commands. A mic on the header-docked Zippy records the dealer.
+- Speech goes through a local pipeline: faster-whisper base, then LaBSE semantic matching at a 0.75 threshold with keyword fallback, then Piper Indian-English TTS. Google Speech-to-Text is the server-side fallback only.
+- A staged preview shows the transcript, intent and fields, with Confirm/Cancel before anything fills.
+- The voice server runs on the developer's machine via a tunnel.
 
-Previous builds: [FIRSTgo-v1.2.2-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.2-arm64.apk), [FIRSTgo-v1.2.1-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.1-arm64.apk), and [FIRSTgo-v1.2.0-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.0-arm64.apk).
+Previous builds: [FIRSTgo-v1.2.4-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.4-arm64.apk), [FIRSTgo-v1.2.2-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.2-arm64.apk), [FIRSTgo-v1.2.1-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.1-arm64.apk), and [FIRSTgo-v1.2.0-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.0-arm64.apk).
 
 ## Features in v1.2
 
@@ -81,7 +81,7 @@ npx expo prebuild -p android
 cd android && ./gradlew assembleRelease
 ```
 
-The published arm64 build for this version is checked in at `releases/FIRSTgo-v1.2.4-arm64.apk`. `android/` and `ios/` are generated and gitignored.
+The published arm64 build for this version is checked in at `releases/FIRSTgo-v1.2.5-arm64.apk`. `android/` and `ios/` are generated and gitignored.
 
 ## iOS
 
