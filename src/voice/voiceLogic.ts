@@ -284,16 +284,27 @@ export function expectFor(route: string | undefined, params?: unknown): VoiceExp
 // v1.2.7 auto-act: high-confidence commands act at once (toast + Undo) instead of opening Confirm.
 // ---------------------------------------------------------------------------------------------
 
+// Unified bands for options AND navigation / journeys (QR, loan, mobile, portfolio, ...):
+//   >= 0.65 unique, or a unique exact keyword / alias -> act at once (toast + Undo)
+//   0.50 to < 0.65 unique                            -> Confirm
+//   near tie of two different actions                -> clarify (server sends status 'clarify')
+//   < 0.50                                           -> say again
+
 /** Option (vehicle / tenure chip) score at or above which a unique match acts without Confirm. */
 export const OPTION_AUTO_THRESHOLD = 0.65;
 /** Option scores in [OPTION_CONFIRM_THRESHOLD, OPTION_AUTO_THRESHOLD) open Confirm; below is "say again". */
 export const OPTION_CONFIRM_THRESHOLD = 0.5;
-/** LaBSE cosine at or above which a semantic command match acts without Confirm. */
-export const COMMAND_AUTO_THRESHOLD = 0.85;
-/** Command cosine in [COMMAND_CONFIRM_THRESHOLD, COMMAND_AUTO_THRESHOLD) opens Confirm. */
-export const COMMAND_CONFIRM_THRESHOLD = 0.75;
-/** Command cosine in [COMMAND_CLARIFY_THRESHOLD, COMMAND_CONFIRM_THRESHOLD) shows two buttons. */
-export const COMMAND_CLARIFY_THRESHOLD = 0.6;
+/** Navigation / journey semantic score at or above which a unique match acts without Confirm (same as options). */
+export const COMMAND_AUTO_THRESHOLD = 0.65;
+/** Command scores in [COMMAND_CONFIRM_THRESHOLD, COMMAND_AUTO_THRESHOLD) open Confirm; below is "say again". */
+export const COMMAND_CONFIRM_THRESHOLD = 0.5;
+/**
+ * Clarify is no longer a score band: the server decides it on a near tie of two different actions
+ * (status === 'clarify'). Kept equal to the Confirm floor for callers that still read it.
+ */
+export const COMMAND_CLARIFY_THRESHOLD = COMMAND_CONFIRM_THRESHOLD;
+/** A keyword match at or above this score is a unique exact keyword / alias and may act without autoExecute. */
+export const KEYWORD_EXACT_THRESHOLD = 0.95;
 
 /**
  * Intents that submit, verify, sign, pay or upload: NEVER auto-executed, whatever the server says.
@@ -325,7 +336,9 @@ export function isDestructiveCommand(cmd: CommandResponse): boolean {
  * Act on this command right away (toast + Undo) instead of opening Confirm?
  * 1. "Ask before acting" on → never.  2. Not status ok / nothing to do → never.
  * 3. Destructive (submit / verify / sign / pay / upload) → never.  4. Server autoExecute decides when sent.
- * 5. Older server (no autoExecute): option ≥ 0.65, semantic ≥ 0.85, or a valid phone / OTP / amount / PIN fill.
+ * 5. Older server (no autoExecute), same 0.65 band for options and navigation / journeys:
+ *    option ≥ 0.65, semantic command ≥ 0.65, unique exact keyword (score ≥ 0.95), or a valid
+ *    phone / OTP / amount / PIN fill. A non-exact keyword without autoExecute does not guess.
  */
 export function shouldAutoExecute(cmd: CommandResponse, askBeforeActing: boolean): boolean {
   if (askBeforeActing) return false;
@@ -338,7 +351,12 @@ export function shouldAutoExecute(cmd: CommandResponse, askBeforeActing: boolean
   if (cmd.autoExecute !== undefined) return cmd.autoExecute;
   // Fallback for servers that do not send autoExecute.
   if (t.kind === 'select') return cmd.score >= OPTION_AUTO_THRESHOLD;
-  if (t.kind === 'navigate') return (cmd.method ?? cmd.matchMethod) === 'semantic' && cmd.score >= COMMAND_AUTO_THRESHOLD;
+  if (t.kind === 'navigate') {
+    const method = cmd.method ?? cmd.matchMethod;
+    if (method === 'semantic') return cmd.score >= COMMAND_AUTO_THRESHOLD;
+    if (method === 'keyword') return cmd.score >= KEYWORD_EXACT_THRESHOLD;
+    return false;
+  }
   return t.kind === 'fill';
 }
 

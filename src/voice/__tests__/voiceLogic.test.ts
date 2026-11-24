@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { checkSpeech, parseResponse } from '../sttClient';
 import type { CommandResponse } from '../types';
 import {
-  autoToastText, COMMAND_AUTO_THRESHOLD, DESTRUCTIVE_INTENTS, OPTION_AUTO_THRESHOLD, shouldAutoExecute, undoSlotsFor,
+  autoToastText, COMMAND_AUTO_THRESHOLD, COMMAND_CONFIRM_THRESHOLD, DESTRUCTIVE_INTENTS, OPTION_AUTO_THRESHOLD, shouldAutoExecute, undoSlotsFor,
   displayFields, expectFor, hideFieldForSelect, planTarget, safeTranscript, slotsForSelect, slotsFromFields, validFields, withCandidate, withTypedValue,
 } from '../voiceLogic';
 import { clearVoiceOptions, getVoiceOptions, matchVehicleRow, setVoiceOptions, vehicleLabel } from '../voiceOptions';
@@ -268,18 +268,29 @@ test('option select auto-acts at 1.0 / 0.78 / 0.65, not at 0.58 or for clarify /
   assert.equal(shouldAutoExecute(xtreme({ score: 0.95, autoExecute: false }), false), false);
 });
 
-test('semantic GO_HOME / START_QR_JOURNEY auto-act at 0.90, not at 0.80', () => {
-  assert.equal(COMMAND_AUTO_THRESHOLD, 0.85);
-  for (const intent of ['GO_HOME', 'START_QR_JOURNEY']) {
-    assert.equal(shouldAutoExecute(base({ intent, score: 0.9, method: 'semantic' }), false), true, `${intent} fallback`);
-    assert.equal(shouldAutoExecute(base({ intent, score: 0.9, method: 'semantic', autoExecute: true, confidenceBand: 'auto' }), false), true, intent);
-    assert.equal(shouldAutoExecute(base({ intent, score: 0.8, method: 'semantic' }), false), false, `${intent} 0.80`);
-    assert.equal(shouldAutoExecute(base({ intent, score: 0.8, method: 'semantic', autoExecute: false, confidenceBand: 'confirm' }), false), false, `${intent} confirm`);
+test('navigation / journeys auto-act at 0.65 (same band as options), not below', () => {
+  assert.equal(COMMAND_AUTO_THRESHOLD, 0.65);
+  assert.equal(COMMAND_CONFIRM_THRESHOLD, 0.5);
+  for (const intent of ['GO_HOME', 'START_QR_JOURNEY', 'OPEN_PORTFOLIO', 'START_MOBILE_JOURNEY']) {
+    for (const score of [0.65, 0.8, 0.9]) {
+      assert.equal(shouldAutoExecute(base({ intent, score, method: 'semantic' }), false), true, `${intent} fallback ${score}`);
+    }
+    for (const score of [0.58, 0.49]) {
+      assert.equal(shouldAutoExecute(base({ intent, score, method: 'semantic' }), false), false, `${intent} fallback ${score}`);
+    }
+    assert.equal(shouldAutoExecute(base({ intent, score: 0.65, method: 'semantic', autoExecute: true, confidenceBand: 'auto' }), false), true, `${intent} server auto`);
+    assert.equal(shouldAutoExecute(base({ intent, score: 0.58, method: 'semantic', autoExecute: false, confidenceBand: 'confirm' }), false), false, `${intent} confirm`);
+    assert.equal(shouldAutoExecute(base({ intent, score: 0.9, method: 'semantic', status: 'clarify' }), false), false, `${intent} clarify`);
   }
   // Older servers that call it matchMethod.
-  assert.equal(shouldAutoExecute(base({ intent: 'GO_HOME', score: 0.9, matchMethod: 'semantic' }), false), true);
-  // Keyword match without autoExecute: the client does not guess.
+  assert.equal(shouldAutoExecute(base({ intent: 'GO_HOME', score: 0.65, matchMethod: 'semantic' }), false), true);
+  assert.equal(shouldAutoExecute(base({ intent: 'GO_HOME', score: 0.58, matchMethod: 'semantic' }), false), false);
+  // Non-exact keyword match without autoExecute: the client does not guess.
   assert.equal(shouldAutoExecute(base({ intent: 'GO_HOME', score: 0.9, method: 'keyword' }), false), false);
+  assert.equal(shouldAutoExecute(base({ intent: 'START_QR_JOURNEY', score: 0.7, method: 'keyword' }), false), false);
+  // Unique exact keyword (0.95+) acts on the fallback path too.
+  assert.equal(shouldAutoExecute(base({ intent: 'START_QR_JOURNEY', score: 0.95, method: 'keyword' }), false), true);
+  assert.equal(shouldAutoExecute(base({ intent: 'GO_HOME', score: 1, matchMethod: 'keyword' }), false), true);
   // Unique exact keyword the server marked auto.
   assert.equal(shouldAutoExecute(base({ intent: 'GO_HOME', score: 1, method: 'keyword', autoExecute: true, autoReason: 'keyword_exact' }), false), true);
 });
