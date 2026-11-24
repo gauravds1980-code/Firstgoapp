@@ -33,7 +33,7 @@ Previous builds: [FIRSTgo-v1.2.7-arm64.apk](https://github.com/gauravds1980-code
 - Cases done
 - RC pendency
 - TA / INF (Trade Advance and Inventory Funding)
-- Zippy assistant (help character in the header; tap for the help sheet, long-press to float)
+- Zippy assistant (floats on screen by default, always fully in view; drag it into the header to dock, drag the docked face down to float; tap for the help sheet)
 - Voice commands: a standalone hold-to-talk mic in the top header, separate from Zippy (see [VOICE.md](VOICE.md))
 
 ## Test credentials

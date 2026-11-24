@@ -42,6 +42,30 @@ export const riderCenterY = (product: ProductId, size: number) => size * (GEO[pr
 /** How far the vehicle overhangs each side of the `size` box. */
 export const rideOverhang = (size: number) => (size * 1.25 - size) / 2;
 
+/** How far the drawn ride reaches past each side of its `size` box (dp, ≥ 0). */
+export type Overhang = { left: number; right: number; top: number; bottom: number };
+
+/**
+ * v1.2.9: the ride's full visual extent beyond the `size` box, for keeping floating Zippy fully on
+ * screen: vehicle body (1.25 × size wide, hangs below), the rider box (sits left of centre on the
+ * truck / scooter), its 'cheer' sparkles (0.06 × rider outside the rider box) and its hop / jump
+ * (up to 0.12 × rider above). Matches the layout in ZippyRide below; keep the two in sync.
+ */
+export function rideBounds(product: ProductId, size: number): Overhang {
+  const g = GEO[product];
+  const vw = size * 1.25;
+  const vLeft = (size - vw) / 2; // negative: the vehicle starts left of the box
+  const rider = size * 0.9;
+  const riderLeft = vLeft + vw * g.riderX - rider / 2;
+  const spark = rider * 0.06;
+  return {
+    left: Math.max(-vLeft, spark - riderLeft, 0),
+    right: Math.max(-vLeft, riderLeft + rider + spark - size, 0),
+    top: Math.max(0, rider * 0.12 - size * g.riderTop),
+    bottom: Math.max(0, size * 0.56 + vw * 0.56 - size),
+  };
+}
+
 /** Parts drawn behind the rider (seat backs, cab rear). */
 function BackLayer({ kind }: { kind: ProductId }) {
   switch (kind) {
@@ -111,8 +135,10 @@ function Wheel({ px, spin }: { px: number; spin: SharedValue<number> }) {
   );
 }
 
-export function ZippyRide({ size = 60, product, moving = false, driveKey = 0, ...character }: ZippyCharacterProps & {
+export function ZippyRide({ size = 60, product, moving = false, driveKey = 0, driveInMax, ...character }: ZippyCharacterProps & {
   size?: number; product: ProductId; moving?: boolean; driveKey?: number;
+  /** Max drive-in distance (dp) — the room to the left of the resting spot, so the ride never enters from off screen. */
+  driveInMax?: number;
 }) {
   const reduce = useReducedMotion();
   const g = GEO[product];
@@ -127,8 +153,9 @@ export function ZippyRide({ size = 60, product, moving = false, driveKey = 0, ..
 
   // Drive-in on mount / product change: roll in from the left, wheels spinning, then settle.
   useEffect(() => {
-    if (reduce) { drive.value = 0; spin.value = 0; return; }
-    drive.value = -size * 1.4;
+    const dist = Math.min(size * 1.4, Math.max(0, driveInMax ?? Infinity));
+    if (reduce || dist < 4) { drive.value = 0; spin.value = 0; return; }
+    drive.value = -dist;
     drive.value = withTiming(0, { duration: 720, easing: Easing.out(Easing.cubic) });
     spin.value = withTiming(spin.value + 540, { duration: 760, easing: Easing.out(Easing.cubic) });
   // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -1,4 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react';
+import { Platform } from 'react-native';
 import { useRoute } from '@react-navigation/native';
 import { secureStorage } from '../../utils/secureStorage';
 
@@ -12,11 +13,12 @@ export type ZippyMood = 'idle' | 'happy' | 'thinking' | 'cheer';
 
 /**
  * hydrating → reading the persisted flag (nothing drawn yet)
- * docked    → DEFAULT. Mini face in the header slot; tap = help sheet, long-press = float on screen
- * floating  → orb on screen (opt-in; long-press it, or use the sheet menu, to dock it again)
+ * floating  → DEFAULT (v1.2.9). Orb on screen, always fully inside the safe area; drag it up into the
+ *             header (or long-press it, or use the sheet menu) to dock it
  * docking   → orb flying up into the header slot
- * docked    → mini face drawn by the header slot; overlay hidden
- * undocking → slot was tapped; overlay is measuring the slot (slot still draws the face)
+ * docked    → mini face drawn by the header slot; overlay hidden. Tap = help sheet; drag it down out of
+ *             the header (or long-press) to float it again
+ * undocking → slot asked to undock; overlay is measuring the slot (slot still draws the face)
  * returning → orb flying from the slot back down to its rest position
  */
 export type DockPhase = 'hydrating' | 'floating' | 'docking' | 'docked' | 'undocking' | 'returning';
@@ -25,16 +27,38 @@ export type WindowRect = { x: number; y: number; width: number; height: number }
 type Measurer = (cb: (r: WindowRect | null) => void) => void;
 
 /**
- * v1.2.4: Zippy docks in the header by default. The flag now records the opt-in to FLOAT ('1');
- * a new key, so every install starts docked whatever the old `firstgo.zippy.docked` said.
+ * v1.2.9: Zippy FLOATS by default. New key (so every install starts floating whatever the older
+ * `firstgo.zippy.float` / `firstgo.zippy.docked` said): 'docked' | 'floating'; missing = floating.
  */
-export const FLOAT_STORAGE_KEY = 'firstgo.zippy.float';
+export const DOCK_STORAGE_KEY = 'firstgo.zippy.dock.v129';
+export type DockPref = 'docked' | 'floating';
+
+/**
+ * Web screenshots only: `?zippy=docked` / `?zippy=floating` in the URL forces that phase at hydration
+ * (not persisted). Ignored on native.
+ */
+function webForcedPhase(): DockPref | null {
+  if (Platform.OS !== 'web') return null;
+  try {
+    const search = (globalThis as { location?: { search?: string } }).location?.search ?? '';
+    const v = new URLSearchParams(search).get('zippy');
+    return v === 'docked' || v === 'floating' ? v : null;
+  } catch { return null; }
+}
 
 /** One tip at a time, shown by the focused screen's ZippyTipSlot (anchored above its footer / FAB). */
 export type ZippyTip = { route: string; text: string; id: number };
 
-type Snapshot = { phase: DockPhase; moodVersion: number; tip: ZippyTip | null; sheetRequest: number };
-let snap: Snapshot = { phase: 'hydrating', moodVersion: 0, tip: null, sheetRequest: 0 };
+/** A window-coordinate point (e.g. where the docked face was dragged out of the header). */
+export type WindowPoint = { x: number; y: number };
+
+/**
+ * dropHint → a floating Zippy is being dragged over the header dock zone: the focused HeaderDockSlot
+ * shows a subtle "drop to dock" highlight.
+ * undockAt → where the docked face was dragged out to (window coords); the orb lands there (clamped).
+ */
+type Snapshot = { phase: DockPhase; moodVersion: number; tip: ZippyTip | null; sheetRequest: number; dropHint: boolean; undockAt: WindowPoint | null };
+let snap: Snapshot = { phase: 'hydrating', moodVersion: 0, tip: null, sheetRequest: 0, dropHint: false, undockAt: null };
 const listeners = new Set<() => void>();
 const emit = (next: Partial<Snapshot>) => { snap = { ...snap, ...next }; listeners.forEach((l) => l()); };
 const subscribe = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
@@ -47,18 +71,29 @@ export function useZippyStore(): Snapshot {
 export const zippyDock = {
   get phase() { return snap.phase; },
   setPhase(phase: DockPhase) { if (snap.phase !== phase) emit({ phase }); },
-  /** Restore the persisted preference once per app launch. Docked unless the dealer chose to float Zippy. */
+  /** Restore the persisted preference once per app launch. Floating unless the dealer docked Zippy. */
   hydrate() {
     if (snap.phase !== 'hydrating') return;
-    secureStorage.get(FLOAT_STORAGE_KEY)
-      .then((v) => { if (snap.phase === 'hydrating') emit({ phase: v === '1' ? 'floating' : 'docked' }); })
-      .catch(() => { if (snap.phase === 'hydrating') emit({ phase: 'docked' }); });
+    const forced = webForcedPhase();
+    if (forced) { emit({ phase: forced }); return; }
+    secureStorage.get(DOCK_STORAGE_KEY)
+      .then((v) => { if (snap.phase === 'hydrating') emit({ phase: v === 'docked' ? 'docked' : 'floating' }); })
+      .catch(() => { if (snap.phase === 'hydrating') emit({ phase: 'floating' }); });
   },
   persist(docked: boolean) {
-    secureStorage.set(FLOAT_STORAGE_KEY, docked ? '0' : '1').catch(() => { /* non-critical UI preference */ });
+    const v: DockPref = docked ? 'docked' : 'floating';
+    secureStorage.set(DOCK_STORAGE_KEY, v).catch(() => { /* non-critical UI preference */ });
   },
-  /** Docked mini face long-pressed (or "Show Zippy on screen" in the sheet) → overlay flies the orb back out. */
-  requestUndock() { if (snap.phase === 'docked') emit({ phase: 'undocking' }); },
+  /**
+   * Docked face long-pressed / dragged out of the header (or "Show on screen" in the sheet) → the
+   * overlay flies the orb back out. `at` (window coords) = where it was dragged to.
+   */
+  requestUndock(at?: WindowPoint) { if (snap.phase === 'docked') emit({ phase: 'undocking', undockAt: at ?? null }); },
+  /** Consume the drag-out point (once). */
+  takeUndockAt(): WindowPoint | null { const p = snap.undockAt; if (p) emit({ undockAt: null }); return p; },
+  /** "Drop to dock" highlight on the focused header slot while a floating Zippy is dragged over it. */
+  setDropHint(on: boolean) { if (snap.dropHint !== on) emit({ dropHint: on }); },
+  snapshotDropHint() { return snap.dropHint; },
   /** Open the help sheet (docked face tapped, or the tip bubble tapped). */
   requestSheet() { emit({ sheetRequest: snap.sheetRequest + 1 }); },
 };
