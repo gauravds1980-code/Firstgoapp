@@ -120,6 +120,17 @@ export default function MandateScreen() {
     finishOk(r.data, 'upi');
   };
 
+  // v1.2.8: dealer-facing "Simulate successful mandate" on the Scan & Setup QR (every build, like
+  // "Simulate successful scan"). Same NPCI create call as a real Scan & Setup, then the real approve /
+  // finishOk path: success card renders, then the usual auto-advance to e-sign.
+  const [simulating, setSimulating] = useState(false);
+  const simulateMandate = async () => {
+    if (simulating || done || upiBlocked) return;
+    setSimulating(true); setErr(''); confirmed.current = false;
+    pending.current = mandate.createUpiMandate({ payerVpa: DEMO_PAYER_VPA, amountMax: maxAmt, frequency: 'MONTHLY', startDate: start.toISOString(), endDate: end.toISOString(), purpose: '14', loanApplicationNumber: journey.offer.loanApplicationNumber }, monthly);
+    try { await approve(); } finally { setSimulating(false); }
+  };
+
   const openUpiApp = async () => {
     try {
       await Linking.openURL(uri);
@@ -212,6 +223,8 @@ export default function MandateScreen() {
               {SHOW_DEV_UI && <Text variant="caption" color={colors.warning} style={{ textAlign: 'center' }}>Demo mandate QR · prototype only, not a live collect. Payee {mandate.DEMO_PAYEE_VPA}</Text>}
               <Button label="Open UPI app" variant="secondary" icon="cellphone-arrow-down" onPress={openUpiApp} style={{ alignSelf: 'stretch' }}
                 accessibilityHint="Opens a UPI app on this phone with the same AutoPay mandate" />
+              <Button label="Simulate successful mandate" variant="secondary" icon="check-decagram-outline" onPress={simulateMandate} loading={simulating} disabled={upiBlocked}
+                style={{ alignSelf: 'stretch' }} accessibilityHint="Creates the AutoPay mandate as if the customer approved it with their UPI PIN" />
               {toast ? (
                 <View accessibilityRole="alert" accessibilityLiveRegion="polite"
                   style={{ alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: colors.textStrong, borderRadius: radius.md, paddingHorizontal: space.sm, paddingVertical: space.xs }}>

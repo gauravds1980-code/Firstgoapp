@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { View } from 'react-native';
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
 import { JourneyScreen } from '../components/Screen';
+import { copyUtr, useToast } from '../components/Toast';
 import { Chip, DateFilterBar, ExampleTag, inrShort, StatCard } from '../components/business';
 import { Card, EmptyState, Icon, Pill, PressableScale, Text } from '../components/ui';
 import { useSectionTracker, useZippyPending } from '../components/assistant/zippySection';
@@ -27,6 +28,7 @@ export default function PayoutsScreen() {
   const [filter, setFilter] = useState<InvoiceStatus | 'All'>('All');
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const utrToast = useToast();
   const all = base.map((i) => ({ ...i, ...overrides[i.id] })).filter((i) => inRange(i.date, range));
   const totals = STATUS.map((s) => ({ s, n: all.filter((i) => i.status === s).length, amt: all.filter((i) => i.status === s).reduce((t, i) => t + i.amount, 0) }));
   const shown = filter === 'All' ? all : all.filter((i) => i.status === filter);
@@ -50,7 +52,7 @@ export default function PayoutsScreen() {
   };
 
   return (
-    <JourneyScreen title="Payouts" assistant="payouts" showTerms={false} onScroll={sec.onScroll}>
+    <JourneyScreen title="Payouts" assistant="payouts" showTerms={false} onScroll={sec.onScroll} toast={utrToast.toast?.text} toastTone={utrToast.toast?.tone}>
       <View style={{ gap: space.xxs }} onLayout={sec.at('summary')}>
         <Text variant="h1">Payouts</Text>
         <Text variant="body" color={colors.textSecondary}>Dealer payout invoices for {session?.name ?? 'your dealership'}</Text>
@@ -110,7 +112,15 @@ export default function PayoutsScreen() {
                   <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                     <Text variant="bodyStrong" numberOfLines={1}>{inv.id}</Text>
                     <Text variant="caption" color={colors.textSecondary}>{fmtDate(inv.date)} · {inv.lines.length} case{inv.lines.length > 1 ? 's' : ''}</Text>
-                    {inv.utr ? <Text variant="caption" color={colors.textSecondary} numberOfLines={1} ellipsizeMode="middle">UTR {inv.utr}</Text> : null}
+                    {inv.utr ? (
+                      // Nested press target: copying the UTR must not toggle the invoice (stop the parent press).
+                      <PressableScale haptics={false} onPress={(e) => { e?.stopPropagation?.(); void copyUtr(inv.utr, utrToast.show); }}
+                        accessibilityRole="button" accessibilityLabel={`UTR ${inv.utr}. Tap to copy`} hitSlop={{ top: 8, bottom: 8 }}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', maxWidth: '100%' }}>
+                        <Text variant="caption" color={colors.textSecondary} numberOfLines={1} ellipsizeMode="middle" style={{ flexShrink: 1 }}>UTR {inv.utr}</Text>
+                        <Icon name="content-copy" size={14} color={colors.primary} />
+                      </PressableScale>
+                    ) : null}
                   </View>
                   {/* Amount, then the status pill on its own line under it (sized to content, never clipped). */}
                   <View style={{ alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>

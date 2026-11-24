@@ -25,10 +25,12 @@ export default function FaceKycScreen() {
   const nav = useNavigation();
   const { journey, update, features, product } = useApp();
   const [method, setMethod] = useState<'face' | 'finger'>('face');
-  const [stage, setStage] = useState<Stage>(journey.ekyc ? 'done' : 'idle');
+  // v1.2.8: first arrival opens the front camera straight away (no consent card / "Start face capture" tap).
+  // KYC on file keeps the waiver beat; closing the camera falls back to the consent + retry UI ('idle').
+  const [stage, setStage] = useState<Stage>(() => (journey.ekyc ? 'done' : journey.offer.waivers.kycOnFile ? 'idle' : 'capturing'));
   const [err, setErr] = useState('');
 
-  // Start opens the front camera (consent is captured by this tap). The blink drives the rest.
+  // Start (re)opens the front camera from the fallback UI after the dealer closed it. The blink drives the rest.
   const start = () => { setErr(''); setStage('capturing'); };
 
   const leaving = useRef(false);

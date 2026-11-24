@@ -13,6 +13,7 @@ import QuickListScreen from '../screens/QuickListScreen';
 import ScanQrScreen from '../screens/ScanQrScreen';
 import SearchMobileScreen from '../screens/SearchMobileScreen';
 import OfferScreen from '../screens/OfferScreen';
+import OfferRevealScreen from '../screens/OfferRevealScreen';
 import AssetScreen from '../screens/AssetScreen';
 import FaceKycScreen from '../screens/FaceKycScreen';
 import MandateScreen from '../screens/MandateScreen';
@@ -53,6 +54,7 @@ const linking: LinkingOptions<RootStackParamList> = {
       ScanQr: 'scan',
       SearchMobile: 'search/:stage?',
       Offer: 'offer',
+      OfferReveal: 'offer-reveal',
       Asset: 'asset',
       FaceKyc: 'kyc',
       Mandate: 'mandate',
@@ -99,6 +101,7 @@ export default function RootNavigator() {
             <Stack.Screen name="ScanQr" component={ScanQrScreen} options={SCAN_OPTIONS} />
             <Stack.Screen name="SearchMobile" component={SearchMobileScreen} />
             <Stack.Screen name="Offer" component={OfferScreen} />
+            <Stack.Screen name="OfferReveal" component={OfferRevealScreen} options={{ animation: 'fade', gestureEnabled: false }} />
             <Stack.Screen name="Asset" component={AssetScreen} />
             <Stack.Screen name="FaceKyc" component={FaceKycScreen} />
             <Stack.Screen name="Mandate" component={MandateScreen} />

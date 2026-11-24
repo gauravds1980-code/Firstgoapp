@@ -22,6 +22,7 @@ import { ZIPPY_RIGHT_LANE } from '../components/assistant/ZippyBubble';
 import { BrandLockup } from '../components/BrandMarks';
 import { ZippyTipSlot } from '../components/assistant/ZippyTipSlot';
 import { SHOW_DEV_UI } from '../config/devFlags';
+import { copyUtr, ToastView, useToast } from '../components/Toast';
 
 type HomeData = Awaited<ReturnType<typeof fetchDealerHome>>;
 
@@ -41,6 +42,7 @@ export default function HomeScreen() {
   const [data, setData] = useState<HomeData | null>(null);
   const [error, setError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const utrToast = useToast();
   const [rc] = useRcCases(session?.dealerId ?? 'anon', () => rcCasesFor(casesFor(profile)));
   // Tiles use the SAME source and date range (shared date filter) as the Payouts / Portfolio / Cases screens,
   // so a tile never says 72 when the screen behind it says 21.
@@ -208,7 +210,13 @@ export default function HomeScreen() {
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text variant="label" numberOfLines={1}>{inr(po.amount)} · {po.lan}</Text>
                   <Text variant="caption" color={colors.textSecondary} numberOfLines={1}>{po.when}</Text>
-                  <Text variant="caption" color={colors.textSecondary} numberOfLines={1} ellipsizeMode="middle">UTR {po.utr}</Text>
+                  {po.utr ? (
+                    <PressableScale haptics={false} onPress={() => { void copyUtr(po.utr, utrToast.show); }} accessibilityRole="button" accessibilityLabel={`UTR ${po.utr}. Tap to copy`}
+                      hitSlop={{ top: 8, bottom: 8 }} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', maxWidth: '100%' }}>
+                      <Text variant="caption" color={colors.textSecondary} numberOfLines={1} ellipsizeMode="middle" style={{ flexShrink: 1 }}>UTR {po.utr}</Text>
+                      <Icon name="content-copy" size={14} color={colors.primary} />
+                    </PressableScale>
+                  ) : null}
                 </View>
                 <Pill label="Credited" tone="success" />
               </View>
@@ -222,6 +230,9 @@ export default function HomeScreen() {
 
       {/* Zippy's tip: anchored just above the Scan QR FAB, auto-dismisses. */}
       <ZippyTipSlot style={{ position: 'absolute', left: 0, right: 0, bottom: fabBottom + FAB_H + space.xs }} />
+
+      {/* UTR copy toast: same dark style as JourneyScreen's toast, sitting above the Scan QR FAB. */}
+      {utrToast.toast ? <ToastView text={utrToast.toast.text} tone={utrToast.toast.tone} side={gutter.screen} bottom={fabBottom + FAB_H + space.sm} /> : null}
 
       {/* Fixed bottom-centre SCAN QR FAB (PhonePe/UPI mental model) — the dominant one-tap start */}
       <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: fabBottom, alignItems: 'center' }}>

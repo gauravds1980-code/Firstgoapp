@@ -22,4 +22,17 @@ export const hapticMoment = {
   offerSent: haptic.success,
   /** Money credited to the dealer — final screen. */
   disbursalComplete: haptic.success,
+  /**
+   * Pre-approved offer revealed (v1.2.8): a success notification, then two short upbeat beats
+   * (Medium, Light) ~90 ms apart. Returns a cancel function so an unmounting screen stops the beats.
+   */
+  offerCelebrate(): () => void {
+    if (Platform.OS === 'web') return () => {};
+    haptic.success();
+    const beats = [
+      setTimeout(() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {}); }, 180),
+      setTimeout(() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {}); }, 270),
+    ];
+    return () => beats.forEach(clearTimeout);
+  },
 };

@@ -11,6 +11,8 @@ export type RootStackParamList = {
   ScanQr: undefined;
   SearchMobile: { stage?: 'enter' | 'otp' | 'none' } | undefined;
   Offer: undefined;
+  /** v1.2.8: ~1.6 s pre-approved offer celebration; replaces itself with Asset. Not a journey step. */
+  OfferReveal: undefined;
   Asset: undefined;
   FaceKyc: undefined;
   Mandate: undefined;

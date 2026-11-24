@@ -5,12 +5,12 @@ import { DisbursalHero } from '../components/motion/DisbursalMotion';
 import { GoldShimmer } from '../components/motion/primitives';
 import { useNavigation } from '@react-navigation/native';
 import { JourneyScreen } from '../components/Screen';
+import { copyUtr, useToast } from '../components/Toast';
 import { useSectionTracker } from '../components/assistant/zippySection';
 import { Button, Card, Icon, IconName, PressableScale, Text } from '../components/ui';
 import { Milestone, useApp } from '../state/AppState';
 import { colors, radius, space, touch } from '../theme/tokens';
 import { charges, fmtDuration, inr } from '../utils/finance';
-import { haptic } from '../utils/haptics';
 
 const STEPS: { key: Milestone; label: string; icon: IconName }[] = [
   { key: 'offer', label: 'Offer', icon: 'tag-check-outline' },
@@ -43,9 +43,10 @@ export default function DisbursalScreen() {
   const reduce = useReducedMotion();
   const [cardW, setCardW] = useState(320);
   const sec = useSectionTracker<'receipt' | 'timeline'>('receipt');
+  const utrToast = useToast();
 
   return (
-    <JourneyScreen step="disbursal" assistant="disbursal" showTerms={false} onScroll={sec.onScroll} footer={
+    <JourneyScreen step="disbursal" assistant="disbursal" showTerms={false} onScroll={sec.onScroll} toast={utrToast.toast?.text} toastTone={utrToast.toast?.tone} footer={
       <View style={{ gap: space.xs }}>
         <Button label="Start next loan" icon="qrcode-scan" onPress={() => nav.navigate('Home')} />
         <Button label="View all applications" variant="ghost" onPress={() => nav.navigate('QuickList', { kind: 'loans' })} />
@@ -69,7 +70,7 @@ export default function DisbursalScreen() {
         <View style={{ height: 1, alignSelf: 'stretch', backgroundColor: colors.primarySoft }} />
         <View style={{ alignSelf: 'stretch' }}>
           <Text variant="caption" color={colors.textSecondary}>UTR number</Text>
-          <PressableScale onPress={() => haptic.success()} accessibilityRole="button" accessibilityLabel={`UTR ${d.utr}. Tap to copy`} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: touch.min }}>
+          <PressableScale haptics={false} onPress={() => { void copyUtr(d.utr, utrToast.show); }} accessibilityRole="button" accessibilityLabel={`UTR ${d.utr}. Tap to copy`} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: touch.min }}>
             <Text variant="label">{d.utr}</Text><Icon name="content-copy" size={16} color={colors.primary} />
           </PressableScale>
         </View>

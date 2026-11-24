@@ -7,8 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PRODUCTS } from '../config/products';
 import type { AssistantContext, JourneyStep } from '../navigation/types';
 import { useApp } from '../state/AppState';
-import Animated, { FadeInDown, FadeOut } from 'react-native-reanimated';
-import { colors, elevation, fontScaleCap, gutter, radius, space, touch } from '../theme/tokens';
+import { colors, fontScaleCap, gutter, radius, space, touch } from '../theme/tokens';
 import { IdfcMark } from './BrandMarks';
 import { BrandWordmark } from './BrandWordmark';
 import { ZippyTipSlot } from './assistant/ZippyTipSlot';
@@ -16,6 +15,7 @@ import { StepProgress } from './StepProgress';
 import { HeaderDockSlot } from './assistant/HeaderDockSlot';
 import { HeaderVoiceMic } from '../voice/HeaderVoiceMic';
 import { Icon, PressableScale, Text } from './ui';
+import { ToastView, type ToastTone } from './Toast';
 
 /**
  * Compact header used by every main-stack screen except Home and Scan QR.
@@ -75,9 +75,9 @@ export function BrandHeader({ showHome = true, title, subtitle, back = false, on
  * The footer reports its height so a floating Zippy stays clear of the CTA; `onScroll` feeds
  * section-aware help (useSectionTracker). `toast` shows a short confirmation above the footer.
  */
-export function JourneyScreen({ step, title, interstitial, back, assistant, children, footer, showTerms = true, onScroll, toast }: {
+export function JourneyScreen({ step, title, interstitial, back, assistant, children, footer, showTerms = true, onScroll, toast, toastTone }: {
   step?: JourneyStep; title?: string; interstitial?: string; back?: boolean; assistant: AssistantContext; children: React.ReactNode; footer?: React.ReactNode; showTerms?: boolean;
-  onScroll?: (e: NativeSyntheticEvent<NativeScrollEvent>) => void; toast?: string | null;
+  onScroll?: (e: NativeSyntheticEvent<NativeScrollEvent>) => void; toast?: string | null; toastTone?: ToastTone;
 }) {
   const insets = useSafeAreaInsets();
   const route = useRoute().name;
@@ -104,16 +104,7 @@ export function JourneyScreen({ step, title, interstitial, back, assistant, chil
           {footer}
           {showTerms && <Text variant="caption" color={colors.textSecondary} style={{ textAlign: 'center' }}>Terms and eligibility conditions apply.</Text>}
         </View>}
-        {toast ? (
-          <Animated.View entering={FadeInDown.duration(200)} exiting={FadeOut.duration(160)} pointerEvents="none"
-            style={{ position: 'absolute', left: gutter.screen, right: gutter.screen, bottom: (hasFooter ? footerH : Math.max(insets.bottom, space.sm)) + space.sm }}>
-            <View accessibilityRole="alert" accessibilityLiveRegion="polite"
-              style={[{ flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: colors.textStrong, borderRadius: radius.md, paddingHorizontal: space.md, paddingVertical: space.sm }, elevation.raised as object]}>
-              <Icon name="check-circle" size={20} color={colors.successBright} />
-              <Text variant="bodyStrong" color={colors.onPrimary} style={{ flex: 1 }}>{toast}</Text>
-            </View>
-          </Animated.View>
-        ) : null}
+        {toast ? <ToastView text={toast} tone={toastTone} side={gutter.screen} bottom={(hasFooter ? footerH : Math.max(insets.bottom, space.sm)) + space.sm} /> : null}
       </KeyboardAvoidingView>
     </View>
   );

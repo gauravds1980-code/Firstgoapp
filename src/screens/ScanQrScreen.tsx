@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { APP_NAME } from '../config/brand';
 import { ActivityIndicator, Animated, Linking, View } from 'react-native';
-import { useIsFocused, useNavigation } from '@react-navigation/native';
+import { StackActions, useIsFocused, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera';
 import { Button, Icon, PressableScale, Text } from '../components/ui';
@@ -9,7 +9,7 @@ import { PRODUCTS } from '../config/products';
 import { offers } from '../services';
 import { useApp } from '../state/AppState';
 import { colors, radius, space, touch } from '../theme/tokens';
-import { haptic, hapticMoment } from '../utils/haptics';
+import { haptic } from '../utils/haptics';
 import { HeaderDockSlot } from '../components/assistant/HeaderDockSlot';
 import { HeaderVoiceMic } from '../voice/HeaderVoiceMic';
 import { ZippyTipSlot } from '../components/assistant/ZippyTipSlot';
@@ -54,7 +54,11 @@ export default function ScanQrScreen() {
     locked.current = true; setBusy(true); setErr(null);
     const r = await offers.resolveOfferFromQr(payload, product, condition);
     setBusy(false);
-    if (r.ok) { hapticMoment.qrSuccess(); startJourney(r.data); nav.navigate('Asset'); setTimeout(() => { locked.current = false; }, 800); return; }
+    if (r.ok) {
+      // v1.2.8: celebrate the pre-approved offer (~1.6 s, automatic), then Vehicle & EMI. Replacing the scanner
+      // means back from Asset goes Home, not into the camera; OfferReveal owns the haptics.
+      startJourney(r.data); nav.dispatch(StackActions.replace('OfferReveal')); setTimeout(() => { locked.current = false; }, 800); return;
+    }
     haptic.error(); setErr(r.message);
     setTimeout(() => { locked.current = false; }, 1500); // let the dealer re-aim
   };

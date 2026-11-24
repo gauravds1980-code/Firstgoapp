@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View } from 'react-native';
-import { RouteProp, useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
+import { RouteProp, StackActions, useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
 import { JourneyScreen } from '../components/Screen';
 import { useZippyMood } from '../components/assistant/zippyStore';
 import { useSectionTracker, useZippyPending } from '../components/assistant/zippySection';
@@ -93,9 +93,10 @@ export default function SearchMobileScreen() {
     setLoading(false);
     if (!r.ok) { haptic.error(); setErr(r.message); return; }
     if (!r.data) { setStage('none'); return; }
-    haptic.success();
     startJourney(r.data);
-    nav.navigate('Asset'); // offer summary is on the vehicle screen — one less tap
+    // Same path as a QR scan: ~1.6 s offer celebration (owns the haptics), then Vehicle & EMI. Replace so
+    // back from Asset doesn't return to the OTP step or replay the celebration.
+    nav.dispatch(StackActions.replace('OfferReveal'));
   };
 
   if (netErr) {

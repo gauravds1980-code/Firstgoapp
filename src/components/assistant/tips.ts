@@ -5,7 +5,7 @@ import type { AssistantContext } from '../../navigation/types';
 /** Route name → assistant context (drives Zippy's tip and the sheet's suggestions). */
 export const ROUTE_CONTEXT: Record<string, AssistantContext> = {
   DealerLogin: 'login', DealerOtp: 'login', Home: 'home', Profile: 'profile', QuickList: 'home', ScanQr: 'scan', SearchMobile: 'search',
-  Offer: 'offer', Asset: 'asset', FaceKyc: 'kyc', Mandate: 'mandate', Esign: 'esign', Docs: 'docs', Disbursal: 'disbursal',
+  Offer: 'offer', OfferReveal: 'offer', Asset: 'asset', FaceKyc: 'kyc', Mandate: 'mandate', Esign: 'esign', Docs: 'docs', Disbursal: 'disbursal',
   Payouts: 'payouts', Portfolio: 'portfolio', Cases: 'cases', RcPendency: 'rc', TaInf: 'tainf',
 };
 

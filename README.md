@@ -72,7 +72,9 @@ npx expo start
 
 Scan the QR with Expo Go (Android or iOS), or press `w` for web. `npx tsc --noEmit` typechecks the project.
 
-Web deep links (handy for demos): `/`, `/search/enter|otp|none`, `/scan`, `/offer`, `/asset`, `/kyc`, `/mandate`, `/kfs`, `/esign`, `/docs`, `/disbursal`, `/profile`, `/list/{reports|dashboard|rc|tainf|loans|payouts}`.
+Web deep links (handy for demos): `/`, `/search/enter|otp|none`, `/scan`, `/offer`, `/offer-reveal`, `/asset`, `/kyc`, `/mandate`, `/kfs`, `/esign`, `/docs`, `/disbursal`, `/profile`, `/list/{reports|dashboard|rc|tainf|loans|payouts}`.
+
+v1.2.8 journey notes: a pre-approved offer found by QR scan (including "Simulate successful scan") or by mobile search plays a ~1.6 s automatic celebration (`OfferReveal`, tap to skip) and then replaces itself with Vehicle & EMI, so back never replays it. Face KYC opens the front camera on arrival. The UPI Scan & Setup QR has a "Simulate successful mandate" button in every build. UTRs on Home, Payouts and Disbursal copy on tap ("UTR copied").
 
 ## Build the APK
 
