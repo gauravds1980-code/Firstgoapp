@@ -1,0 +1,58 @@
+{
+  "expo": {
+    "name": "FIRSTgo",
+    "slug": "boom-dealer",
+    "version": "1.2.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": false
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#9D1D27",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "versionCode": 3
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "single"
+    },
+    "scheme": "boom",
+    "plugins": [
+      "expo-font",
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "FIRSTgo uses the camera to scan the customer’s IDFC FIRST offer QR code and to photograph RCs.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 180,
+          "resizeMode": "contain",
+          "backgroundColor": "#9D1D27"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "FIRSTgo needs your photos to upload the customer's RC.",
+          "cameraPermission": "FIRSTgo uses the camera to scan customer QR codes and photograph RCs.",
+          "microphonePermission": false
+        }
+      ]
+    ]
+  }
+}

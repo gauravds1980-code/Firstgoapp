@@ -1,0 +1,158 @@
+import React, { useEffect, useState } from 'react';
+import { View } from 'react-native';
+import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
+import { JourneyScreen } from '../components/Screen';
+import { Banner, Button, ErrorState, Field, Icon, OtpInput, PressableScale, Text } from '../components/ui';
+import { AVAILABLE_FROM } from '../config/phases';
+import { PRODUCTS } from '../config/products';
+import type { RootStackParamList } from '../navigation/types';
+import { offers } from '../services';
+import { useApp } from '../state/AppState';
+import { colors, radius, space, touch } from '../theme/tokens';
+import { haptic } from '../utils/haptics';
+
+type Stage = 'enter' | 'otp' | 'none';
+
+export default function SearchMobileScreen() {
+  const nav = useNavigation();
+  const route = useRoute<RouteProp<RootStackParamList, 'SearchMobile'>>();
+  const { product, condition, startJourney, features, session } = useApp();
+  const [stage, setStage] = useState<Stage>(route.params?.stage ?? 'enter');
+  const [mobile, setMobile] = useState(route.params?.stage && route.params.stage !== 'enter' ? (route.params.stage === 'none' ? '9876500000' : '9912345677') : '');
+  const [touched, setTouched] = useState(false);
+  const [otp, setOtp] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [netErr, setNetErr] = useState<string | null>(null);
+  const [resendIn, setResendIn] = useState(30);
+
+  useEffect(() => {
+    if (stage !== 'otp' || resendIn <= 0) return;
+    const t = setTimeout(() => setResendIn((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [stage, resendIn]);
+
+  // Customer mobile is never pre-filled from the dealer session; typing the dealer's own number is blocked.
+  const isDealerOwn = !!session && mobile === session.mobile;
+  const valid = /^[6-9]\d{9}$/.test(mobile) && !isDealerOwn;
+  const mobileErr = isDealerOwn ? "This is your dealer login number, not the customer's" : touched && !valid ? (mobile.length < 10 ? 'Enter all 10 digits' : 'Indian mobile numbers start with 6, 7, 8 or 9') : undefined;
+
+  const sendOtp = async () => {
+    setTouched(true);
+    if (!valid) { haptic.error(); return; }
+    setLoading(true); setNetErr(null);
+    const r = await offers.sendConsentOtp(mobile);
+    setLoading(false);
+    if (!r.ok) { haptic.error(); setNetErr(r.message); return; }
+    setOtp(''); setResendIn(30); setStage('otp');
+  };
+
+  const verify = async (code = otp) => {
+    setLoading(true); setErr(null);
+    const r = await offers.verifyConsentAndFetchOffer(mobile, code, product, condition);
+    setLoading(false);
+    if (!r.ok) { haptic.error(); setErr(r.message); return; }
+    if (!r.data) { setStage('none'); return; }
+    haptic.success();
+    startJourney(r.data);
+    nav.navigate('Asset'); // offer summary is on the vehicle screen — one less tap
+  };
+
+  if (netErr) {
+    return (
+      <JourneyScreen assistant="search" footer={<Button label="Back to Home" variant="secondary" onPress={() => nav.navigate('Home')} />}>
+        <ErrorState title="Something went wrong" body={netErr} onRetry={sendOtp} />
+      </JourneyScreen>
+    );
+  }
+
+  if (stage === 'none') {
+    return (
+      <JourneyScreen assistant="search" footer={
+        <View style={{ gap: space.xs }}>
+          <Button label="Try another number" onPress={() => { setStage('enter'); setMobile(''); setTouched(false); }} />
+          <Button label="Back to Home" variant="ghost" onPress={() => nav.navigate('Home')} />
+        </View>}>
+        <View style={{ alignItems: 'center', gap: space.sm, paddingTop: space.lg }}>
+          <View style={{ width: 88, height: 88, borderRadius: 44, backgroundColor: colors.warningSoft, alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="file-search-outline" size={44} color={colors.warning} />
+          </View>
+          <Text variant="h1" style={{ textAlign: 'center' }}>No pre-qualified offer found</Text>
+          <Text variant="body" color={colors.textSecondary} style={{ textAlign: 'center' }}>
+            We couldn't find a {PRODUCTS[product].label.toLowerCase()} offer for +91 ••••••{mobile.slice(-4)}.
+          </Text>
+        </View>
+        <Banner tone="info" title="Why this happens" body="MVP 1 covers existing IDFC FIRST customers with a pre-approved offer only. New-to-bank customers can apply through the regular loan journey." />
+      </JourneyScreen>
+    );
+  }
+
+  if (stage === 'otp') {
+    return (
+      <JourneyScreen assistant="search" footer={<Button label="Verify & check offers" iconRight="arrow-right" onPress={() => verify()} loading={loading} disabled={otp.length !== 6} />}>
+        <Illustration icon="shield-check-outline" />
+        <View style={{ gap: space.xs }}>
+          <Text variant="h1" style={{ textAlign: 'center' }}>Customer consent</Text>
+          <Text variant="body" color={colors.textSecondary} style={{ textAlign: 'center' }}>
+            We've sent a 6-digit OTP to <Text variant="bodyStrong">+91 ••••••{mobile.slice(-4)}</Text>. Ask the customer to read it out to confirm they consent to checking their offer.
+          </Text>
+        </View>
+        <OtpInput value={otp} onChange={(v) => { setOtp(v); setErr(null); if (v.length === 6 && !loading) verify(v); /* auto-submit */ }} error={!!err} />
+        {err && <Text variant="caption" color={colors.danger} accessibilityLiveRegion="polite">{err}</Text>}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <PressableScale onPress={() => setStage('enter')} accessibilityRole="button" style={{ minHeight: touch.min, justifyContent: 'center' }}>
+            <Text variant="label" color={colors.primary}>Change number</Text>
+          </PressableScale>
+          <PressableScale disabled={resendIn > 0} onPress={sendOtp} accessibilityRole="button" style={{ minHeight: touch.min, justifyContent: 'center' }}>
+            <Text variant="label" color={resendIn > 0 ? colors.textSecondary : colors.primary}>{resendIn > 0 ? `Resend in 0:${String(resendIn).padStart(2, '0')}` : 'Resend OTP'}</Text>
+          </PressableScale>
+        </View>
+        <Banner tone="info" icon="lock-outline" title="Privacy safeguard" body="Offers are only shown after the customer confirms with an OTP, so a mobile number alone never reveals their offer." />
+      </JourneyScreen>
+    );
+  }
+
+  return (
+    <JourneyScreen assistant="search" footer={
+      <View style={{ gap: space.xs }}>
+        <Button label="Proceed to check offers" iconRight="arrow-right" onPress={sendOtp} loading={loading} disabled={isDealerOwn} />
+        <PressableScale onPress={() => nav.navigate('ScanQr')} accessibilityRole="button" accessibilityLabel="Scan customer QR instead"
+          style={{ minHeight: touch.min, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs }}>
+          <Icon name="qrcode-scan" size={20} color={colors.primary} />
+          <Text variant="bodyStrong" color={colors.primary}>Scan Customer QR instead</Text>
+        </PressableScale>
+      </View>}>
+      <Illustration icon="cellphone-lock" />
+      <View style={{ gap: space.xs }}>
+        <Text variant="h1" style={{ textAlign: 'center' }}>Search Pre-Qualified Offers</Text>
+        <Text variant="body" color={colors.textSecondary} style={{ textAlign: 'center' }}>Enter the customer's bank registered mobile number to check for a Pre-Qualified Offer</Text>
+      </View>
+      <Field
+        label="Customer's Mobile Number" prefix="+91" placeholder="Enter 10-digit mobile number" keyboardType="number-pad" maxLength={10}
+        value={mobile} onChangeText={(t) => setMobile(t.replace(/\D/g, ''))} onBlur={() => setTouched(true)} error={mobileErr}
+        hint="Demo: ends 0000 → no offer · 9999 → network error · ETB on file: 5555 KYC, 6666 mandate, 7777 both"
+        right={valid ? <Icon name="check-circle" size={22} color={colors.successBright} style={{ marginRight: space.md }} /> : undefined}
+      />
+      {isDealerOwn && (
+        <Banner tone="warning" icon="account-alert-outline" title="That's your dealer number"
+          body={`+91 ••••••${mobile.slice(-4)} is registered to ${session?.name}. Enter the customer's own bank-registered mobile so the consent OTP reaches them.`} />
+      )}
+      {!features.selfServeLink ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, opacity: 0.6 }}>
+          <Icon name="link-variant" size={18} color={colors.textSecondary} />
+          <Text variant="caption" color={colors.textSecondary}>Send self-serve link to customer · Coming in MVP {AVAILABLE_FROM.selfServeLink}</Text>
+        </View>
+      ) : (
+        <Button label="Send self-serve link to customer" variant="secondary" icon="link-variant" onPress={() => { setTouched(true); if (valid) haptic.success(); }} />
+      )}
+    </JourneyScreen>
+  );
+}
+
+export function Illustration({ icon }: { icon: React.ComponentProps<typeof Icon>['name'] }) {
+  return (
+    <View style={{ alignSelf: 'center', width: 112, height: 112, borderRadius: radius.xl, backgroundColor: colors.primaryTint, alignItems: 'center', justifyContent: 'center', marginTop: space.xs }}>
+      <Icon name={icon} size={56} color={colors.primary} />
+    </View>
+  );
+}

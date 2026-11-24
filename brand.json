@@ -1,0 +1,5 @@
+{
+  "appName": "FIRSTgo",
+  "_comment": "Single source of truth for the product name. Used by app.config.js (Android label, splash) and src/config/brand.ts (in-app text).",
+  "assistantName": "Zippy"
+}

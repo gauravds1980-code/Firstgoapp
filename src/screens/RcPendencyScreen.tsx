@@ -1,0 +1,167 @@
+import React, { useMemo, useState } from 'react';
+import { Image, Platform, View } from 'react-native';
+import Animated, { FadeInDown, FadeOut, LinearTransition } from 'react-native-reanimated';
+import * as ImagePicker from 'expo-image-picker';
+import { JourneyScreen } from '../components/Screen';
+import { Sheet } from '../components/Sheet';
+import { Chip, ExampleTag } from '../components/business';
+import { Banner, Button, Card, Field, Icon, Pill, PressableScale, Text } from '../components/ui';
+import { casesFor, fmtDate, normaliseReg, ocrRegFromPhoto, prettyReg, RcCase, rcCasesFor, REG_REGEX, regSuggestions, TODAY } from '../services/business';
+import { useApp } from '../state/AppState';
+import { useRcCases } from '../state/stores';
+import { colors, radius, space, touch } from '../theme/tokens';
+import { haptic } from '../utils/haptics';
+
+const ageTone = (d: number) => (d > 30 ? colors.danger : d > 15 ? colors.cta : colors.successBright);
+const ageLabel = (d: number) => (d > 30 ? 'Overdue' : d > 15 ? 'Due soon' : 'On time');
+
+interface Draft { reg: string; photo?: string; ocr?: boolean; reading?: boolean }
+
+/** RC pendency: type / select the registration number and/or upload an RC photo (mock OCR); single or bulk submit. */
+export default function RcPendencyScreen() {
+  const { profile, session } = useApp();
+  const dealerId = session?.dealerId ?? 'anon';
+  const [cases, setCases] = useRcCases(dealerId, () => rcCasesFor(casesFor(profile)));
+  const [tab, setTab] = useState<'Pending' | 'Submitted'>('Pending');
+  const [selected, setSelected] = useState<string[]>([]);
+  const [editing, setEditing] = useState<string[] | null>(null); // lans in the sheet
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const pending = cases.filter((c) => c.status === 'Pending').sort((a, b) => b.daysPending - a.daysPending);
+  const submitted = cases.filter((c) => c.status === 'Submitted');
+  const list = tab === 'Pending' ? pending : submitted;
+  const selecting = selected.length > 0;
+
+  const toggle = (lan: string) => { haptic.select(); setSelected((s) => (s.includes(lan) ? s.filter((x) => x !== lan) : [...s, lan])); };
+  const openSheet = (lans: string[]) => { setDrafts((d) => { const n = { ...d }; lans.forEach((l) => { n[l] = n[l] ?? { reg: '' }; }); return n; }); setEditing(lans); };
+  const setDraft = (lan: string, p: Partial<Draft>) => setDrafts((d) => ({ ...d, [lan]: { ...(d[lan] ?? { reg: '' }), ...p } }));
+
+  const capture = async (lan: string, source: 'camera' | 'gallery') => {
+    try {
+      if (source === 'camera' && Platform.OS !== 'web') {
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!perm.granted) { haptic.error(); return; }
+      }
+      const opts: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], quality: 0.5, allowsEditing: false };
+      const res = source === 'camera' ? await ImagePicker.launchCameraAsync(opts) : await ImagePicker.launchImageLibraryAsync(opts);
+      if (res.canceled || !res.assets?.[0]) return;
+      const uri = res.assets[0].uri;
+      setDraft(lan, { photo: uri, reading: true });
+      const o = await ocrRegFromPhoto(uri, lan);
+      haptic.success();
+      setDraft(lan, { reg: prettyReg(o.regNo), ocr: true, reading: false });
+    } catch { haptic.error(); setDraft(lan, { reading: false }); }
+  };
+
+  const valid = (lan: string) => REG_REGEX.test(normaliseReg(drafts[lan]?.reg ?? ''));
+  const submit = () => {
+    if (!editing) return;
+    const ok = editing.filter(valid);
+    if (!ok.length) { haptic.error(); return; }
+    haptic.success();
+    setCases((cs) => cs.map((c) => (ok.includes(c.lan) ? { ...c, status: 'Submitted', regNo: prettyReg(drafts[c.lan]!.reg), photo: drafts[c.lan]!.photo, submittedOn: TODAY } : c)));
+    setSelected((s) => s.filter((x) => !ok.includes(x)));
+    setEditing(null);
+  };
+  const editingCases = (editing ?? []).map((l) => cases.find((c) => c.lan === l)).filter(Boolean) as RcCase[];
+  const validCount = (editing ?? []).filter(valid).length;
+
+  return (
+    <JourneyScreen assistant="docs" showTerms={false} footer={selecting ? (
+      <View style={{ flexDirection: 'row', gap: space.xs }}>
+        <Button label="Clear" variant="secondary" onPress={() => setSelected([])} style={{ flex: 1 }} />
+        <Button label={`Share ${selected.length} RC${selected.length > 1 ? 's' : ''}`} icon="share-variant" onPress={() => openSheet(selected)} style={{ flex: 2 }} />
+      </View>
+    ) : undefined}>
+      <View style={{ gap: space.xxs }}>
+        <Text variant="h1">RC pendency</Text>
+        <Text variant="body" color={colors.textSecondary}>Share the registration number or RC photo for disbursed loans</Text>
+        <ExampleTag />
+      </View>
+      <View style={{ flexDirection: 'row', gap: space.xs }}>
+        <Chip label="Pending" count={String(pending.length)} on={tab === 'Pending'} onPress={() => setTab('Pending')} />
+        <Chip label="Submitted" count={String(submitted.length)} on={tab === 'Submitted'} onPress={() => setTab('Submitted')} />
+      </View>
+      {tab === 'Pending' && pending.length > 0 && (
+        <Text variant="caption" color={colors.textSecondary}>Tap a case to add its RC · long-press or tick boxes to share several at once</Text>
+      )}
+      {tab === 'Pending' && pending.length === 0 && <Banner tone="success" title="All RCs shared" body="Nothing pending. Nice work!" />}
+
+      <View style={{ gap: space.sm }}>
+        {list.map((c, i) => {
+          const on = selected.includes(c.lan);
+          return (
+            <Animated.View key={c.lan} entering={FadeInDown.delay(Math.min(i, 8) * 40)} exiting={FadeOut} layout={LinearTransition.springify().damping(18)}>
+              <PressableScale onPress={() => (c.status === 'Pending' ? (selecting ? toggle(c.lan) : openSheet([c.lan])) : undefined)} onLongPress={() => c.status === 'Pending' && toggle(c.lan)}
+                accessibilityRole="button" accessibilityLabel={`${c.customer}, ${c.vehicle}, ${c.daysPending} days pending${c.regNo ? `, ${c.regNo}` : ''}`}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.md, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: on ? 2 : 1, borderColor: on ? colors.primary : colors.border, overflow: 'hidden' }}>
+                <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 5, backgroundColor: c.status === 'Submitted' ? colors.primary : ageTone(c.daysPending) }} />
+                {c.status === 'Pending' && (
+                  <PressableScale onPress={() => toggle(c.lan)} accessibilityRole="checkbox" accessibilityState={{ checked: on }} accessibilityLabel={`Select ${c.customer}`} style={{ width: 32, height: touch.min, alignItems: 'center', justifyContent: 'center' }}>
+                    <Icon name={on ? 'checkbox-marked' : 'checkbox-blank-outline'} size={24} color={on ? colors.primary : colors.textSecondary} />
+                  </PressableScale>
+                )}
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text variant="bodyStrong">{c.customer}</Text>
+                  <Text variant="caption" color={colors.textSecondary}>{c.vehicle} · {c.lan}</Text>
+                  <Text variant="caption" color={colors.textSecondary}>Disbursed {fmtDate(c.disbursedOn)}</Text>
+                  {c.regNo && <Text variant="label" color={colors.primary}>{c.regNo}</Text>}
+                </View>
+                <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                  {c.status === 'Pending' ? (
+                    <>
+                      <Text variant="h3" color={ageTone(c.daysPending)}>{c.daysPending}d</Text>
+                      <Pill label={ageLabel(c.daysPending).toUpperCase()} tone={c.daysPending > 30 ? 'danger' : c.daysPending > 15 ? 'warning' : 'success'} />
+                    </>
+                  ) : <Pill label="UNDER VERIFICATION" tone="info" />}
+                </View>
+              </PressableScale>
+            </Animated.View>
+          );
+        })}
+      </View>
+
+      <Sheet visible={!!editing} onClose={() => setEditing(null)} title={editingCases.length > 1 ? `Share ${editingCases.length} RCs` : 'Share RC'}
+        subtitle="Type or pick the registration number, or snap the RC — we'll read the number for you"
+        footer={<Button label={validCount ? `Submit ${validCount} for verification` : 'Enter a valid registration number'} icon="send-check" disabled={!validCount} onPress={submit} />}>
+        {editingCases.map((c) => <RcEntry key={c.lan} c={c} d={drafts[c.lan] ?? { reg: '' }} onChange={(p) => setDraft(c.lan, p)} onCapture={(s) => capture(c.lan, s)} compact={editingCases.length > 1} />)}
+      </Sheet>
+    </JourneyScreen>
+  );
+}
+
+function RcEntry({ c, d, onChange, onCapture, compact }: { c: RcCase; d: Draft; onChange: (p: Partial<Draft>) => void; onCapture: (s: 'camera' | 'gallery') => void; compact: boolean }) {
+  const norm = normaliseReg(d.reg);
+  const err = d.reg && !REG_REGEX.test(norm) ? 'Format like MH12AB1234' : undefined;
+  const sugg = useMemo(() => regSuggestions(c.lan), [c.lan]);
+  return (
+    <View style={{ gap: space.sm, paddingBottom: compact ? space.sm : 0, borderBottomWidth: compact ? 1 : 0, borderBottomColor: colors.border }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+        <Text variant="bodyStrong" style={{ flex: 1 }}>{c.customer} · {c.vehicle}</Text>
+        <Text variant="label" color={ageTone(c.daysPending)}>{c.daysPending}d</Text>
+      </View>
+      <View style={{ flexDirection: 'row', gap: space.xs }}>
+        <PhotoButton icon="camera-outline" label="Snap RC" onPress={() => onCapture('camera')} />
+        <PhotoButton icon="image-outline" label="Gallery" onPress={() => onCapture('gallery')} />
+        {d.photo ? <Image source={{ uri: d.photo }} style={{ width: 64, height: 48, borderRadius: radius.sm, backgroundColor: colors.surfaceMuted }} accessibilityLabel="RC photo" /> : null}
+      </View>
+      {d.reading && <Banner tone="info" icon="text-recognition" title="Reading registration number…" body="Mock OCR on the RC photo" />}
+      <Field label={d.ocr ? 'Registration number (read from RC · check it)' : 'Registration number'} value={d.reg} placeholder="MH12AB1234" autoCapitalize="characters" maxLength={13}
+        onChangeText={(t) => onChange({ reg: t.toUpperCase(), ocr: d.ocr && t.toUpperCase() === d.reg ? d.ocr : false })} error={err}
+        right={REG_REGEX.test(norm) ? <Icon name="check-circle" size={22} color={colors.successBright} style={{ marginRight: space.md }} /> : undefined} />
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs, alignItems: 'center' }}>
+        <Text variant="caption" color={colors.textSecondary}>Issued by RTO for your dealership:</Text>
+        {sugg.map((s) => <Chip key={s} label={prettyReg(s)} on={norm === s} onPress={() => { haptic.select(); onChange({ reg: prettyReg(s), ocr: false }); }} />)}
+      </View>
+    </View>
+  );
+}
+
+function PhotoButton({ icon, label, onPress }: { icon: React.ComponentProps<typeof Icon>['name']; label: string; onPress: () => void }) {
+  return (
+    <PressableScale onPress={onPress} accessibilityRole="button" accessibilityLabel={label}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: touch.min, paddingHorizontal: space.md, borderRadius: radius.pill, borderWidth: 1.5, borderColor: colors.primary, backgroundColor: colors.primaryTint }}>
+      <Icon name={icon} size={18} color={colors.primary} />
+      <Text variant="label" color={colors.primary}>{label}</Text>
+    </PressableScale>
+  );
+}
