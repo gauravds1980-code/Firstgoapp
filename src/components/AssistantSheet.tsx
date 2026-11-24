@@ -63,7 +63,7 @@ const SUGGESTIONS: Record<AssistantContext, { q: string; a: string }[]> = {
   ],
   asset: [
     { q: 'Why is the slider capped?', a: 'Loan max = lower of the pre-qualified offer and LTV % × on-road price.' },
-    { q: 'EMI shows above ₹15,000', a: 'UPI AutoPay is capped at ₹15,000 EMI. Increase the tenure or lower the loan amount. Debit card / net banking mandates are coming soon.' },
+    { q: 'EMI shows above ₹15,000', a: 'UPI AutoPay is capped at ₹15,000 EMI. Increase the tenure or lower the loan amount.' },
   ],
   kyc: [
     { q: 'Face capture keeps failing', a: 'Ask the customer to remove glasses and cap, move to even light, and hold the phone at eye level. Fingerprint e-KYC is coming soon.' },
@@ -72,9 +72,9 @@ const SUGGESTIONS: Record<AssistantContext, { q: string; a: string }[]> = {
     { q: 'Face RD app not installed', a: 'Install “AadhaarFaceRD” from the Play Store, then retry.' },
   ],
   mandate: [
-    { q: 'How does Scan & Setup work?', a: 'The customer scans the AutoPay QR with any UPI app (or you tap Open UPI app on their phone), checks the EMI and max amount, and approves with their UPI PIN. The mandate is created and e-sign opens by itself.' },
-    { q: 'Open UPI app says no UPI app found', a: 'This phone has no UPI app. Ask the customer to scan the QR from their own phone, or send a request to their UPI ID instead.' },
-    { q: 'Customer didn’t get the UPI request', a: 'Scan & Setup needs no request — they just scan the QR. If you sent one to a UPI ID, confirm the ID and ask them to check pending mandates in their UPI app.' },
+    { q: 'How does the AutoPay QR work?', a: 'The QR is ready as soon as the screen opens. The customer scans it with any UPI app (or you tap Open UPI app on their phone), checks the EMI and max amount, and approves with their UPI PIN. The app waits by itself; the mandate is created and e-sign opens.' },
+    { q: 'Open UPI app says no UPI app found', a: 'This phone has no UPI app. Ask the customer to scan the QR from their own phone.' },
+    { q: 'The QR expired or failed', a: 'Tap Refresh QR to raise a new AutoPay request, then ask the customer to scan again.' },
     { q: 'What is a UMRN?', a: 'Unique Mandate Reference Number from NPCI — proof the AutoPay mandate is active. Customers get a pre-debit notification 24 hours before each EMI.' },
     { q: 'What happens after the mandate?', a: 'E-sign opens next. The KFS goes to the customer with the e-sign link — there is no separate KFS screen for you.' },
   ],
@@ -182,7 +182,7 @@ export function AssistantSheet({ visible, onClose, context, route, product, dock
             ))}
           </View>
         </ScrollView>
-        {/* Menu option: the single way (besides long-press) to hide Zippy into the header or float it back out. */}
+        {/* Menu option: the single way (besides dragging or long-press) to hide Zippy into the header or float it back out. */}
         {onToggleDock && (
           <PressableScale onPress={onToggleDock} accessibilityRole="button" accessibilityLabel={docked ? `Show ${ASSISTANT_NAME} on screen` : `Hide ${ASSISTANT_NAME} in the header`}
             style={{ minHeight: touch.min, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs }}>

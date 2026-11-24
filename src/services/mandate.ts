@@ -26,6 +26,54 @@ export async function createUpiMandate(req: MandateRequest, emi: number): Promis
   return { ok: true, data: { umn: `${rid('UMN', 12)}@idfcfirst`, status: 'ACTIVE', payerVpa: req.payerVpa } };
 }
 
+// ---- v1.2.9: Scan & Setup request + status polling ----------------------------------------------
+// The QR is raised as soon as the Mandate screen opens; the app then polls for the customer's
+// approval (RespMandate). Mock: a request only turns ACTIVE after simulateUpiMandateApproval()
+// (the dealer's "Simulate successful mandate" control). It never approves on its own.
+
+/** How long a Scan & Setup request (QR) stays valid. */
+export const UPI_REQUEST_VALID_MS = 5 * 60 * 1000;
+
+export type UpiMandateRequest = { requestId: string; createdAt: number; expiresAt: number };
+export type UpiMandateStatus =
+  | { status: 'PENDING' }
+  | { status: 'ACTIVE'; mandate: MandateResponse }
+  | { status: 'DECLINED' | 'EXPIRED'; message: string };
+
+type MockRequest = UpiMandateRequest & { req: MandateRequest; approvedVpa?: string };
+const mockRequests = new Map<string, MockRequest>();
+
+/** Stub for ReqMandate (CREATE) in Scan & Setup mode: registers the request behind the QR. */
+export async function requestUpiMandate(req: MandateRequest, emi: number): Promise<Result<UpiMandateRequest>> {
+  await delay(800);
+  if (emi > UPI_MANDATE_EMI_CAP)
+    return { ok: false, code: 'EMI_ABOVE_UPI_CAP', message: 'EMI is above the UPI AutoPay cap. Extend the tenure or lower the amount.' };
+  if (!VPA_REGEX.test(req.payerVpa)) return { ok: false, code: 'VPA_INVALID', message: 'Invalid UPI ID.' };
+  const now = Date.now();
+  const r: MockRequest = { requestId: rid('MREQ', 12), createdAt: now, expiresAt: now + UPI_REQUEST_VALID_MS, req };
+  mockRequests.set(r.requestId, r);
+  return { ok: true, data: { requestId: r.requestId, createdAt: r.createdAt, expiresAt: r.expiresAt } };
+}
+
+/** Stub for the mandate status check (RespMandate / ReqMandateConfirmation). */
+export async function pollUpiMandate(requestId: string): Promise<Result<UpiMandateStatus>> {
+  await delay(250);
+  const r = mockRequests.get(requestId);
+  if (!r) return { ok: false, code: 'NOT_FOUND', message: 'Mandate request not found. Refresh the QR.' };
+  if (r.req.payerVpa.startsWith('fail')) return { ok: true, data: { status: 'DECLINED', message: 'Customer declined the mandate request in their UPI app.' } };
+  if (r.approvedVpa) return { ok: true, data: { status: 'ACTIVE', mandate: { umn: `${rid('UMN', 12)}@idfcfirst`, status: 'ACTIVE', payerVpa: r.approvedVpa } } };
+  if (Date.now() > r.expiresAt) return { ok: true, data: { status: 'EXPIRED', message: 'The QR expired before the customer approved. Refresh the QR and ask them to scan again.' } };
+  return { ok: true, data: { status: 'PENDING' } };
+}
+
+/** Demo only: mark a request as approved by the customer (the next poll returns ACTIVE). */
+export function simulateUpiMandateApproval(requestId: string, payerVpa: string): boolean {
+  const r = mockRequests.get(requestId);
+  if (!r || Date.now() > r.expiresAt) return false;
+  r.approvedVpa = payerVpa;
+  return true;
+}
+
 /** MVP 2: debit-card / net-banking e-NACH via NPCI API e-mandate. */
 export async function createEnachMandate(mode: 'debitCard' | 'netBanking'): Promise<Result<MandateResponse>> {
   await delay(1500);

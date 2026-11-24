@@ -27,7 +27,7 @@ export const SECTION_HELP: Partial<Record<AssistantContext, Record<string, { lab
       { q: 'Why did the amount change?', a: 'Changing the vehicle resets the loan to the new maximum: the lower of the offer and LTV × on-road price.' },
     ] },
     emi: { label: 'EMI & tenure', faqs: [
-      { q: 'EMI is above ₹15,000', a: 'UPI AutoPay is capped at ₹15,000. Pick a longer tenure or lower the amount. Debit card / net banking mandates are coming soon.' },
+      { q: 'EMI is above ₹15,000', a: 'UPI AutoPay is capped at ₹15,000. Pick a longer tenure or lower the amount.' },
       { q: 'Why is the slider capped?', a: 'Loan max = lower of the pre-qualified offer and LTV % × on-road price.' },
     ] },
     charges: { label: 'charges', faqs: [
@@ -40,10 +40,13 @@ export const SECTION_HELP: Partial<Record<AssistantContext, Record<string, { lab
     capture: { label: 'face capture', faqs: [{ q: 'Liveness keeps failing', a: 'Even light, no cap or mask, phone at eye level, about an arm’s length away. Face inside the oval, then one clear blink.' }] },
   },
   mandate: {
-    mode: { label: 'mandate type', faqs: [{ q: 'Which mandate should I pick?', a: 'UPI AutoPay for EMIs up to ₹15,000. Debit card and net banking e-mandates for higher EMIs are coming soon.' }] },
-    details: { label: 'Scan & Setup', faqs: [
-      { q: 'How does the customer approve?', a: 'They scan the AutoPay QR with any UPI app (or you tap Open UPI app) and approve with their UPI PIN.' },
+    qr: { label: 'AutoPay QR', faqs: [
+      { q: 'How does the customer approve?', a: 'They scan the AutoPay QR with any UPI app (or you tap Open UPI app) and approve with their UPI PIN. The app is already waiting — e-sign opens by itself once it is approved.' },
+      { q: 'The QR expired or failed', a: 'Tap Refresh QR. A new AutoPay request is raised and the app starts waiting again.' },
+    ] },
+    summary: { label: 'mandate summary', faqs: [
       { q: 'Why is max debit higher than the EMI?', a: 'It is a ceiling with headroom for rate changes. Only the actual EMI is debited each month.' },
+      { q: 'Which mandate methods are there?', a: 'UPI AutoPay only, for EMIs up to ₹15,000.' },
     ] },
   },
   esign: {
