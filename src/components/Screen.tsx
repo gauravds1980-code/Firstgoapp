@@ -1,31 +1,35 @@
 import React from 'react';
-import { ASSISTANT_NAME } from '../config/brand';
 import { KeyboardAvoidingView, NativeScrollEvent, NativeSyntheticEvent, Platform, ScrollView, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { reportFooterHeight } from './assistant/zippySection';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import { PRODUCTS } from '../config/products';
 import type { AssistantContext, JourneyStep } from '../navigation/types';
 import { useApp } from '../state/AppState';
-import { colors, fontScaleCap, gutter, radius, space, touch } from '../theme/tokens';
+import { colors, fontScaleCap, gutter, headerBtn, space, touch } from '../theme/tokens';
 import { IdfcMark } from './BrandMarks';
 import { BrandWordmark } from './BrandWordmark';
 import { ZippyTipSlot } from './assistant/ZippyTipSlot';
 import { StepProgress } from './StepProgress';
 import { HeaderDockSlot } from './assistant/HeaderDockSlot';
+import { scrollZippyAvoid } from './assistant/zippyAvoid';
+import { ZIPPY_SAFE_GUTTER } from './assistant/ZippyBubble';
 import { HeaderVoiceMic } from '../voice/HeaderVoiceMic';
 import { Icon, PressableScale, Text } from './ui';
 import { ToastView, type ToastTone } from './Toast';
 
 /**
  * Compact header used by every main-stack screen except Home and Scan QR.
- *   [‹ back]? [IDFC mark] [IDFC FIRST Bank / title] … [help]? [Zippy dock] [mic] [home]
+ *   [‹ back]? [IDFC mark] [IDFC FIRST Bank / title] … [Zippy dock] [mic] [home]
  * The mic (HeaderVoiceMic) is its own slot, independent of Zippy. No dealer avatar here (Home only).
- * `title` is the screen's own name ("Payouts", "RC pendency") on non-journey screens, or the product
+ * `title` is the screen's own name ("Profile") on non-journey screens, or the product
  * ("Two-wheeler loan") on journey screens. Everything is ONE line (wordmark and title both), so the
  * header height never changes from screen to screen. Same logo-mark tile as login and Home.
+ * v1.3.0: `hideTitle` (screens whose page already opens with that name as an H1) shows the wordmark
+ * alone. All trailing actions are the same 40dp circle (headerBtn), Home included.
  */
-export function BrandHeader({ showHome = true, title, subtitle, back = false, onHelp }: { showHome?: boolean; title?: string; subtitle?: string; back?: boolean; onHelp?: () => void }) {
+export function BrandHeader({ showHome = true, title, subtitle, back = false, hideTitle = false }: { showHome?: boolean; title?: string; subtitle?: string; back?: boolean; hideTitle?: boolean }) {
   const nav = useNavigation();
   const { product } = useApp();
   const heading = title ?? subtitle ?? PRODUCTS[product].headerSubtitle;
@@ -42,26 +46,27 @@ export function BrandHeader({ showHome = true, title, subtitle, back = false, on
         <IdfcMark size={36} />
         <View style={{ flex: 1, minWidth: 0 }}>
           <BrandWordmark />
-          <Text variant="label" color={title ? colors.text : colors.textSecondary} numberOfLines={1} maxFontSizeMultiplier={fontScaleCap.control}>{heading}</Text>
+          {!hideTitle && <Text variant="label" color={title ? colors.text : colors.textSecondary} numberOfLines={1} maxFontSizeMultiplier={fontScaleCap.control}>{heading}</Text>}
         </View>
       </View>
-      {onHelp && (
-        <PressableScale accessibilityRole="button" accessibilityLabel={`Get help from ${ASSISTANT_NAME}`} onPress={onHelp}
-          style={{ width: touch.min, height: touch.min, flexShrink: 0, borderRadius: touch.min / 2, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.aiUser, marginRight: space.xs }}>
-          <Icon name="creation" size={22} color={colors.accent} />
-        </PressableScale>
-      )}
       {/* Zippy docks here; the hold-to-talk mic is its own slot beside it (both fixed footprints, so the header never shifts). */}
       <HeaderDockSlot />
-      <HeaderVoiceMic style={showHome ? { marginRight: space.xxs } : undefined} />
-      {showHome && (
-        <PressableScale accessibilityRole="button" accessibilityLabel="Go to home"
-          onPress={() => nav.navigate('Home')}
-          style={{ width: touch.min, height: touch.min, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: colors.primaryTint }}>
-          <Icon name="home-outline" size={26} color={colors.primary} />
-        </PressableScale>
-      )}
+      <HeaderVoiceMic />
+      {showHome && <HeaderCircleButton icon="home-outline" label="Go to home" onPress={() => nav.navigate('Home')} />}
     </View>
+  );
+}
+
+/** A header action in the shared 40dp circle (same shape and size as the mic and the docked Zippy). */
+export function HeaderCircleButton({ icon, label, onPress, children }: { icon?: React.ComponentProps<typeof Icon>['name']; label: string; onPress?: () => void; children?: React.ReactNode }) {
+  return (
+    <PressableScale accessibilityRole="button" accessibilityLabel={label} onPress={onPress} hitSlop={headerBtn.hitSlop}
+      style={{ width: headerBtn.box, height: headerBtn.box, flexShrink: 0, alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ width: headerBtn.disc, height: headerBtn.disc, borderRadius: headerBtn.disc / 2, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primaryTint, borderWidth: 1.5, borderColor: colors.primary }}>
+        {icon ? <Icon name={icon} size={22} color={colors.primary} /> : null}
+      </View>
+      {children}
+    </PressableScale>
   );
 }
 
@@ -74,9 +79,12 @@ export function BrandHeader({ showHome = true, title, subtitle, back = false, on
  * Zippy's tip appears in the bottom safe zone right above the footer (ZippyTipSlot), never over content.
  * The footer reports its height so a floating Zippy stays clear of the CTA; `onScroll` feeds
  * section-aware help (useSectionTracker). `toast` shows a short confirmation above the footer.
+ * v1.3.0: `titleInBody` (the page opens with its own H1) drops the repeated header title. The scroll body
+ * ends with ZIPPY_SAFE_GUTTER, so the last card can scroll clear of floating Zippy, and every scroll end
+ * lets Zippy re-check that it is not resting on a control.
  */
-export function JourneyScreen({ step, title, interstitial, back, assistant, children, footer, showTerms = true, onScroll, toast, toastTone }: {
-  step?: JourneyStep; title?: string; interstitial?: string; back?: boolean; assistant: AssistantContext; children: React.ReactNode; footer?: React.ReactNode; showTerms?: boolean;
+export function JourneyScreen({ step, title, titleInBody = false, interstitial, back, assistant, children, footer, showTerms = true, onScroll, toast, toastTone }: {
+  step?: JourneyStep; title?: string; titleInBody?: boolean; interstitial?: string; back?: boolean; assistant: AssistantContext; children: React.ReactNode; footer?: React.ReactNode; showTerms?: boolean;
   onScroll?: (e: NativeSyntheticEvent<NativeScrollEvent>) => void; toast?: string | null; toastTone?: ToastTone;
 }) {
   const insets = useSafeAreaInsets();
@@ -89,14 +97,18 @@ export function JourneyScreen({ step, title, interstitial, back, assistant, chil
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }}>
       <View style={{ backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border }}>
         {/* Non-journey screens get a back chevron instead of the Home button (they open from Home). */}
-        <BrandHeader title={step || interstitial ? undefined : title} back={showBack} showHome={!showBack} />
+        <BrandHeader title={step || interstitial ? undefined : title} hideTitle={titleInBody && !step && !interstitial} back={showBack} showHome={!showBack} />
         {step && <StepProgress step={step} interstitial={interstitial} />}
       </View>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView style={{ flex: 1, width: '100%' }} contentContainerStyle={{ padding: gutter.screen, gap: space.lg, paddingBottom: space.xxxl + space.xl }} keyboardShouldPersistTaps="handled"
-          onScroll={onScroll} scrollEventThrottle={onScroll ? 64 : undefined}>
+        <View style={{ flex: 1 }}>
+        <ScrollView style={{ flex: 1, width: '100%' }} contentContainerStyle={{ padding: gutter.screen, gap: space.lg, paddingBottom: ZIPPY_SAFE_GUTTER }} keyboardShouldPersistTaps="handled"
+          onScroll={(e) => { onScroll?.(e); scrollZippyAvoid(); }} scrollEventThrottle={64}>
           {children}
         </ScrollView>
+        {/* A short fade above the sticky footer, so the last visible row (e.g. Disbursal's UTR) never sits flush against the CTA bar. */}
+        {hasFooter && <LinearGradient pointerEvents="none" colors={['rgba(253,244,239,0)', colors.bg]} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: space.md }} />}
+        </View>
         {/* With no footer the tip sits at the screen bottom, so it clears the home indicator itself. */}
         <ZippyTipSlot bottomInset={hasFooter ? 0 : insets.bottom} />
         {hasFooter && <View onLayout={(e) => { reportFooterHeight(route, e.nativeEvent.layout.height); setFooterH(e.nativeEvent.layout.height); }}

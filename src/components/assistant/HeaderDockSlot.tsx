@@ -3,14 +3,16 @@ import { PanResponder, Pressable, StyleProp, View, ViewStyle } from 'react-nativ
 import { useIsFocused, useRoute } from '@react-navigation/native';
 import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { ASSISTANT_NAME } from '../../config/brand';
-import { colors } from '../../theme/tokens';
+import { colors, headerBtn } from '../../theme/tokens';
 import { haptic } from '../../utils/haptics';
 import { ZippyCharacter } from './ZippyCharacter';
 import { registerDockSlot, useRouteMood, useZippyStore, zippyDock, ZippyMood } from './zippyStore';
 
 /** Header slot footprint (always reserved, so headers never shift) and the docked mini face size. */
-export const DOCK_SLOT_SIZE = 44;
-export const DOCK_MINI_SIZE = 36;
+export const DOCK_SLOT_SIZE = headerBtn.box;
+export const DOCK_MINI_SIZE = headerBtn.disc;
+/** The docked face is drawn a little larger than its circle, so the circle crops it to head and hood. */
+const FACE_ZOOM = 1.3;
 
 /** Drag the docked face down at least this far (dp) to float it again. */
 const UNDOCK_DRAG = 24;
@@ -51,15 +53,19 @@ function DockedFace({ mood, disabled }: { mood: ZippyMood; disabled: boolean }) 
         onLongPress={() => { haptic.select(); zippyDock.requestUndock(); }}
         delayLongPress={550}
         disabled={disabled}
-        hitSlop={4}
+        hitSlop={headerBtn.hitSlop}
         accessibilityRole="button"
         accessibilityLabel={`${ASSISTANT_NAME}, your assistant`}
-        accessibilityHint="Opens quick help. Drag down or long-press to show the assistant on screen"
-        accessibilityActions={[{ name: 'longpress', label: 'Show on screen' }]}
+        accessibilityHint="Opens quick help. Drag down or long-press to float the assistant on screen"
+        accessibilityActions={[{ name: 'longpress', label: 'Float on screen' }]}
         onAccessibilityAction={(e) => { if (e.nativeEvent.actionName === 'longpress') zippyDock.requestUndock(); }}
         style={({ pressed }) => [{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.8 : 1 }, { cursor: 'pointer' } as object]}
       >
-        <Animated.View style={a}><ZippyCharacter size={DOCK_MINI_SIZE} mood={mood} /></Animated.View>
+        {/* v1.3.0: head-only avatar in the same 40dp circle as the mic / Home buttons (circularly cropped bust). */}
+        <Animated.View style={[{ width: DOCK_MINI_SIZE, height: DOCK_MINI_SIZE, borderRadius: DOCK_MINI_SIZE / 2, overflow: 'hidden', alignItems: 'center', justifyContent: 'center',
+          backgroundColor: colors.primaryTint, borderWidth: 1.5, borderColor: colors.primary }, a]}>
+          <ZippyCharacter size={Math.round(DOCK_MINI_SIZE * FACE_ZOOM)} mood={mood} bust />
+        </Animated.View>
       </Pressable>
     </View>
   );

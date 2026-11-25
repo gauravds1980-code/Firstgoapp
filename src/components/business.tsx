@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { colors, fontScaleCap, radius, space, touch } from '../theme/tokens';
 import { DateRange, Preset, presetRange, rangeLabel, useDateRange } from '../state/stores';
 import { TODAY } from '../services/business';
 import { inr } from '../utils/finance';
 import { Sheet } from './Sheet';
+import { ZippyAvoid } from './assistant/zippyAvoid';
 import { SHOW_DEV_UI } from '../config/devFlags';
 import { Button, Icon, IconName, PressableScale, Text } from './ui';
 
@@ -19,10 +20,11 @@ export function ExampleTag() {
   );
 }
 
-export function Chip({ label, on, onPress, icon, count }: { label: string; on: boolean; onPress: () => void; icon?: IconName; count?: string }) {
+/** Filter chip. `compact` tightens the side padding so a row of three fits one line at 360dp. */
+export function Chip({ label, on, onPress, icon, count, compact }: { label: string; on: boolean; onPress: () => void; icon?: IconName; count?: string; compact?: boolean }) {
   return (
     <PressableScale onPress={onPress} accessibilityRole="button" accessibilityState={{ selected: on }} accessibilityLabel={label}
-      style={{ minHeight: 40, paddingHorizontal: space.md, paddingVertical: space.xxs, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1.5, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
+      style={{ minHeight: 40, paddingHorizontal: compact ? space.sm : space.md, paddingVertical: space.xxs, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1.5, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
       {icon ? <Icon name={icon} size={16} color={on ? colors.onPrimary : colors.textSecondary} /> : null}
       <Text variant="label" color={on ? colors.onPrimary : colors.text} numberOfLines={1} maxFontSizeMultiplier={fontScaleCap.compact} style={{ flexShrink: 1, textAlign: 'center' }}>{label}</Text>
       {count ? <Text variant="label" color={on ? 'rgba(255,255,255,0.8)' : colors.textSecondary} maxFontSizeMultiplier={fontScaleCap.compact}>{count}</Text> : null}
@@ -30,18 +32,25 @@ export function Chip({ label, on, onPress, icon, count }: { label: string; on: b
   );
 }
 
-/** Shared date filter (This month / Last month / Custom) used by Payouts, Portfolio and Cases. */
+/**
+ * Shared date filter (This month / Last month / Custom) used by Payouts, Portfolio and Cases.
+ * v1.3.0: the three chips stay on ONE row (compact padding; scrolls sideways at large font sizes
+ * instead of wrapping "Custom" onto its own line).
+ */
 export function DateFilterBar() {
   const [range, setRange] = useDateRange();
   const [open, setOpen] = useState(false);
   const pick = (p: Preset) => (p === 'custom' ? setOpen(true) : setRange(presetRange(p)));
   return (
     <View style={{ gap: space.xs }}>
-      <View style={{ flexDirection: 'row', gap: space.xs, flexWrap: 'wrap' }}>
-        <Chip label="This month" on={range.preset === 'thisMonth'} onPress={() => pick('thisMonth')} />
-        <Chip label="Last month" on={range.preset === 'lastMonth'} onPress={() => pick('lastMonth')} />
-        <Chip label="Custom" icon="calendar-range" on={range.preset === 'custom'} onPress={() => pick('custom')} />
-      </View>
+      {/* The chip row is an avoid-rect: floating Zippy never covers a chip ("Custom" stays readable). */}
+      <ZippyAvoid>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexDirection: 'row', gap: space.xs }}>
+          <Chip compact label="This month" on={range.preset === 'thisMonth'} onPress={() => pick('thisMonth')} />
+          <Chip compact label="Last month" on={range.preset === 'lastMonth'} onPress={() => pick('lastMonth')} />
+          <Chip compact label="Custom" icon="calendar-range" on={range.preset === 'custom'} onPress={() => pick('custom')} />
+        </ScrollView>
+      </ZippyAvoid>
       <Text variant="caption" color={colors.textSecondary}>{rangeLabel(range)}</Text>
       <DateRangeSheet visible={open} initial={range} onClose={() => setOpen(false)} onApply={(r) => { setRange(r); setOpen(false); }} />
     </View>

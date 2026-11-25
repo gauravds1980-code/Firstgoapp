@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { View } from 'react-native';
 import { JourneyScreen } from '../components/Screen';
+import { ZippyAvoid } from '../components/assistant/zippyAvoid';
 import { Chip, DateFilterBar, ExampleTag, inrShort, StatCard } from '../components/business';
 import { Card, EmptyState, Icon, Pill, Text } from '../components/ui';
 import { presetRange } from '../state/stores';
@@ -24,17 +25,17 @@ export default function PortfolioScreen() {
   const shown = bucket === 'All' ? cases : cases.filter((c) => bucketOf(c.dpd) === bucket);
   const overdue = split.filter((s) => s.b !== 'Current').reduce((t, s) => t + s.pos, 0);
   return (
-    <JourneyScreen title="Portfolio" assistant="portfolio" showTerms={false}>
+    <JourneyScreen title="Portfolio" titleInBody assistant="portfolio" showTerms={false}>
       <View style={{ gap: space.xxs }}>
         <Text variant="h1">Portfolio</Text>
         <Text variant="body" color={colors.textSecondary}>Active loans you sourced, by disbursal date</Text>
         <ExampleTag />
       </View>
       <DateFilterBar />
-      <View style={{ flexDirection: 'row', gap: space.sm, flexWrap: 'wrap' }}>
+      <ZippyAvoid style={{ flexDirection: 'row', gap: space.sm, flexWrap: 'wrap' }}>
         <StatCard label="Active loans" value={String(cases.length)} sub="disbursed in range" />
         <StatCard label="Outstanding (POS)" value={inrShort(pos)} sub={`${pos ? Math.round((overdue / pos) * 100) : 0}% overdue`} />
-      </View>
+      </ZippyAvoid>
       <Card style={{ gap: space.sm }}>
         <Text variant="label" color={colors.textSecondary}>DPD BUCKETS (BY POS)</Text>
         <View style={{ flexDirection: 'row', height: 14, borderRadius: 7, overflow: 'hidden', backgroundColor: colors.surfaceMuted }} accessibilityLabel={split.map((s) => `${s.b}: ${s.n} loans`).join(', ')}>
@@ -42,16 +43,23 @@ export default function PortfolioScreen() {
         </View>
         {split.map((s) => (
           <View key={s.b} style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-            <View style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: BUCKET_COLOR[s.b] }} />
-            <Text variant="body" style={{ flex: 1 }}>{s.b === 'Current' ? 'Current (0 DPD)' : `${s.b} DPD`}</Text>
-            <Text variant="label" color={colors.textSecondary}>{s.n} · {inrShort(s.pos)}</Text>
+            {/* Legend swatch + bucket name: an avoid-rect hugging the text, like the value column. */}
+            <View style={{ flex: 1, alignItems: 'flex-start' }}>
+              <ZippyAvoid style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+                <View style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: BUCKET_COLOR[s.b] }} />
+                <Text variant="body">{s.b === 'Current' ? 'Current (0 DPD)' : `${s.b} DPD`}</Text>
+              </ZippyAvoid>
+            </View>
+            {/* Value column is an avoid-rect, so floating Zippy never covers "21 · ₹…". */}
+            <ZippyAvoid><Text variant="label" color={colors.textSecondary}>{s.n} · {inrShort(s.pos)}</Text></ZippyAvoid>
           </View>
         ))}
       </Card>
-      <View style={{ flexDirection: 'row', gap: space.xs, flexWrap: 'wrap' }}>
+      {/* Bucket filter chips: an avoid-rect, so floating Zippy never covers a chip. */}
+      <ZippyAvoid style={{ flexDirection: 'row', gap: space.xs, flexWrap: 'wrap' }}>
         <Chip label="All" on={bucket === 'All'} onPress={() => setBucket('All')} count={String(cases.length)} />
         {split.filter((s) => s.n > 0).map((s) => <Chip key={s.b} label={s.b} on={bucket === s.b} onPress={() => setBucket(s.b)} count={String(s.n)} />)}
-      </View>
+      </ZippyAvoid>
       <Card style={{ padding: 0 }}>
         {shown.length === 0 && (cases.length === 0
           ? <EmptyState icon="chart-donut" title="No active loans in this range" body="Loans you source appear here after disbursal. Widen the date range to see older loans."
@@ -68,7 +76,7 @@ export default function PortfolioScreen() {
               <Text variant="caption" color={colors.textSecondary}>{c.lan} · {c.vehicle} · {fmtDate(c.disbursedOn)}</Text>
               <Text variant="caption" color={colors.textSecondary}>POS {inr(c.pos)} of {inr(c.amount)}</Text>
             </View>
-            <Pill label={c.dpd ? `${c.dpd} DPD` : 'Current'} tone={c.dpd === 0 ? 'success' : c.dpd <= 30 ? 'warning' : 'danger'} />
+            <ZippyAvoid><Pill label={c.dpd ? `${c.dpd} DPD` : 'Current'} tone={c.dpd === 0 ? 'success' : c.dpd <= 30 ? 'warning' : 'danger'} /></ZippyAvoid>
           </View>
         ))}
       </Card>

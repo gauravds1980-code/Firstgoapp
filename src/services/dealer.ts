@@ -15,26 +15,28 @@ export interface DealerProfile {
   oem?: string; // e.g. 'Hero MotoCorp' — must match catalogue brand names
   products: DealerProduct[];
   branch: string;
-  /** Has Trade Advance / Inventory Funding limits with IDFC FIRST (shows the TA / INF tile). */
+  /** Has a Trade Advance or Inventory Funding facility with IDFC FIRST. Always `facilityType != null`. */
   hasTaInf: boolean;
+  /** The ONE facility the dealer has: TA (dealer draws down) or INF (OEM draws on invoice), never both. */
+  facilityType: 'TA' | 'INF' | null;
 }
 
 /**
  * Mock dealer master, keyed by the dealer login mobile:
- *   ends 1111 → Multi-brand dealer · New TW + New Car · has TA/INF
- *   ends 2222 → Sub-dealer · Maruti Suzuki · New Car only · no TA/INF
- *   ends 3333 → Dealer · Tata Motors · New Commercial Vehicle only · has TA/INF ("Tata CV Hub", v1.2.2)
- *   anything else → Dealer · Hero MotoCorp · New TW only · has TA/INF (default, "ABC Motors")
+ *   ends 1111 → Multi-brand dealer · New TW + New Car · Trade Advance (larger limit)
+ *   ends 2222 → Sub-dealer · Maruti Suzuki · New Car only · no TA / INF
+ *   ends 3333 → Dealer · Tata Motors · New Commercial Vehicle only · Inventory Funding ("Tata CV Hub", v1.2.2)
+ *   anything else → Dealer · Hero MotoCorp · New TW only · Trade Advance (default, "ABC Motors")
  */
 export function mockDealerProfile(mobile: string): { dealerId: string; name: string; profile: DealerProfile } {
   if (mobile.endsWith('1111'))
-    return { dealerId: 'DLR-PUN-0918', name: 'Shree Auto Mall', profile: { type: 'multiBrand', products: ['newTw', 'newCar'], branch: 'Baner, Pune', hasTaInf: true } };
+    return { dealerId: 'DLR-PUN-0918', name: 'Shree Auto Mall', profile: { type: 'multiBrand', products: ['newTw', 'newCar'], branch: 'Baner, Pune', hasTaInf: true, facilityType: 'TA' } };
   if (mobile.endsWith('2222'))
-    return { dealerId: 'DLR-THN-1203', name: 'Sai Motors', profile: { type: 'subDealer', oem: 'Maruti Suzuki', products: ['newCar'], branch: 'Thane West', hasTaInf: false } };
+    return { dealerId: 'DLR-THN-1203', name: 'Sai Motors', profile: { type: 'subDealer', oem: 'Maruti Suzuki', products: ['newCar'], branch: 'Thane West', hasTaInf: false, facilityType: null } };
   if (mobile.endsWith('3333'))
-    // CV dealers stock fleets on trade advance / inventory funding, so TA/INF is on.
-    return { dealerId: 'DLR-PUN-3307', name: 'Tata CV Hub', profile: { type: 'dealer', oem: 'Tata Motors', products: ['newCv'], branch: 'Chakan, Pune', hasTaInf: true } };
-  return { dealerId: 'DLR-MUM-0457', name: 'ABC Motors', profile: { type: 'dealer', oem: 'Hero MotoCorp', products: ['newTw'], branch: 'Andheri East', hasTaInf: true } };
+    // CV dealers stock fleets on inventory funding: Tata Motors draws it on invoice.
+    return { dealerId: 'DLR-PUN-3307', name: 'Tata CV Hub', profile: { type: 'dealer', oem: 'Tata Motors', products: ['newCv'], branch: 'Chakan, Pune', hasTaInf: true, facilityType: 'INF' } };
+  return { dealerId: 'DLR-MUM-0457', name: 'ABC Motors', profile: { type: 'dealer', oem: 'Hero MotoCorp', products: ['newTw'], branch: 'Andheri East', hasTaInf: true, facilityType: 'TA' } };
 }
 
 /** Product categories (2W / Car / CV) the dealer can originate, in display order. */

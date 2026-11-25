@@ -370,3 +370,28 @@ test('clarify xtrem pair: picking a candidate plans a select (not clarify) and d
   assert.equal(typeof shouldAutoExecute(picked, false), 'boolean');
   assert.equal(shouldAutoExecute(picked, true), false);
 });
+
+// ---- v1.3.0: Help & tutorials ----
+
+test('help / tutorial intents navigate to Help', () => {
+  for (const intent of ['OPEN_HELP', 'OPEN_TUTORIALS', 'SHOW_TUTORIALS', 'HOW_TO']) {
+    assert.deepEqual(planTarget(base({ intent })), { kind: 'navigate', route: 'Help' }, intent);
+  }
+});
+
+test('spoken "help", "tutorial", "how to" open Help instead of the generic read-out', () => {
+  for (const transcript of ['help', 'show me the tutorial', 'tutorials', 'how to do the mandate', 'any how-to videos']) {
+    const helpIntent = base({ intent: 'HELP', transcript, action: { type: 'assistant', action: 'help' } });
+    assert.deepEqual(planTarget(helpIntent), { kind: 'navigate', route: 'Help' }, `HELP: ${transcript}`);
+    assert.deepEqual(planTarget(base({ intent: 'UNKNOWN', transcript })), { kind: 'navigate', route: 'Help' }, `UNKNOWN: ${transcript}`);
+  }
+  assert.equal(autoToastText(base({ intent: 'HELP', transcript: 'help' }), { kind: 'navigate', route: 'Help' }), 'Opening Help & tutorials');
+});
+
+test('tutorial words never override a specific intent, a non-help read-out or a spoken number', () => {
+  assert.deepEqual(planTarget(base({ intent: 'GO_HOME', transcript: 'help me go home' })), { kind: 'navigate', route: 'Home' });
+  // HELP without a tutorial word ("what can you do") keeps the read-out.
+  assert.deepEqual(planTarget(base({ intent: 'HELP', transcript: 'what can you do', action: { type: 'assistant', action: 'help' } })), { kind: 'assistant' });
+  const fill = base({ intent: 'UNKNOWN', transcript: 'help 9876543210', normalizedFields: [{ type: 'PHONE', value: '9876543210', display: '98765 43210', valid: true }] });
+  assert.equal(planTarget(fill).kind, 'fill');
+});

@@ -22,6 +22,7 @@
     "expo-speech": "~58.0.4",
     "expo-splash-screen": "~58.0.14",
     "expo-status-bar": "~58.0.5",
+    "expo-video": "~58.0.14",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-native": "0.88.1",
@@ -43,7 +44,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "test:voice": "tsc -p tsconfig.voicetest.json && node --test .voicetest/__tests__/*.test.js"
+    "test:voice": "rm -rf .voicetest && tsc -p tsconfig.voicetest.json && node --test .voicetest/voice/__tests__/*.test.js .voicetest/tutorial/__tests__/*.test.js .voicetest/services/__tests__/*.test.js .voicetest/components/assistant/__tests__/*.test.js"
   },
   "private": true
 }

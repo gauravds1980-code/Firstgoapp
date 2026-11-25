@@ -2,31 +2,35 @@
 
 Dealer first go app.
 
-FIRSTgo v1.2.9 is the IDFC FIRST Bank dealer-side two-wheeler and car loan origination prototype. Dealers log in, pull a pre-qualified offer (scan the customer’s QR or search by mobile), and walk a new-vehicle journey through KYC, mandate, agreement, and disbursal. All data is mock. There are no real bank APIs — the integrations in `src/services/` are typed stubs.
+FIRSTgo v1.3.0 is the IDFC FIRST Bank dealer-side vehicle loan origination prototype for the bank's wheels business (two-wheeler, car and commercial vehicle). Dealers log in, pull a pre-qualified offer (scan the customer’s QR or search by mobile), and walk a new-vehicle journey through KYC, mandate, agreement, and disbursal. All data is mock. There are no real bank APIs — the integrations in `src/services/` are typed stubs.
 
 ## Download the Android APK
 
-[FIRSTgo-v1.2.9-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.9-arm64.apk) (arm64, v1.2.9).
+[FIRSTgo-v1.3.0-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.3.0-arm64.apk) (arm64, v1.3.0, versionCode 15).
 
-Direct link: https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.9-arm64.apk
+Direct link: https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.3.0-arm64.apk
 
-What's new in v1.2.9:
+What's new in v1.3.0:
 
-- Zippy floats in bounds and docks to the header. It stays fully on screen, and dragging it into the header docks it.
-- UPI-only mandate: the QR comes first and the flow auto-advances.
-- The pre-approved tile is removed, the Documents rows are fixed, and the journey tracker is 5 steps.
+- The swipe-up tutorial feed in Help: Zippy shorts and the full tutorial, streamed over HLS with expo-video.
+- The logo weight fix and the design review fixes.
+- TA/INF: mutually exclusive facilities, with disburse, repay, enhance and avail.
+- Advance payout in Payouts: up to 3x the average monthly earnings of the last 3 months, a slider from a Rs 30k minimum, and Transfer funds.
+- Zippy keep-clear fixes, and FIRSTgo covering the whole vehicle-loan business.
+- versionCode 15.
 
-Previous builds: [FIRSTgo-v1.2.8-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.8-arm64.apk), [FIRSTgo-v1.2.7-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.7-arm64.apk), [FIRSTgo-v1.2.6-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.6-arm64.apk), [FIRSTgo-v1.2.5-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.5-arm64.apk), [FIRSTgo-v1.2.4-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.4-arm64.apk), [FIRSTgo-v1.2.2-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.2-arm64.apk), [FIRSTgo-v1.2.1-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.1-arm64.apk), and [FIRSTgo-v1.2.0-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.0-arm64.apk).
+Previous builds: [FIRSTgo-v1.2.9-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.9-arm64.apk), [FIRSTgo-v1.2.8-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.8-arm64.apk), [FIRSTgo-v1.2.7-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.7-arm64.apk), [FIRSTgo-v1.2.6-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.6-arm64.apk), [FIRSTgo-v1.2.5-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.5-arm64.apk), [FIRSTgo-v1.2.4-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.4-arm64.apk), [FIRSTgo-v1.2.2-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.2-arm64.apk), [FIRSTgo-v1.2.1-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.1-arm64.apk), and [FIRSTgo-v1.2.0-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.0-arm64.apk).
 
 ## Features in v1.2
 
 - Dealer login and OTP
 - Dealer profile with type, OEM, and enabled products
 - Single-scroll home with a floating Scan QR button
-- New-vehicle journeys (two-wheeler and car, depending on the dealer)
+- New-vehicle journeys (two-wheeler, car or commercial vehicle, depending on the dealer)
 - ETB KYC and mandate waivers, with animations when a step is already on file
 - Face KYC, UPI AutoPay mandate, and e-sign mocks
 - Payouts and invoices
+- Advance payout (Payouts screen): up to 3× the average monthly payout of the last 3 months, from a ₹30,000 minimum, with a slider and Transfer funds
 - Portfolio
 - Cases done
 - RC pendency
@@ -42,12 +46,14 @@ Dealer mobile (10 digits, starting 6–9):
 
 | Number | Result |
 | --- | --- |
-| Any other number | Hero MotoCorp dealer (ABC Motors) — new two-wheeler, TA/INF |
-| Ends in `1111` | Multi-brand dealer — new two-wheeler and new car, TA/INF |
-| Ends in `2222` | Maruti Suzuki sub-dealer — new car only, no TA/INF |
-| Ends in `3333` | Tata Motors dealer (Tata CV Hub) — new commercial vehicle, TA/INF |
+| Any other number (e.g. `9820012345`) | Hero MotoCorp dealer (ABC Motors) — new two-wheeler, **Trade Advance** (disburse + repay) |
+| Ends in `1111` (e.g. `9820011111`) | Multi-brand dealer (Shree Auto Mall) — new two-wheeler and new car, **Trade Advance** (larger limit) |
+| Ends in `2222` (e.g. `9820012222`) | Maruti Suzuki sub-dealer (Sai Motors) — new car only, no TA / INF: Home shows **Get working capital** (compare TA vs INF, apply) |
+| Ends in `3333` (e.g. `9820013333`) | Tata Motors CV dealer (Tata CV Hub) — new commercial vehicle only, **Inventory Funding** (OEM-drawn, repay only) |
 | Ends in `0000` | Not a registered dealer |
 | Ends in `9999` | Network error |
+
+A dealer has either Trade Advance or Inventory Funding, never both. TA / INF balances and tranches (drawdowns, repayments), a pending "Enhance my limit" request, and a no-facility dealer's working-capital application all persist per dealer on the device (example data; one pending request or application at a time).
 
 Customer mobile (search, or a QR payload that contains the number):
 
@@ -83,7 +89,7 @@ npx expo prebuild -p android
 cd android && ./gradlew assembleRelease
 ```
 
-The published arm64 build for this version is checked in at `releases/FIRSTgo-v1.2.9-arm64.apk`. `android/` and `ios/` are generated and gitignored.
+The published arm64 build for this version is checked in at `releases/FIRSTgo-v1.3.0-arm64.apk`. `android/` and `ios/` are generated and gitignored.
 
 ## iOS
 

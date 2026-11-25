@@ -7,12 +7,14 @@ import type { RootStackParamList } from '../navigation/types';
 import { DEALER_MOBILE_REGEX, requestDealerOtp } from '../services/auth';
 import { colors, space } from '../theme/tokens';
 import { haptic } from '../utils/haptics';
+import { reportValidationError } from '../tutorial/tutorialStore';
 import { SHOW_DEV_UI } from '../config/devFlags';
 
 export default function DealerLoginScreen() {
   const nav = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'DealerLogin'>>();
   const [mobile, setMobile] = useState(route.params?.mobile ?? '');
+  // Only Get OTP marks the field touched (not blur), so dismissing a tip never flags an empty field.
   const [touched, setTouched] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -21,7 +23,7 @@ export default function DealerLoginScreen() {
 
   const getOtp = async () => {
     setTouched(true); setErr(null);
-    if (!valid) { haptic.error(); return; }
+    if (!valid) { haptic.error(); reportValidationError('DealerLogin'); return; }
     setLoading(true);
     const r = await requestDealerOtp(mobile);
     setLoading(false);
@@ -38,7 +40,7 @@ export default function DealerLoginScreen() {
       <Field
         label="Dealer mobile" prefix="+91" placeholder="10-digit registered mobile" keyboardType="number-pad" inputMode="numeric" maxLength={10}
         textContentType="telephoneNumber" autoComplete="tel" autoFocus
-        value={mobile} onChangeText={(t) => { setMobile(t.replace(/\D/g, '')); setErr(null); }} onBlur={() => setTouched(true)} onSubmitEditing={getOtp}
+        value={mobile} onChangeText={(t) => { setMobile(t.replace(/\D/g, '')); setErr(null); }} onSubmitEditing={getOtp}
         error={fieldErr} hint="We'll send a 6-digit OTP to this number."
         right={valid ? <Icon name="check-circle" size={22} color={colors.successBright} style={{ marginRight: space.md }} /> : undefined}
       />
@@ -49,7 +51,7 @@ export default function DealerLoginScreen() {
           For authorised dealer staff only. Your login is separate from your customers' details — never use a customer's number here.
         </Text>
       </View>
-      {SHOW_DEV_UI && <Text variant="caption" color={colors.textMuted}>Demo: OTP 123456 · ends 1111 multi-brand · 2222 Maruti sub-dealer · 3333 Tata CV dealer · 0000 not a dealer · 9999 network error</Text>}
+      {SHOW_DEV_UI && <Text variant="caption" color={colors.textMuted}>Demo: OTP 123456 · any other number Hero, TA · ends 1111 multi-brand, TA · 2222 Maruti sub-dealer, no TA/INF (apply) · 3333 Tata CV dealer, INF · 0000 not a dealer · 9999 network error</Text>}
     </AuthScaffold>
   );
 }

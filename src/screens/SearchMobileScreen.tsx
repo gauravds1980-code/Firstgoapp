@@ -11,6 +11,7 @@ import { offers } from '../services';
 import { useApp } from '../state/AppState';
 import { colors, radius, space, touch } from '../theme/tokens';
 import { haptic, hapticMoment } from '../utils/haptics';
+import { reportValidationError } from '../tutorial/tutorialStore';
 import { maskMobile } from '../utils/finance';
 import { SHOW_DEV_UI } from '../config/devFlags';
 import { useVoiceDraft, voiceDraft } from '../voice/voiceDraft';
@@ -77,7 +78,7 @@ export default function SearchMobileScreen() {
 
   const sendOtp = async () => {
     setTouched(true);
-    if (!valid) { haptic.error(); return; }
+    if (!valid) { haptic.error(); reportValidationError('SearchMobile'); return; }
     setLoading(true); setNetErr(null);
     const r = await offers.sendConsentOtp(mobile);
     setLoading(false);
@@ -91,7 +92,7 @@ export default function SearchMobileScreen() {
     setLoading(true); setErr(null);
     const r = await offers.verifyConsentAndFetchOffer(mobile, code, product, condition);
     setLoading(false);
-    if (!r.ok) { haptic.error(); setErr(r.message); return; }
+    if (!r.ok) { haptic.error(); reportValidationError('SearchMobile'); setErr(r.message); return; }
     if (!r.data) { setStage('none'); return; }
     startJourney(r.data);
     // Same path as a QR scan: ~1.6 s offer celebration (owns the haptics), then Vehicle & EMI. Replace so

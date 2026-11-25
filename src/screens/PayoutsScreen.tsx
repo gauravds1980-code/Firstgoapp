@@ -6,10 +6,11 @@ import { copyUtr, useToast } from '../components/Toast';
 import { Chip, DateFilterBar, ExampleTag, inrShort, StatCard } from '../components/business';
 import { Card, EmptyState, Icon, Pill, PressableScale, Text } from '../components/ui';
 import { useSectionTracker, useZippyPending } from '../components/assistant/zippySection';
-import { presetRange } from '../state/stores';
-import { casesFor, claimInvoice, fmtDate, Invoice, invoicesFor, InvoiceStatus, MONTHS, TODAY } from '../services/business';
+import { ZippyAvoid } from '../components/assistant/zippyAvoid';
+import { casesFor, claimInvoice, fmtDate, invoicesFor, InvoiceStatus, payoutMonths } from '../services/business';
 import { useApp } from '../state/AppState';
-import { inRange, useDateRange } from '../state/stores';
+import { inRange, markInvoiceClaimed, presetRange, useAdvance, useDateRange, useInvoices } from '../state/stores';
+import { AdvancePayoutCard } from '../components/AdvancePayout';
 import { useNavigation } from '@react-navigation/native';
 import { colors, radius, space, touch } from '../theme/tokens';
 import { inr } from '../utils/finance';
@@ -23,23 +24,23 @@ export default function PayoutsScreen() {
   const { profile, session } = useApp();
   const nav = useNavigation();
   const [range, setRange] = useDateRange();
-  const base = useMemo(() => invoicesFor(casesFor(profile)), [profile]);
-  const [overrides, setOverrides] = useState<Record<string, Partial<Invoice>>>({});
+  const dealerId = session?.dealerId ?? 'anon';
+  const seed = useMemo(() => invoicesFor(casesFor(profile)), [profile]);
+  // Shared with the Home Payouts tile: claims live in invoiceStore (persisted), not local state.
+  const base = useInvoices(dealerId, seed);
   const [filter, setFilter] = useState<InvoiceStatus | 'All'>('All');
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const utrToast = useToast();
-  const all = base.map((i) => ({ ...i, ...overrides[i.id] })).filter((i) => inRange(i.date, range));
+  const all = base.filter((i) => inRange(i.date, range));
   const totals = STATUS.map((s) => ({ s, n: all.filter((i) => i.status === s).length, amt: all.filter((i) => i.status === s).reduce((t, i) => t + i.amount, 0) }));
   const shown = filter === 'All' ? all : all.filter((i) => i.status === filter);
   // Last three months; a bar is highlighted when its month overlaps the selected date range
   // (This month → Nov, Last month → Oct, a custom range → every month it touches).
-  const months = [2, 1, 0].map((k) => {
-    const d = new Date(TODAY.getFullYear(), TODAY.getMonth() - k, 1);
-    const end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
-    const inv = base.filter((i) => i.date.getMonth() === d.getMonth() && i.date.getFullYear() === d.getFullYear());
-    return { label: MONTHS[d.getMonth()]!, amt: inv.reduce((t, i) => t + i.amount, 0), on: d <= range.to && end >= range.from };
-  });
+  // Same month buckets as the Advance payout limit (payoutMonths), so the card and the bars always agree.
+  const months = payoutMonths(base).map((m) => ({ ...m, on: m.start <= range.to && m.end >= range.from }));
+  // Advance limit: 3 × average of these three months (not filtered by the date range), minus outstanding.
+  const advance = useAdvance(dealerId, base);
   const maxM = Math.max(1, ...months.map((m) => m.amt));
 
   const toClaim = totals.find((t) => t.s === 'Not claimed')!;
@@ -48,11 +49,11 @@ export default function PayoutsScreen() {
 
   const claim = async (id: string) => {
     setBusy(id); const r = await claimInvoice(id); setBusy(null);
-    if (r.ok) { haptic.success(); setOverrides((o) => ({ ...o, [id]: { status: 'Claimed' } })); }
+    if (r.ok) { haptic.success(); markInvoiceClaimed(dealerId, id, r.ref); }
   };
 
   return (
-    <JourneyScreen title="Payouts" assistant="payouts" showTerms={false} onScroll={sec.onScroll} toast={utrToast.toast?.text} toastTone={utrToast.toast?.tone}>
+    <JourneyScreen title="Payouts" titleInBody assistant="payouts" showTerms={false} onScroll={sec.onScroll} toast={utrToast.toast?.text} toastTone={utrToast.toast?.tone}>
       <View style={{ gap: space.xxs }} onLayout={sec.at('summary')}>
         <Text variant="h1">Payouts</Text>
         <Text variant="body" color={colors.textSecondary}>Dealer payout invoices for {session?.name ?? 'your dealership'}</Text>
@@ -61,11 +62,13 @@ export default function PayoutsScreen() {
       {/* Hero figure: what's waiting to be claimed dominates the screen */}
       <Card style={{ gap: 2, backgroundColor: colors.ctaTint, borderColor: colors.cta }}>
         <Text variant="label" color={colors.ctaDark}>READY TO CLAIM</Text>
-        <Text variant="display" style={{ fontVariant: ['tabular-nums'] }}>{inr(toClaim.amt)}</Text>
-        <Text variant="caption" color={colors.textSecondary}>{toClaim.n ? `${toClaim.n} invoice${toClaim.n === 1 ? '' : 's'} in this range · tap Claim on each` : 'Nothing to claim in this range'}</Text>
+        <ZippyAvoid style={{ alignSelf: 'flex-start' }}><Text variant="display" style={{ fontVariant: ['tabular-nums'] }}>{inr(toClaim.amt)}</Text></ZippyAvoid>
+        <Text variant="caption" color={colors.textSecondary}>{toClaim.n ? `${toClaim.n} invoice${toClaim.n === 1 ? '' : 's'} in this range · scroll to claim each invoice` : 'Nothing to claim in this range'}</Text>
       </Card>
       <DateFilterBar />
 
+      {/* The whole chart (bars + their values) is an avoid-rect: Zippy never sits on the Nov bar or its amount. */}
+      <ZippyAvoid>
       <Card style={{ gap: space.sm }}>
         <Text variant="label" color={colors.textSecondary}>MONTHLY PAYOUT</Text>
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: space.md, height: 110 }}>
@@ -78,10 +81,13 @@ export default function PayoutsScreen() {
           ))}
         </View>
       </Card>
+      </ZippyAvoid>
 
-      <View style={{ flexDirection: 'row', gap: space.sm, flexWrap: 'wrap' }}>
+      <AdvancePayoutCard dealerId={dealerId} a={advance} account={`${session?.name ?? 'Dealer'} · IDFC FIRST ••4321`} />
+
+      <ZippyAvoid style={{ flexDirection: 'row', gap: space.sm, flexWrap: 'wrap' }}>
         {totals.map((t) => <StatCard key={t.s} label={t.s} sub={`${t.n} invoice${t.n === 1 ? '' : 's'}`} value={inrShort(t.amt)} tone={t.s === 'Paid' ? colors.success : t.s === 'Claimed' ? colors.text : colors.warning} />)}
-      </View>
+      </ZippyAvoid>
 
       <View style={{ flexDirection: 'row', gap: space.xs, flexWrap: 'wrap' }}>
         <Chip label="All" count={String(all.length)} on={filter === 'All'} onPress={() => setFilter('All')} />
@@ -123,11 +129,13 @@ export default function PayoutsScreen() {
                     ) : null}
                   </View>
                   {/* Amount, then the status pill on its own line under it (sized to content, never clipped). */}
-                  <View style={{ alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
-                    <Text variant="h2" numberOfLines={1} style={{ fontVariant: ['tabular-nums'] }}>{inr(inv.amount)}</Text>
-                    <Pill label={inv.status} tone={TONE[inv.status]} />
-                  </View>
-                  <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={22} color={colors.textSecondary} />
+                  <ZippyAvoid style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, flexShrink: 0 }}>
+                    <View style={{ alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                      <Text variant="h2" numberOfLines={1} style={{ fontVariant: ['tabular-nums'] }}>{inr(inv.amount)}</Text>
+                      <Pill label={inv.status} tone={TONE[inv.status]} />
+                    </View>
+                    <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={22} color={colors.textSecondary} />
+                  </ZippyAvoid>
                 </PressableScale>
                 {expanded && inv.lines.map((l) => (
                   <View key={l.lan} style={{ flexDirection: 'row', borderTopWidth: 1, borderTopColor: colors.border, paddingTop: space.xs, gap: space.sm }}>
@@ -139,11 +147,13 @@ export default function PayoutsScreen() {
                   </View>
                 ))}
                 {inv.status === 'Not claimed' && (
+                  <ZippyAvoid>
                   <PressableScale onPress={() => claim(inv.id)} disabled={busy === inv.id} accessibilityRole="button" accessibilityLabel={`Claim ${inv.id}`}
                     style={{ minHeight: touch.min, borderRadius: radius.pill, backgroundColor: colors.cta, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}>
                     <Icon name={busy === inv.id ? 'loading' : 'hand-coin-outline'} size={18} color={colors.text} />
                     <Text variant="label">{busy === inv.id ? 'Claiming…' : 'Claim payout'}</Text>
                   </PressableScale>
+                  </ZippyAvoid>
                 )}
               </Card>
             </Animated.View>

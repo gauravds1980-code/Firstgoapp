@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { logout } from '../services/auth';
 import { Switch, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { ZippyAvoid } from '../components/assistant/zippyAvoid';
+import type { IconName } from '../components/ui';
 import { JourneyScreen } from '../components/Screen';
 import { Button, Card, Icon, Pill, PressableScale, ReadOnlyRow, Text } from '../components/ui';
 import { featuresFor, Phase, PHASE_LABELS } from '../config/phases';
@@ -11,6 +14,7 @@ import { DEALER_TYPE_LABEL, initials } from '../services/dealer';
 import { maskMobile } from '../utils/finance';
 import { SHOW_DEV_UI } from '../config/devFlags';
 import { setAskBeforeActing, useAskBeforeActing } from '../voice/voiceSettings';
+import { tutorials, useTutorialState } from '../tutorial/tutorialStore';
 
 /** Dealer profile & settings (reached from the Home header avatar). The rollout-phase panel is tester-only (SHOW_DEV_UI). */
 export default function ProfileScreen() {
@@ -19,6 +23,16 @@ export default function ProfileScreen() {
   const doLogout = async () => { setOut(true); await logout(session); await signOut(); /* auth gate swaps to DealerLogin */ };
   const f = featuresFor(phase);
   const askFirst = useAskBeforeActing();
+  const nav = useNavigation();
+  const { nudgesEnabled } = useTutorialState();
+  // Every row with a chevron opens a real screen (tutorials, FAQs, Privacy) or an honest coming-soon screen.
+  const rows: { icon: IconName; label: string; go: () => void }[] = [
+    { icon: 'account-group-outline', label: 'Manage staff logins', go: () => nav.navigate('ComingSoon', { kind: 'staff' }) },
+    { icon: 'bell-outline', label: 'Notification settings', go: () => nav.navigate('ComingSoon', { kind: 'notifications' }) },
+    { icon: 'play-box-multiple-outline', label: 'Help & tutorials', go: () => nav.navigate('Help') },
+    { icon: 'lifebuoy', label: 'FAQs & support', go: () => nav.navigate('HelpSupport') },
+    { icon: 'shield-lock-outline', label: 'Privacy & terms', go: () => nav.navigate('PrivacyTerms') },
+  ];
   return (
     <JourneyScreen title="Profile" assistant="profile" showTerms={false} footer={<Button label="Log out" variant="secondary" icon="logout" onPress={doLogout} loading={out} />}>
       <Card style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
@@ -27,16 +41,16 @@ export default function ProfileScreen() {
         </View>
         <View style={{ flex: 1 }}>
           <Text variant="h3">{session?.name ?? 'ABC Motors'}</Text>
-          <Text variant="caption" color={colors.textSecondary}>Dealer code {session?.dealerId ?? '—'} · {profile?.branch ?? '—'}</Text>
+          {/* Code and location on their own lines (no dangling "·" when the line wraps). */}
+          <Text variant="caption" color={colors.textSecondary}>Dealer code {session?.dealerId ?? '—'}</Text>
+          {profile?.branch ? <Text variant="caption" color={colors.textSecondary}>{profile.branch}</Text> : null}
           <Text variant="caption" color={colors.textSecondary}>Signed in as {session ? maskMobile(session.mobile) : '—'}</Text>
         </View>
       </Card>
       {profile && (
         <Card style={{ gap: space.sm }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text variant="label" color={colors.textSecondary}>DEALER PROFILE</Text>
-            <Pill label={DEALER_TYPE_LABEL[profile.type]} tone="brand" />
-          </View>
+          {/* The type is in the "Dealer type" row below, so no duplicate badge here. */}
+          <Text variant="label" color={colors.textSecondary}>DEALER PROFILE</Text>
           <ReadOnlyRow label="Dealer type" value={DEALER_TYPE_LABEL[profile.type]} />
           <ReadOnlyRow label="Manufacturer (OEM)" value={profile.type === 'multiBrand' ? 'All brands (multi-brand)' : profile.oem ?? '—'} />
           <View style={{ gap: space.xs }}>
@@ -64,19 +78,36 @@ export default function ProfileScreen() {
       </Card>
       <View style={{ minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.md, paddingVertical: space.sm, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border }}>
         <Icon name="microphone-message" size={22} color={colors.primary} />
+        {/* v1.3.0: worded in the positive, so the label matches the switch's on state. Same setting (askBeforeActing = !on). */}
         <View style={{ flex: 1, gap: 2 }}>
-          <Text variant="bodyStrong">Ask before acting</Text>
-          <Text variant="caption" color={colors.textSecondary}>When off, Zippy acts on high-confidence commands and shows an Undo toast.</Text>
+          <Text variant="bodyStrong">Let Zippy act without asking</Text>
+          <Text variant="caption" color={colors.textSecondary}>When on, Zippy acts on high-confidence voice commands and shows an Undo toast. When off, it asks you to confirm first.</Text>
         </View>
-        <Switch value={askFirst} onValueChange={setAskBeforeActing} accessibilityLabel="Ask before acting"
-          accessibilityHint="When on, Zippy asks you to confirm every voice command"
-          trackColor={{ false: colors.borderStrong, true: colors.primary }} thumbColor={colors.surface} ios_backgroundColor={colors.borderStrong} />
+        <ZippyAvoid>
+          <Switch value={!askFirst} onValueChange={(on) => setAskBeforeActing(!on)} accessibilityLabel="Let Zippy act without asking"
+            accessibilityHint="When on, Zippy acts on clear voice commands straight away and offers Undo"
+            trackColor={{ false: colors.borderStrong, true: colors.primary }} thumbColor={colors.surface} ios_backgroundColor={colors.borderStrong} />
+        </ZippyAvoid>
       </View>
-      {[['account-group-outline', 'Manage staff logins'], ['bell-outline', 'Notification settings'], ['lifebuoy', 'Help & support'], ['shield-lock-outline', 'Privacy & terms']].map(([ic, l]) => (
-        <PressableScale key={l} accessibilityRole="button" accessibilityLabel={l} style={{ minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.md, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border }}>
-          <Icon name={ic as never} size={22} color={colors.primary} />
-          <Text variant="bodyStrong" style={{ flex: 1 }}>{l}</Text>
-          <Icon name="chevron-right" size={22} color={colors.textSecondary} />
+      {/* v1.3.0: Zippy offers a screen's how-to short on the first visit and when the dealer seems stuck. */}
+      <View style={{ minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.md, paddingVertical: space.sm, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border }}>
+        <Icon name="play-circle-outline" size={22} color={colors.primary} />
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text variant="bodyStrong">Tutorial nudges</Text>
+          <Text variant="caption" color={colors.textSecondary}>Zippy offers a short how-to video on a new screen, or when you seem stuck.</Text>
+        </View>
+        <ZippyAvoid>
+          <Switch value={nudgesEnabled} onValueChange={tutorials.setNudgesEnabled} accessibilityLabel="Tutorial nudges" {...({ activeThumbColor: colors.surface } as object)}
+            accessibilityHint="When on, Zippy offers a short how-to video on new screens and when you seem stuck"
+            trackColor={{ false: colors.borderStrong, true: colors.primary }} thumbColor={colors.surface} ios_backgroundColor={colors.borderStrong} />
+        </ZippyAvoid>
+      </View>
+      {rows.map((r) => (
+        <PressableScale key={r.label} onPress={r.go} accessibilityRole="button" accessibilityLabel={r.label} style={{ minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.md, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border }}>
+          <Icon name={r.icon} size={22} color={colors.primary} />
+          <Text variant="bodyStrong" style={{ flex: 1 }}>{r.label}</Text>
+          {/* Trailing chevron column: floating Zippy keeps off it. */}
+          <ZippyAvoid><Icon name="chevron-right" size={22} color={colors.textSecondary} /></ZippyAvoid>
         </PressableScale>
       ))}
       {SHOW_DEV_UI && (

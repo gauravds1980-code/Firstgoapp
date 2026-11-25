@@ -5,6 +5,7 @@ import { useSwipeBack } from '../navigation/useSwipeBack';
 import { useZippyTip } from '../components/assistant/tips';
 import { useZippyMood } from '../components/assistant/zippyStore';
 import { useSectionTracker, useZippyPending } from '../components/assistant/zippySection';
+import { useZippyHidden, ZippyAvoid } from '../components/assistant/zippyAvoid';
 import { JourneyScreen } from '../components/Screen';
 import { FaceCapture } from '../components/FaceCapture';
 import { Button, Card, Icon, Pill, PressableScale, ReadOnlyRow, Text } from '../components/ui';
@@ -15,6 +16,7 @@ import { rid } from '../services/mock';
 import { useApp } from '../state/AppState';
 import { colors, radius, space } from '../theme/tokens';
 import { haptic } from '../utils/haptics';
+import { reportValidationError } from '../tutorial/tutorialStore';
 
 /** idle = consent + method cards; capturing = front camera, waiting for a blink; verifying = blink seen, success beat + UIDAI fetch. */
 type Stage = 'idle' | 'capturing' | 'verifying' | 'done' | 'error';
@@ -38,7 +40,7 @@ export default function FaceKycScreen() {
     haptic.success(); setStage('verifying'); // liveness passed — short tick beat, then auto-advance
     const pid = { pidBlock: `MOCK_PID_${journey.offer.loanApplicationNumber}`, livenessScore: 0.97, wadh: 'MOCK_WADH_HASH=' };
     const [r] = await Promise.all([ekyc.performEkyc25(pid, true), new Promise((res) => setTimeout(res, SUCCESS_BEAT_MS))]);
-    if (!r.ok) { setStage('error'); setErr(r.message); haptic.error(); return; }
+    if (!r.ok) { setStage('error'); setErr(r.message); haptic.error(); reportValidationError('FaceKyc'); return; }
     update({ ekyc: r.data }); setStage('done');
     if (!leaving.current) { leaving.current = true; nav.navigate('Mandate'); } // auto-advance — no Continue / Next button
   };
@@ -50,6 +52,8 @@ export default function FaceKycScreen() {
   useZippyTip(kycOnFile && !journey.ekyc ? '' : null); // quiet during the auto-advancing waiver beat
   useZippyMood(stage === 'capturing' ? 'thinking' : stage === 'verifying' || stage === 'done' ? 'happy' : null);
   useSwipeBack(!(kycOnFile && !journey.ekyc)); // iOS: no swipe-back mid waiver animation
+  // v1.3.0: floating Zippy steps off screen while the camera is up (liveness check), and floats back after.
+  useZippyHidden(!(kycOnFile && !journey.ekyc) && (stage === 'capturing' || stage === 'verifying' || stage === 'error'));
   const sec = useSectionTracker<'method' | 'capture'>('capture');
   const needsCapture = !kycOnFile && stage !== 'done' && stage !== 'capturing' && stage !== 'verifying';
   useZippyPending(needsCapture ? [{
@@ -101,17 +105,21 @@ export default function FaceKycScreen() {
         <Text variant="body" color={colors.textSecondary}>The front camera opens with an oval guide. The customer lines up their face and blinks; liveness is checked and UIDAI returns their verified KYC.</Text>
       </View>
 
+      <ZippyAvoid>
       <View style={{ flexDirection: 'row', gap: space.sm }} onLayout={sec.at('method')}>
         <MethodCard on={method === 'face'} icon="face-recognition" title="Face" sub="UIDAI Face RD" onPress={() => setMethod('face')} />
         <MethodCard on={method === 'finger'} icon="fingerprint" title="Fingerprint" sub={features.fingerprintKyc ? 'RD device' : 'Coming soon'}
           disabled={!features.fingerprintKyc} onPress={() => setMethod('finger')} />
       </View>
+      </ZippyAvoid>
 
       <View style={{ alignItems: 'center', paddingVertical: space.md }} onLayout={sec.at('capture')}>
+        <ZippyAvoid>
         <View style={{ width: 200, height: 200, borderRadius: 100, borderWidth: 4, borderColor: ringColor, borderStyle: stage === 'idle' ? 'dashed' : 'solid', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface }}
           accessibilityLabel={`Face capture ${stage}`}>
           <Icon name={stage === 'done' ? 'check-bold' : 'face-man-outline'} size={96} color={ringColor} />
         </View>
+        </ZippyAvoid>
         <Text variant="label" color={colors.textSecondary} style={{ marginTop: space.sm }}>
           {stage === 'done' ? (journey.ekyc?.fromBankRecords ? 'KYC verified from bank records · step skipped' : 'Liveness passed · KYC verified') : 'Good light · no cap or mask · eye level'}
         </Text>

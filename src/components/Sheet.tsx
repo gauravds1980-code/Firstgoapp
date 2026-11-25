@@ -1,9 +1,10 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useId } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, View } from 'react-native';
 import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, gutter, radius, space, touch } from '../theme/tokens';
 import { Icon, PressableScale, Text } from './ui';
+import { setNudgeSuppressed } from '../tutorial/tutorialStore';
 
 /**
  * Lightweight bottom sheet (Modal + Reanimated spring). Works on Android and web, no native sheet deps.
@@ -14,6 +15,9 @@ export function Sheet({ visible, onClose, title, subtitle, children, footer }: {
   const insets = useSafeAreaInsets();
   const reduce = useReducedMotion();
   const y = useSharedValue(600);
+  // v1.3.0: no tutorial nudge while a sheet is open.
+  const sheetId = `sheet:${useId()}`;
+  useEffect(() => { if (!visible) return; setNudgeSuppressed(sheetId, true); return () => setNudgeSuppressed(sheetId, false); }, [visible, sheetId]);
   useEffect(() => { y.value = visible ? (reduce ? withTiming(0, { duration: 1 }) : withSpring(0, { damping: 20, stiffness: 180 })) : 600; }, [visible, y, reduce]);
   const style = useAnimatedStyle(() => ({ transform: [{ translateY: y.value }] }));
   return (

@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleProp, View, ViewStyle } from 'react-native';
 import { Icon, Text } from '../components/ui';
-import { colors, touch } from '../theme/tokens';
+import { colors, headerBtn } from '../theme/tokens';
 import { haptic } from '../utils/haptics';
 import { useVoiceSession, voiceSession } from './voiceSession';
 
-/** Fixed header footprint (same as Zippy's dock slot / touch.min), so headers never jump. */
-export const HEADER_MIC_SIZE = touch.min;
-const DISC = 40;
+/** Fixed header footprint (same as Zippy's dock slot and every other header button), so headers never jump. */
+export const HEADER_MIC_SIZE = headerBtn.box;
+const DISC = headerBtn.disc;
 
 const LABEL = { idle: 'Hold to talk', listening: 'Listening, let go to send', thinking: 'Working it out' } as const;
 
@@ -43,7 +43,7 @@ export function HeaderVoiceMic({ onDark = false, style }: { onDark?: boolean; st
     <Pressable
       onPressIn={() => { if (busy) return; haptic.tap(); voiceSession.pressIn(); }}
       onPressOut={() => { if (busy) return; voiceSession.pressOut(); }}
-      hitSlop={4}
+      hitSlop={headerBtn.hitSlop}
       accessibilityRole="button"
       accessibilityLabel={LABEL[phase]}
       accessibilityHint="Press and hold, say a command such as “Show pending disbursals”, then let go."

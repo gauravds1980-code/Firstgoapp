@@ -7,9 +7,9 @@ import { maskOtp, planTarget, safeTranscript, slotsForSelect, slotsFromFields, v
 /** Routes the proxy may send that take no required params (safe to navigate to by name). */
 const NAVIGABLE = new Set<keyof RootStackParamList>([
   'Home', 'Profile', 'ScanQr', 'SearchMobile', 'Offer', 'Asset', 'FaceKyc', 'Mandate', 'Esign', 'Docs',
-  'Payouts', 'Portfolio', 'Cases', 'RcPendency', 'TaInf',
+  'Payouts', 'Portfolio', 'Cases', 'RcPendency', 'TaInf', 'Help',
 ]);
-type NavigableRoute = Exclude<keyof RootStackParamList, 'DealerLogin' | 'DealerOtp' | 'QuickList' | 'Disbursal'>;
+type NavigableRoute = Exclude<keyof RootStackParamList, 'DealerLogin' | 'DealerOtp' | 'QuickList' | 'Disbursal' | 'ComingSoon'>;
 
 const isNavigable = (r: string): r is NavigableRoute => NAVIGABLE.has(r as keyof RootStackParamList);
 
@@ -117,4 +117,5 @@ export const ROUTE_LABEL: Partial<Record<NavigableRoute, string>> = {
   Home: 'Home', Profile: 'Profile', ScanQr: 'Scan customer QR', SearchMobile: 'Search by mobile', Offer: 'Offer',
   Asset: 'Vehicle & EMI', FaceKyc: 'Face KYC', Mandate: 'AutoPay mandate', Esign: 'e-sign', Docs: 'Documents',
   Payouts: 'Payouts', Portfolio: 'Portfolio', Cases: 'Cases', RcPendency: 'RC pendency', TaInf: 'TA / INF',
+  Help: 'Help & tutorials',
 };

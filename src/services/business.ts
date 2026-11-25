@@ -27,6 +27,8 @@ const dayOffset = (d: number) => { const x = new Date(TODAY); x.setDate(x.getDat
 export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 /** Deterministic "24 Nov 2026" (Intl month abbreviations differ between web and Hermes). */
 export const fmtDate = (d: Date) => `${String(d.getDate()).padStart(2, '0')} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+/** "24 Nov" in the demo's current year, "24 Nov 2025" otherwise (list rows stay on one line). */
+export const fmtDateShort = (d: Date) => (d.getFullYear() === TODAY.getFullYear() ? `${String(d.getDate()).padStart(2, '0')} ${MONTHS[d.getMonth()]}` : fmtDate(d));
 export const fmtDayMonth = (d: Date) => `${String(d.getDate()).padStart(2, '0')} ${MONTHS[d.getMonth()]}`;
 
 export interface Case {
@@ -90,6 +92,64 @@ export async function claimInvoice(id: string): Promise<{ ok: true; ref: string 
   return { ok: true, ref: `CLM-${id.slice(-4)}-${Math.floor(Math.random() * 9000 + 1000)}` };
 }
 
+/** The three calendar months of the Payouts "MONTHLY PAYOUT" chart (two back + this month to date). */
+export function payoutMonths(invoices: Invoice[]): { label: string; start: Date; end: Date; amt: number }[] {
+  return [2, 1, 0].map((k) => {
+    const start = new Date(TODAY.getFullYear(), TODAY.getMonth() - k, 1);
+    const end = new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59);
+    const amt = invoices.filter((i) => i.date.getMonth() === start.getMonth() && i.date.getFullYear() === start.getFullYear()).reduce((t, i) => t + i.amount, 0);
+    return { label: MONTHS[start.getMonth()]!, start, end, amt };
+  });
+}
+
+/* ---------------- Advance payout (example terms) ----------------
+ * Limit = 3 × average monthly payout over the chart's last 3 months; available = limit − outstanding.
+ * Recovered by netting off future payouts. Fee is an ILLUSTRATIVE example, not IDFC pricing. */
+export const ADVANCE_MIN = 30000;
+export const ADVANCE_STEP = 1000;
+export const ADVANCE_FEE_PCT = 1;
+export const advanceFee = (amount: number) => Math.round((amount * ADVANCE_FEE_PCT) / 100);
+
+export function advanceLimit(invoices: Invoice[]) {
+  const months = payoutMonths(invoices);
+  const avg = Math.floor(months.reduce((t, m) => t + m.amt, 0) / 3);
+  return { months, avg, limit: avg * 3 };
+}
+
+/** Limit, outstanding (sum of open advances) and available = limit − outstanding (never negative). */
+export function advancePosition(invoices: Invoice[], outstandings: number[]) {
+  const { months, avg, limit } = advanceLimit(invoices);
+  const outstanding = outstandings.reduce((t, o) => t + o, 0);
+  return { months, avg, limit, outstanding, available: Math.max(0, limit - outstanding) };
+}
+
+/**
+ * What the Advance payout card offers: enabled only from ADVANCE_MIN; slider / field from ADVANCE_MIN
+ * to `available`; the 50% chip (snapped down to the step) only when it is at least ADVANCE_MIN.
+ */
+export function advanceRange(available: number): { enabled: boolean; min: number; max: number; half: number | null } {
+  const half = Math.floor(available / 2 / ADVANCE_STEP) * ADVANCE_STEP;
+  return { enabled: available >= ADVANCE_MIN, min: ADVANCE_MIN, max: available, half: half >= ADVANCE_MIN ? half : null };
+}
+
+/** Projected recovery: future monthly payouts (at the 3-month average) netted until `outstanding` is cleared. */
+export function recoverySchedule(outstanding: number, avg: number, maxMonths = 6): { label: string; netted: number; left: number }[] {
+  const out: { label: string; netted: number; left: number }[] = [];
+  let left = outstanding;
+  for (let k = 1; left > 0 && avg > 0 && k <= maxMonths; k++) {
+    const d = new Date(TODAY.getFullYear(), TODAY.getMonth() + k, 1);
+    const netted = Math.min(avg, left); left -= netted;
+    out.push({ label: `${MONTHS[d.getMonth()]} ${d.getFullYear()}`, netted, left });
+  }
+  return out;
+}
+
+/** Mock advance transfer (IMPS to the settlement account). `seq` keeps successive UTRs distinct. */
+export async function transferAdvance(amount: number, seq: number): Promise<{ ok: true; utr: string }> {
+  await delay(1100);
+  return { ok: true, utr: `IDFBA2611${String(40000000 + Math.round(amount / 1000) * 37 + seq * 911 + (Date.now() % 997))}` };
+}
+
 /* ---------------- RC pendency ---------------- */
 export type RcStatus = 'Pending' | 'Submitted';
 export interface RcCase { lan: string; customer: string; vehicle: string; disbursedOn: Date; daysPending: number; status: RcStatus; regNo?: string; photo?: string; submittedOn?: Date }
@@ -140,17 +200,103 @@ export async function ocrRegFromPhoto(uri: string, fileName?: string | null): Pr
 }
 
 /* ---------------- TA / INF ---------------- */
-export interface Limit { key: 'TA' | 'INF'; name: string; sanctioned: number; utilised: number; dues: { label: string; due: Date; amount: number }[]; tenor: string; roi: string }
-
-export function taInfFor(profile: DealerProfile | null): Limit[] {
-  const big = profile?.type === 'multiBrand';
-  const d = (n: number) => { const x = new Date(TODAY); x.setDate(x.getDate() + n); return x; };
-  return [
-    { key: 'TA', name: 'Trade Advance', sanctioned: big ? 2500000 : 1000000, utilised: big ? 1380000 : 450000, tenor: '30-day rolling', roi: '10.25% p.a. (example)',
-      dues: [{ label: 'TA-2611-07 · 15 vehicles', due: d(3), amount: big ? 420000 : 180000 }, { label: 'TA-2611-12 · 9 vehicles', due: d(11), amount: big ? 360000 : 120000 }] },
-    { key: 'INF', name: 'Inventory Funding', sanctioned: big ? 6000000 : 3000000, utilised: big ? 4950000 : 2120000, tenor: '60-day per drawdown', roi: '10.75% p.a. (example)',
-      dues: [{ label: 'INF drawdown #3381 · OEM invoice', due: d(6), amount: big ? 980000 : 540000 }, { label: 'INF drawdown #3394 · OEM invoice', due: d(19), amount: big ? 1250000 : 610000 }, { label: 'Interest · Nov', due: d(7), amount: big ? 41200 : 18600 }] },
-  ];
+/**
+ * A dealer has ONE facility: Trade Advance (dealer draws it down) or Inventory Funding (the OEM draws
+ * it on invoice). Each drawdown is a tranche, repaid in full (no part-payments inside a tranche).
+ */
+export type FacilityType = 'TA' | 'INF';
+export type TrancheStatus = 'overdue' | 'dueSoon' | 'upcoming' | 'paid';
+export interface Tranche { id: string; label: string; due: Date; amount: number; status: TrancheStatus; paidOn?: Date }
+export interface Limit {
+  key: FacilityType; name: string; sanctioned: number; utilised: number; tranches: Tranche[];
+  tenor: string; tenorDays: number; roi: string; roiPct: number; drawnBy: 'dealer' | 'oem';
+  /** Pending "Enhance my limit" request. The sanctioned limit does not change until the bank approves. */
+  enhancement?: LimitRequest;
 }
+export type EnhanceReason = 'inventory' | 'festive' | 'newOem' | 'other';
+export const ENHANCE_REASONS: { key: EnhanceReason; label: string }[] = [
+  { key: 'inventory', label: 'More inventory' }, { key: 'festive', label: 'Seasonal or festive demand' }, { key: 'newOem', label: 'New OEM' }, { key: 'other', label: 'Other' },
+];
+export interface LimitRequest { ref: string; current: number; requested: number; reason: EnhanceReason; note?: string; docs: number; submittedOn: string; status: 'pending' }
+/** Interest form for a dealer with no facility. One application at a time (a dealer holds TA or INF, never both). */
+export interface WcApplication { ref: string; facility: FacilityType; name: string; requested: number; turnover?: number; submittedOn: string; status: 'submitted' }
+/** Illustrative caps for the mock forms (not bank policy). */
+export const ENHANCE_STEP = 50000;
+export const enhanceCap = (sanctioned: number) => sanctioned * 2;
+export const APPLY_MIN = 100000;
+export const APPLY_MAX = 50000000;
+
+export const MIN_DRAWDOWN = 50000;
+export const DRAWDOWN_STEP = 10000;
+const DAY = 864e5;
+export const dueAfter = (n: number) => { const x = new Date(TODAY); x.setDate(x.getDate() + n); return x; };
+export const daysFromToday = (d: Date) => Math.round((d.getTime() - TODAY.getTime()) / DAY);
+export const availableOf = (l: Limit) => Math.max(0, l.sanctioned - l.utilised);
+/** Unpaid → overdue (past due), due soon (within 7 days) or upcoming. */
+export function trancheStatus(t: Pick<Tranche, 'due' | 'status'>): TrancheStatus {
+  if (t.status === 'paid') return 'paid';
+  const days = daysFromToday(t.due);
+  return days < 0 ? 'overdue' : days <= 7 ? 'dueSoon' : 'upcoming';
+}
+/** Unpaid tranches that are overdue or due within 30 days ("Select all due" and "Total due next 30 days"). */
+export const dueIn30 = (l: Limit) => l.tranches.filter((t) => t.status !== 'paid' && daysFromToday(t.due) <= 30);
+export const sumOf = (ts: Tranche[]) => ts.reduce((a, t) => a + t.amount, 0);
+
+/** The dealer's single facility (example data), or null when they have none. */
+export function taInfFor(profile: DealerProfile | null): Limit | null {
+  const type = profile?.facilityType ?? null;
+  if (!type) return null;
+  const tr = (id: string, label: string, days: number, amount: number, paid = false): Tranche => {
+    const t: Tranche = { id, label, due: dueAfter(days), amount, status: paid ? 'paid' : 'upcoming', paidOn: paid ? dueAfter(days - 2) : undefined };
+    return { ...t, status: trancheStatus(t) };
+  };
+  if (type === 'TA') {
+    const big = profile?.type === 'multiBrand';
+    // Unpaid tranches add up to `utilised`.
+    const tranches = big
+      ? [tr('TA-2610-21', 'TA-2610-21 · 6 vehicles', -9, 120000, true), tr('TA-2610-28', 'TA-2610-28 · 8 vehicles', -2, 210000), tr('TA-2611-07', 'TA-2611-07 · 15 vehicles', 3, 420000),
+        tr('TA-2611-12', 'TA-2611-12 · 9 vehicles', 11, 360000), tr('TA-2611-19', 'TA-2611-19 · 10 vehicles', 24, 390000)]
+      : [tr('TA-2610-21', 'TA-2610-21 · 4 vehicles', -9, 60000, true), tr('TA-2610-28', 'TA-2610-28 · 5 vehicles', -2, 80000), tr('TA-2611-07', 'TA-2611-07 · 15 vehicles', 3, 180000),
+        tr('TA-2611-12', 'TA-2611-12 · 9 vehicles', 11, 120000), tr('TA-2611-19', 'TA-2611-19 · 5 vehicles', 24, 70000)];
+    return { key: 'TA', name: 'Trade Advance', sanctioned: big ? 2500000 : 1000000, utilised: big ? 1380000 : 450000, tenor: '30-day rolling', tenorDays: 30,
+      roi: '10.25% p.a.', roiPct: 10.25, drawnBy: 'dealer', tranches };
+  }
+  return { key: 'INF', name: 'Inventory Funding', sanctioned: 3000000, utilised: 2120000, tenor: '60-day per drawdown', tenorDays: 60, roi: '10.75% p.a.', roiPct: 10.75, drawnBy: 'oem',
+    tranches: [tr('INF-3365', 'INF drawdown #3365 · OEM invoice', -12, 450000, true), tr('INF-3372', 'INF drawdown #3372 · OEM invoice', -3, 320000),
+      tr('INF-3381', 'INF drawdown #3381 · OEM invoice', 6, 540000), tr('INF-3394', 'INF drawdown #3394 · OEM invoice', 19, 610000), tr('INF-3402', 'INF drawdown #3402 · OEM invoice', 41, 650000)] };
+}
+
+/** Only Trade Advance is drawn down by the dealer; Inventory Funding is drawn by the OEM (repay only). */
+export const canDisburse = (l: Pick<Limit, 'key' | 'drawnBy'>) => l.key === 'TA' && l.drawnBy === 'dealer';
+
+/** Interest for one drawdown over the facility tenor (simple interest, rounded to the rupee). */
+export const drawdownInterest = (l: Limit, amount: number) => Math.round((amount * l.roiPct * l.tenorDays) / (100 * 365));
+const mockUtr = () => `IDFBR8172${String(Math.floor(1e10 + Math.random() * 9e10))}`;
+
+/** TA drawdown: new unpaid tranche due after the tenor; utilised goes up by the amount. */
+export function applyDisburse(l: Limit, amount: number): { limit: Limit; tranche: Tranche } {
+  const n = l.tranches.filter((t) => t.id.startsWith('TA-2611-')).length + 20;
+  const id = `TA-2611-${String(n).padStart(2, '0')}`;
+  const tranche: Tranche = { id, label: `${id} · Dealer drawdown`, due: dueAfter(l.tenorDays), amount, status: 'upcoming' };
+  tranche.status = trancheStatus(tranche);
+  return { limit: { ...l, utilised: l.utilised + amount, tranches: [...l.tranches, tranche] }, tranche };
+}
+/** Full repayment of the selected tranches; the repaid total is freed up for new drawdowns. */
+export function applyRepay(l: Limit, ids: string[]): { limit: Limit; total: number } {
+  const pick = new Set(ids);
+  const paid = l.tranches.filter((t) => pick.has(t.id) && t.status !== 'paid');
+  const total = sumOf(paid);
+  return { total, limit: { ...l, utilised: Math.max(0, l.utilised - total), tranches: l.tranches.map((t) => (pick.has(t.id) && t.status !== 'paid' ? { ...t, status: 'paid' as const, paidOn: new Date(TODAY) } : t)) } };
+}
+/** Mock bank calls (real: LMS drawdown / repayment APIs). */
+export async function requestDrawdown(_amount: number): Promise<{ utr: string }> { await delay(900); return { utr: mockUtr() }; }
+const mockRef = (prefix: string) => `${prefix}-2611-${String(Math.floor(10000 + Math.random() * 90000))}`;
+export async function requestEnhancement(r: Omit<LimitRequest, 'ref' | 'submittedOn' | 'status'>): Promise<LimitRequest> {
+  await delay(900); return { ...r, ref: mockRef('ENH'), submittedOn: fmtDate(TODAY), status: 'pending' };
+}
+export async function applyForFacility(a: Omit<WcApplication, 'ref' | 'submittedOn' | 'status'>): Promise<WcApplication> {
+  await delay(900); return { ...a, ref: mockRef(a.facility === 'TA' ? 'WCTA' : 'WCINF'), submittedOn: fmtDate(TODAY), status: 'submitted' };
+}
+export async function payTranches(_ids: string[], _method: 'upi' | 'netbanking'): Promise<{ utr: string }> { await delay(900); return { utr: mockUtr() }; }
 
 export async function load<T>(fn: () => T, ms = 500): Promise<T> { await delay(ms); return fn(); }

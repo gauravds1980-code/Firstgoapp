@@ -25,9 +25,18 @@ import PortfolioScreen from '../screens/PortfolioScreen';
 import CasesScreen from '../screens/CasesScreen';
 import RcPendencyScreen from '../screens/RcPendencyScreen';
 import TaInfScreen from '../screens/TaInfScreen';
+import HelpScreen from '../screens/HelpScreen';
+import HelpSupportScreen from '../screens/HelpSupportScreen';
+import PrivacyTermsScreen from '../screens/PrivacyTermsScreen';
+import ComingSoonScreen from '../screens/ComingSoonScreen';
 import { navRef } from './navRef';
 import { ZippyBubble } from '../components/assistant/ZippyBubble';
 import { VoiceHost } from '../voice/VoiceHost';
+import ShortsFeed from '../components/tutorial/ShortsFeed';
+import { loadTutorialManifest } from '../tutorial/manifest';
+import { configureVideoCache } from '../tutorial/useTutorialVideo';
+import { reportActivity } from '../tutorial/tutorialStore';
+import { useTutorialNudges } from '../tutorial/useTutorialNudges';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -50,6 +59,9 @@ const linking: LinkingOptions<RootStackParamList> = {
       DealerOtp: 'login/otp',
       Home: '',
       Profile: 'profile',
+      HelpSupport: 'support',
+      PrivacyTerms: 'privacy',
+      ComingSoon: 'soon/:kind',
       QuickList: 'list/:kind',
       ScanQr: 'scan',
       SearchMobile: 'search/:stage?',
@@ -66,6 +78,8 @@ const linking: LinkingOptions<RootStackParamList> = {
       Cases: 'cases',
       RcPendency: 'rc',
       TaInf: 'ta-inf',
+      Help: 'help',
+      ShortsFeed: 'shorts/:startId?',
     },
   },
 };
@@ -81,11 +95,17 @@ const linking: LinkingOptions<RootStackParamList> = {
 export default function RootNavigator() {
   const { session, sessionRestored } = useApp();
   const [route, setRoute] = React.useState<string | undefined>();
-  const sync = () => setRoute(navRef.getCurrentRoute()?.name);
+  // v1.3.0: Zippy's "drop a short" detector follows every route change (and spots back navigations).
+  const onNavState = useTutorialNudges();
+  // Streaming tutorials: video disk cache (before any player exists) and the remote manifest.
+  React.useEffect(() => { configureVideoCache(); void loadTutorialManifest(); }, []);
+  const sync = () => { setRoute(navRef.getCurrentRoute()?.name); onNavState(navRef.getRootState()); };
   if (!sessionRestored) {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg }}><ActivityIndicator color={colors.primary} /></View>;
   }
   return (
+    // Any touch anywhere restarts the nudge idle clock (capture phase, never claims the responder).
+    <View style={{ flex: 1 }} onTouchStart={reportActivity} onStartShouldSetResponderCapture={() => { reportActivity(); return false; }}>
     <NavigationContainer linking={linking} ref={navRef} onReady={sync} onStateChange={sync}>
       <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg }, animation: 'slide_from_right' }}>
         {!session ? (
@@ -97,6 +117,9 @@ export default function RootNavigator() {
           <Stack.Group key="main">
             <Stack.Screen name="Home" component={HomeScreen} />
             <Stack.Screen name="Profile" component={ProfileScreen} />
+            <Stack.Screen name="HelpSupport" component={HelpSupportScreen} />
+            <Stack.Screen name="PrivacyTerms" component={PrivacyTermsScreen} />
+            <Stack.Screen name="ComingSoon" component={ComingSoonScreen} />
             <Stack.Screen name="QuickList" component={QuickListScreen} />
             <Stack.Screen name="ScanQr" component={ScanQrScreen} options={SCAN_OPTIONS} />
             <Stack.Screen name="SearchMobile" component={SearchMobileScreen} />
@@ -113,12 +136,19 @@ export default function RootNavigator() {
             <Stack.Screen name="Cases" component={CasesScreen} />
             <Stack.Screen name="RcPendency" component={RcPendencyScreen} />
             <Stack.Screen name="TaInf" component={TaInfScreen} />
+            <Stack.Screen name="Help" component={HelpScreen} />
           </Stack.Group>
         )}
+        {/* Reels-style shorts feed: available signed in or out (Zippy can offer the sign-in short). */}
+        <Stack.Group key="shared">
+          <Stack.Screen name="ShortsFeed" component={ShortsFeed}
+            options={{ presentation: 'fullScreenModal', animation: 'fade', gestureEnabled: false, contentStyle: { backgroundColor: '#000' } }} />
+        </Stack.Group>
       </Stack.Navigator>
       <ZippyBubble route={route} />
       {/* One voice session for the whole app, driven by the standalone header mic (HeaderVoiceMic); independent of Zippy. */}
       <VoiceHost route={route} />
     </NavigationContainer>
+    </View>
   );
 }

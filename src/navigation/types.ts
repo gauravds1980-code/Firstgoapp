@@ -7,6 +7,10 @@ export type RootStackParamList = {
   // Main stack (session)
   Home: undefined;
   Profile: undefined;
+  /** v1.3.0: Profile rows — Help & support (FAQs), Privacy & terms, and honest coming-soon screens. */
+  HelpSupport: undefined;
+  PrivacyTerms: undefined;
+  ComingSoon: { kind: 'staff' | 'notifications' };
   QuickList: { kind: ListKind };
   ScanQr: undefined;
   SearchMobile: { stage?: 'enter' | 'otp' | 'none' } | undefined;
@@ -25,10 +29,14 @@ export type RootStackParamList = {
   Cases: undefined;
   RcPendency: undefined;
   TaInf: undefined;
+  /** v1.3.0: Help & tutorials. `focus` = a short id to open straight away (e.g. /help?focus=mandate). */
+  Help: { focus?: string } | undefined;
+  /** v1.3.0: Reels-style vertical shorts feed (full-screen), opened at `startId` (deep link /shorts/:startId). */
+  ShortsFeed: { startId?: string } | undefined;
 };
 
 export type JourneyStep = 'offer' | 'asset' | 'kyc' | 'mandate' | 'esign' | 'docs' | 'disbursal';
-export type AssistantContext = JourneyStep | 'search' | 'scan' | 'home' | 'login' | 'payouts' | 'portfolio' | 'cases' | 'rc' | 'tainf' | 'profile';
+export type AssistantContext = JourneyStep | 'search' | 'scan' | 'home' | 'login' | 'payouts' | 'portfolio' | 'cases' | 'rc' | 'tainf' | 'profile' | 'help';
 
 /** Non-breaking hyphen (U+2011): "e‑sign" never splits across lines. */
 export const NB_HYPHEN = '\u2011';

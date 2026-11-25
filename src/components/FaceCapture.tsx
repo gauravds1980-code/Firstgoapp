@@ -155,9 +155,9 @@ export function FaceCapture({ phase, error, onBlink, onClose, onRetry }: {
           <View style={{ width: touch.min }} />
           <View style={{ flex: 1, alignItems: 'center' }}>
             <Text variant="h3" color="#fff">Face e-KYC</Text>
-            <Text variant="caption" color="rgba(255,255,255,0.75)" numberOfLines={1}>IDFC FIRST Bank · Aadhaar liveness check</Text>
+            <Text variant="caption" color="rgba(255,255,255,0.75)" numberOfLines={1}>Aadhaar face match</Text>
           </View>
-          <HeaderDockSlot size={touch.min} />
+          <HeaderDockSlot />
           <HeaderVoiceMic onDark />
         </View>
 

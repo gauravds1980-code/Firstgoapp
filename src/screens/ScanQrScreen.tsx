@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { APP_NAME } from '../config/brand';
 import { ActivityIndicator, Animated, Linking, View } from 'react-native';
-import { StackActions, useIsFocused, useNavigation } from '@react-navigation/native';
+import { StackActions, useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera';
 import { Button, Icon, PressableScale, Text } from '../components/ui';
@@ -10,9 +10,12 @@ import { offers } from '../services';
 import { useApp } from '../state/AppState';
 import { colors, radius, space, touch } from '../theme/tokens';
 import { haptic } from '../utils/haptics';
+import { reportValidationError } from '../tutorial/tutorialStore';
 import { HeaderDockSlot } from '../components/assistant/HeaderDockSlot';
 import { HeaderVoiceMic } from '../voice/HeaderVoiceMic';
 import { ZippyTipSlot } from '../components/assistant/ZippyTipSlot';
+import { ZippyAvoid } from '../components/assistant/zippyAvoid';
+import { reportFooterHeight } from '../components/assistant/zippySection';
 
 const FRAME = 260;
 
@@ -21,12 +24,14 @@ const FRAME = 260;
  * The customer's IDFC FIRST app QR carries a signed offer token → resolveOfferFromQr.
  * Handles: permission loading / ask / denied (retry + open settings), mount errors, bad QR.
  * "Simulate successful scan" is shown in every build (live QR isn't switched on yet) and resolves a demo token.
- * Zippy's tip appears above the bottom buttons (ZippyTipSlot), never over the frame.
+ * Zippy's tip appears above the bottom buttons (ZippyTipSlot), never over the frame. The bottom buttons
+ * report their height (floating Zippy rests above them) and the frame / permission actions are avoid-rects.
  */
 export default function ScanQrScreen() {
   const nav = useNavigation();
   const focused = useIsFocused();
   const insets = useSafeAreaInsets();
+  const route = useRoute().name;
   const { product, condition, startJourney } = useApp();
   const [perm, requestPerm] = useCameraPermissions();
   const [busy, setBusy] = useState(false);
@@ -59,7 +64,7 @@ export default function ScanQrScreen() {
       // means back from Asset goes Home, not into the camera; OfferReveal owns the haptics.
       startJourney(r.data); nav.dispatch(StackActions.replace('OfferReveal')); setTimeout(() => { locked.current = false; }, 800); return;
     }
-    haptic.error(); setErr(r.message);
+    haptic.error(); setErr(r.message); reportValidationError('ScanQr');
     setTimeout(() => { locked.current = false; }, 1500); // let the dealer re-aim
   };
   const onScan = (res: BarcodeScanningResult) => { if (!locked.current && res.data) resolve(res.data); };
@@ -84,8 +89,8 @@ export default function ScanQrScreen() {
         </PressableScale>
         {/* Left spacer balances the two right-hand slots, so the title stays centred. */}
         <View style={{ width: touch.min }} />
-        <Text variant="h3" color="#fff" numberOfLines={1} style={{ flex: 1, textAlign: 'center' }}>Scan Customer QR</Text>
-        <HeaderDockSlot size={touch.min} />
+        <Text variant="h3" color="#fff" numberOfLines={1} style={{ flex: 1, textAlign: 'center' }}>Scan offer QR</Text>
+        <HeaderDockSlot />
         <HeaderVoiceMic onDark />
       </View>
 
@@ -101,6 +106,7 @@ export default function ScanQrScreen() {
             <Text variant="body" color="rgba(255,255,255,0.92)" style={{ textAlign: 'center' }}>
               Point at the {condition === 'used' ? 'used ' : ''}{p.label.toLowerCase()} offer QR in the customer's IDFC FIRST app
             </Text>
+            <ZippyAvoid weight="soft">
             <View style={{ width: FRAME, height: FRAME }} accessibilityLabel="Scanning frame">
               <View style={{ flex: 1, borderRadius: radius.lg, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)' }}>
                 <Animated.View style={{ position: 'absolute', left: 16, right: 16, height: 2, backgroundColor: colors.cta, top: 16, transform: [{ translateY: line.interpolate({ inputRange: [0, 1], outputRange: [0, FRAME - 34] }) }] }} />
@@ -116,6 +122,7 @@ export default function ScanQrScreen() {
                 </View>
               )}
             </View>
+            </ZippyAvoid>
             {err ? (
               <View style={{ flexDirection: 'row', gap: space.xs, alignItems: 'center', backgroundColor: 'rgba(196,40,40,0.9)', borderRadius: radius.md, padding: space.sm }} accessibilityRole="alert">
                 <Icon name="alert-circle-outline" size={20} color="#fff" /><Text variant="caption" color="#fff" style={{ flex: 1 }}>{err}</Text>
@@ -128,8 +135,8 @@ export default function ScanQrScreen() {
       </View>
 
       <ZippyTipSlot onDark />
-      <View style={{ padding: space.md, paddingBottom: Math.max(insets.bottom, space.md), gap: space.xxs }}>
-        <Button label="Search by mobile number instead" variant="secondary" icon="cellphone-text" onPress={() => nav.navigate('SearchMobile', { stage: 'enter' })} />
+      <View onLayout={(e) => reportFooterHeight(route, e.nativeEvent.layout.height)} style={{ padding: space.md, paddingBottom: Math.max(insets.bottom, space.md), gap: space.xxs }}>
+        <Button label="Search by mobile instead" variant="secondary" icon="cellphone-text" onPress={() => nav.navigate('SearchMobile', { stage: 'enter' })} />
         {/* Always visible (release too): live QR isn't switched on yet, so dealers continue the QR journey with a demo offer. */}
         <Button label="Simulate successful scan" variant="secondary" icon="qrcode-scan" onPress={() => resolve('MOCK_SIGNED_TOKEN')}
           accessibilityHint="Continues with a demo offer, as if the customer's QR was read" />
@@ -150,10 +157,10 @@ function PermissionCard({ denied, camErr, onAllow, onSettings }: { denied: boole
           ? `${APP_NAME} needs the camera to read the customer's offer QR. Turn on Camera for ${APP_NAME} in Settings, then come back and tap Try again.`
           : `Here, ${APP_NAME} uses the camera only to read the customer's offer QR (it is also used for RC photos and face e-KYC). Nothing is recorded or stored.`)}
       </Text>
-      <View style={{ alignSelf: 'stretch', gap: space.xs, marginTop: space.xs }}>
+      <ZippyAvoid style={{ alignSelf: 'stretch', gap: space.xs, marginTop: space.xs }}>
         {denied && <Button label="Open Settings" icon="cog-outline" onPress={onSettings} />}
         <Button label={denied || camErr ? 'Try again' : 'Allow camera'} variant={denied ? 'secondary' : 'primary'} icon="camera" onPress={onAllow} />
-      </View>
+      </ZippyAvoid>
     </View>
   );
 }

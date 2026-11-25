@@ -12,6 +12,7 @@ import { installVoiceDemo } from './voiceDemo';
 import { VoicePreviewSheet } from './VoicePreviewSheet';
 import { useVoiceSession, voiceSession } from './voiceSession';
 import { loadVoiceSettings } from './voiceSettings';
+import { setNudgeSuppressed } from '../tutorial/tutorialStore';
 
 /** Banner sits just under the header row (where the header mic lives). */
 const HEADER_H = 60;
@@ -70,6 +71,11 @@ export function VoiceHost({ route }: { route?: string }) {
 
   // Errors → short banner.
   useEffect(() => { if (voice.error) show('error', voice.error); }, [voice.error, show]);
+  // v1.3.0: Zippy's tutorial nudges stay away while the dealer is talking, a preview is staged or the
+  // auto-act toast with Undo is up.
+  const voiceBusy = voice.phase !== 'idle' || !!voice.preview;
+  useEffect(() => { setNudgeSuppressed('voice', voiceBusy); }, [voiceBusy]);
+  useEffect(() => { setNudgeSuppressed('undo', !!voice.toast); }, [voice.toast]);
   useEffect(() => { if (voice.phase !== 'idle') setBanner(null); }, [voice.phase]);
   useEffect(() => {
     if (!banner) return;

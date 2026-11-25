@@ -59,13 +59,14 @@ export function FirstGoTag({ onDark = false, suffix, size = 'caption' }: { onDar
 /**
  * Bank lockup: IdfcMark + one-line "IDFC FIRST Bank" wordmark, with "» FIRSTgo" (plus an optional
  * suffix such as " · Dealer app") directly under the wordmark. Used by the login hero and the Home header,
- * so both read the same. The text column is the only part that shrinks.
+ * so both read the same. The text column is the only part that shrinks; it fills the lockup (flex: 1) so
+ * the wordmark can fit itself to that width. Give the lockup `flex: 1` in its row.
  */
 export function BrandLockup({ onDark = false, markSize = 40, appSuffix, style }: { onDark?: boolean; markSize?: number; appSuffix?: string; style?: React.ComponentProps<typeof View>['style'] }) {
   return (
     <View style={[{ flexDirection: 'row', alignItems: 'center', gap: space.xs, minWidth: 0 }, style]} accessibilityRole="header" accessibilityLabel={`IDFC FIRST Bank, ${APP_NAME}${appSuffix ?? ''}`}>
       <IdfcMark size={markSize} onDark={onDark} />
-      <View style={{ flexShrink: 1, minWidth: 0 }}>
+      <View style={{ flex: 1, minWidth: 0 }}>
         <BrandWordmark color={onDark ? colors.onPrimary : colors.primary} />
         <FirstGoTag onDark={onDark} suffix={appSuffix} />
       </View>

@@ -7,6 +7,7 @@ import { useNavigation } from '@react-navigation/native';
 import { JourneyScreen } from '../components/Screen';
 import { copyUtr, useToast } from '../components/Toast';
 import { useSectionTracker } from '../components/assistant/zippySection';
+import { ZippyAvoid } from '../components/assistant/zippyAvoid';
 import { Button, Card, Icon, IconName, PressableScale, Text } from '../components/ui';
 import { Milestone, useApp } from '../state/AppState';
 import { colors, radius, space, touch } from '../theme/tokens';
@@ -53,8 +54,9 @@ export default function DisbursalScreen() {
       </View>}>
       <DisbursalHero totalSec={totalSec} />
       <Animated.View entering={reduce ? undefined : FadeInUp.delay(500).springify().damping(16)}>
+        {/* The time is in the hero timer above, so the sentence does not repeat it. */}
         <Text variant="body" color={colors.textSecondary} style={{ textAlign: 'center' }}>
-          Approved & disbursed in <Text variant="bodyStrong">{fmtDuration(totalSec)}</Text> · offer to money in the dealer's account
+          Approved & disbursed, from offer to money in the dealer's account.
         </Text>
       </Animated.View>
 
@@ -65,14 +67,18 @@ export default function DisbursalScreen() {
           {!reduce && <GoldShimmer width={cardW} height={220} delay={1500} />}
         </View>
         <Text variant="label" color={colors.textSecondary}>CREDITED TO DEALER</Text>
-        <Text variant="display" color={colors.primary} style={{ fontSize: 36, lineHeight: 44, fontVariant: ['tabular-nums'] }}>{inr(d.netAmount)}</Text>
+        <ZippyAvoid><Text variant="display" color={colors.primary} style={{ fontSize: 36, lineHeight: 44, fontVariant: ['tabular-nums'] }}>{inr(d.netAmount)}</Text></ZippyAvoid>
         <Text variant="caption" color={colors.textSecondary} style={{ textAlign: 'center' }}>{d.creditedTo} · net of {inr(journey.loan - d.netAmount)} customer charges · loan {inr(journey.loan)}</Text>
         <View style={{ height: 1, alignSelf: 'stretch', backgroundColor: colors.primarySoft }} />
         <View style={{ alignSelf: 'stretch' }}>
           <Text variant="caption" color={colors.textSecondary}>UTR number</Text>
+          {/* The whole row copies; the copy icon sits in its own 44pt box so it is an easy target too. */}
+          <ZippyAvoid style={{ alignSelf: 'stretch' }}>
           <PressableScale haptics={false} onPress={() => { void copyUtr(d.utr, utrToast.show); }} accessibilityRole="button" accessibilityLabel={`UTR ${d.utr}. Tap to copy`} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: touch.min }}>
-            <Text variant="label">{d.utr}</Text><Icon name="content-copy" size={16} color={colors.primary} />
+            <Text variant="label" style={{ flexShrink: 1 }}>{d.utr}</Text>
+            <View style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Icon name="content-copy" size={20} color={colors.primary} /></View>
           </PressableScale>
+          </ZippyAvoid>
         </View>
       </Card>
       </View>

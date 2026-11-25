@@ -6,6 +6,7 @@ import { useSwipeBack } from '../navigation/useSwipeBack';
 import { useZippyTip } from '../components/assistant/tips';
 import { useZippyMood } from '../components/assistant/zippyStore';
 import { useSectionTracker, useZippyPending } from '../components/assistant/zippySection';
+import { ZippyAvoid } from '../components/assistant/zippyAvoid';
 import { JourneyScreen } from '../components/Screen';
 import { Banner, Button, Card, Icon, Pill, ReadOnlyRow, Text } from '../components/ui';
 import { UPI_MANDATE_EMI_CAP } from '../config/phases';
@@ -198,8 +199,9 @@ export default function MandateScreen() {
   const left = waitingReq ? Math.max(0, Math.ceil((waitingReq.expiresAt - now) / 1000)) : 0;
 
   // No footer: the QR flow waits and advances by itself. Controls live in the QR card.
+  // v1.3.0: no sticky terms bar on this step either, so it never clips the MANDATE SUMMARY peek.
   return (
-    <JourneyScreen step="mandate" assistant="mandate" onScroll={sec.onScroll}>
+    <JourneyScreen step="mandate" assistant="mandate" showTerms={false} onScroll={sec.onScroll}>
       {qrFlow && qr.kind !== 'success' && (
         <View onLayout={sec.at('qr')}>
           <Card style={{ gap: space.sm, alignItems: 'center' }}>
@@ -207,6 +209,7 @@ export default function MandateScreen() {
               <Text variant="h3" style={{ flexShrink: 1 }}>UPI AutoPay QR</Text>{SHOW_DEV_UI && <Pill label="Demo QR" tone="warning" />}
             </View>
             <Text variant="body" color={colors.textSecondary} style={{ alignSelf: 'stretch' }}>Ask the customer to scan with any UPI app and approve AutoPay with their UPI PIN.</Text>
+            <ZippyAvoid>
             <View accessible accessibilityRole="image"
               accessibilityLabel={qr.kind === 'waiting' ? `UPI AutoPay mandate QR. EMI ${inr(monthly)} monthly, up to ${inr(maxAmt)}.` : qr.kind === 'creating' ? 'Preparing the AutoPay QR' : 'AutoPay QR not available'}
               style={{ padding: space.sm, borderRadius: radius.lg, borderWidth: 2, borderColor: qr.kind === 'error' ? colors.danger : colors.primary, backgroundColor: '#fff' }}>
@@ -219,13 +222,19 @@ export default function MandateScreen() {
                   </View>
                 )}
             </View>
+            </ZippyAvoid>
             {qr.kind === 'waiting' && (
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', gap: space.xs }} accessible
-                accessibilityLiveRegion="polite" accessibilityLabel={`Waiting for the customer's approval. QR valid for ${Math.ceil(left / 60)} more minutes`}>
-                <ActivityIndicator size="small" color={colors.ctaDark} />
-                <Text variant="bodyStrong" color={colors.ctaDark}>Waiting for approval</Text>
-                <Text variant="caption" color={colors.textSecondary} style={{ fontVariant: ['tabular-nums'] }}>{mmss(elapsed)} · valid {mmss(left)}</Text>
-              </View>
+              // v1.3.0: status on one line, the timer on its own line below (an avoid-rect, so "valid m:ss" is never covered).
+              <ZippyAvoid style={{ alignItems: 'center', gap: 2 }}>
+                <View style={{ alignItems: 'center', gap: 2 }} accessible
+                  accessibilityLiveRegion="polite" accessibilityLabel={`Waiting for the customer's approval. QR valid for ${Math.ceil(left / 60)} more minutes`}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+                    <ActivityIndicator size="small" color={colors.ctaDark} />
+                    <Text variant="bodyStrong" color={colors.ctaDark}>Waiting for approval</Text>
+                  </View>
+                  <Text variant="caption" color={colors.textSecondary} style={{ fontVariant: ['tabular-nums'] }}>Waiting {mmss(elapsed)} · QR valid {mmss(left)}</Text>
+                </View>
+              </ZippyAvoid>
             )}
             {qr.kind === 'error' && (
               <>
@@ -235,11 +244,15 @@ export default function MandateScreen() {
             )}
             {SHOW_DEV_UI && <Text variant="caption" color={colors.warning} style={{ textAlign: 'center' }}>Demo mandate QR · prototype only, not a live collect. Payee {mandate.DEMO_PAYEE_VPA}</Text>}
             {qr.kind === 'waiting' && (
+              <ZippyAvoid style={{ alignSelf: 'stretch' }}>
               <Button label="Open UPI app" variant="secondary" icon="cellphone-arrow-down" onPress={openUpiApp} style={{ alignSelf: 'stretch' }}
                 accessibilityHint="Opens a UPI app on this phone with the same AutoPay mandate" />
+              </ZippyAvoid>
             )}
+            <ZippyAvoid style={{ alignSelf: 'stretch' }}>
             <Button label="Simulate successful mandate" variant="secondary" icon="check-decagram-outline" onPress={simulateMandate} loading={simulating}
               style={{ alignSelf: 'stretch' }} accessibilityHint="Creates the AutoPay mandate as if the customer approved it with their UPI PIN" />
+            </ZippyAvoid>
             {toast ? (
               <View accessibilityRole="alert" accessibilityLiveRegion="polite"
                 style={{ alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: colors.textStrong, borderRadius: radius.md, paddingHorizontal: space.sm, paddingVertical: space.xs }}>
@@ -257,8 +270,15 @@ export default function MandateScreen() {
             <Icon name="check-decagram" size={24} color={colors.success} />
             <Text variant="h3" color={colors.success} accessibilityLiveRegion="polite" style={{ flexShrink: 1 }}>{journey.mandate.existing ? 'Existing mandate linked' : 'Mandate created successfully'}</Text>
           </View>
-          <ReadOnlyRow label="UMRN" value={journey.mandate.umn} />
-          <ReadOnlyRow label="Payer" value={journey.mandate.payerVpa} />
+          {/* v1.3.0: label above a full-width value; the UMRN wraps at "@" if it must, never mid-token. */}
+          <ZippyAvoid style={{ gap: 2, paddingVertical: space.xxs }}>
+            <Text variant="caption" color={colors.textSecondary}>UMRN</Text>
+            <Text variant="bodyStrong" style={{ fontVariant: ['tabular-nums'] }}>{breakAtAt(journey.mandate.umn)}</Text>
+          </ZippyAvoid>
+          <View style={{ gap: 2, paddingVertical: space.xxs }}>
+            <Text variant="caption" color={colors.textSecondary}>Payer</Text>
+            <Text variant="bodyStrong">{breakAtAt(journey.mandate.payerVpa)}</Text>
+          </View>
           <Text variant="caption" color={colors.textSecondary}>Customer gets a pre-debit notification 24 hours before each EMI.</Text>
           <Text variant="caption" color={colors.textSecondary}>{advancing ? 'Opening e-sign…' : 'Next: e-sign.'} The KFS goes to the customer with the e-sign link.</Text>
         </Card>
@@ -298,6 +318,11 @@ export default function MandateScreen() {
       )}
     </JourneyScreen>
   );
+}
+
+/** UPI handles / UMRNs: a zero-width break opportunity before "@", so a wrap (if any) happens there. */
+function breakAtAt(v: string) {
+  return v.replace('@', '\u200B@');
 }
 
 function mmss(sec: number) {

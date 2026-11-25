@@ -14,16 +14,19 @@ import type { ProductId } from '../../config/products';
 import { type Overhang, RIDE_EXTRA, rideBounds, ZippyRide } from './ZippyRide';
 import { ZippyCharacter } from './ZippyCharacter';
 import { useRouteHelp } from './zippySection';
+import { type Box, isZippyHidden, measureZippyAvoid, pickZippyRest, useZippyAvoidVersion } from './zippyAvoid';
 import { measureActiveSlot, useRouteMood, useZippyStore, zippyDock, zippyTip } from './zippyStore';
 import { useApp } from '../../state/AppState';
+import { type NudgeAnchor, TutorialNudgeBubble } from '../tutorial/TutorialNudgeBubble';
+import { useTutorialState } from '../../tutorial/tutorialStore';
 
 const SIZE = 60;
 /** The vehicle mount hangs below the orb box; keep it clear of CTAs too. */
 const RIDE_H = Math.round(SIZE * RIDE_EXTRA);
 const MARGIN = 8;
-/** Keep clear of the header (top) and of sticky CTA bars + the bottom-centre Scan QR FAB (bottom). */
+/** Keep clear of the header (top). The bottom clearance comes from the screen's reported footer (sticky CTA
+ *  bar, Home's Scan QR FAB, Scan QR's buttons) plus the tip zone above it. */
 const TOP_CLEAR = 76;
-const BOTTOM_CLEAR = 216;
 /** Extra room above a sticky footer: the bottom safe zone where the tip slot appears. */
 const TIP_ZONE = 72;
 /** Hold this long on Zippy (without dragging) to dock it in the header. */
@@ -56,11 +59,10 @@ export function zippyOverhang(product?: ProductId): Overhang {
 }
 const ALL_PRODUCTS: ProductId[] = ['twoWheeler', 'car', 'cv'];
 /**
- * Right-hand lane (dp from the screen's right edge) that floating Zippy can occupy at rest on the right:
- * edge margin + body + the widest right overhang of any ride + a little breathing room. Screens leave
- * tappable links (e.g. Home's section "View all") out of this lane so a floating Zippy never covers them.
+ * v1.3.0 safe gutter: bottom padding for scrolling screens, so the last card can always be scrolled fully
+ * above floating Zippy's lowest rest spot (tip zone + the tallest body, ride and bob included).
  */
-export const ZIPPY_RIGHT_LANE = Math.ceil(MARGIN + SIZE + Math.max(...ALL_PRODUCTS.map((p) => zippyOverhang(p).right)) + 16);
+export const ZIPPY_SAFE_GUTTER = Math.ceil(TIP_ZONE + space.md + SIZE + BOB + Math.max(...ALL_PRODUCTS.map((p) => zippyOverhang(p).top + zippyOverhang(p).bottom)));
 const DOCK_MS = 560;
 const RETURN_MS = 650;
 const MINI_SCALE = DOCK_MINI_SIZE / SIZE;
@@ -83,6 +85,9 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
  *    floating orb (or use the sheet menu) to dock it.
  * Floating: drag anywhere → snaps to the nearest side edge (whole body visible);
  * vertical position is clamped above the sticky footer + tip zone and the Scan QR FAB.
+ * v1.3.0: floating Zippy keeps off the focused screen's controls and key values (ZippyAvoid rects, with
+ * a ZIPPY_AVOID_GAP gutter): it picks a clear rest spot per screen and nudges itself off anything a
+ * layout / scroll change or a drop puts under it. Screens can hide it (useZippyHidden, e.g. face capture).
  * v1.2.8: no mic on the orb and no voice-driven mood / lips. The push-to-talk mic is the standalone
  * HeaderVoiceMic, which stays in the header whether Zippy is docked or floating.
  */
@@ -113,8 +118,9 @@ export function ZippyBubble({ route }: { route?: string }) {
   const minX = insets.left + MARGIN + ext.left;
   const maxX = Math.max(minX, W - insets.right - MARGIN - SIZE - ext.right);
   const minY = insets.top + TOP_CLEAR + ext.top + BOB;
-  // Never cover the primary CTA: stay above the measured sticky footer (and the Home Scan QR FAB zone).
-  const bottomClear = Math.max(insets.bottom + BOTTOM_CLEAR, footer + TIP_ZONE + space.md);
+  // Never cover the primary CTA: stay above the measured sticky footer / Scan QR FAB / scanner buttons
+  // (each screen reports it; it already includes the bottom inset) and the tip zone above it.
+  const bottomClear = Math.max(footer, insets.bottom) + TIP_ZONE + space.md;
   const maxY = Math.max(minY, H - kb - bottomClear - SIZE - ext.bottom);
   /** While dragging: anywhere on screen with the whole body visible (the header too, to dock). */
   const dragMinY = insets.top + ext.top;
@@ -123,6 +129,14 @@ export function ZippyBubble({ route }: { route?: string }) {
   const [driveKey, setDriveKey] = useState(0);
   const x = useSharedValue(maxX);
   const y = useSharedValue(maxY); // rests low on the right, just above the CTA / Scan QR zone
+  /** Where Zippy is resting / heading (the spring target, not the in-flight value). */
+  const restRef = useRef<{ x: number; y: number } | null>(null);
+  /** True while the finger is on the orb: auto-placement waits for the release. */
+  const draggingRef = useRef(false);
+  const routeRef = useRef(route);
+  routeRef.current = route;
+  const avoidVersion = useZippyAvoidVersion();
+  const hiddenHere = isZippyHidden(route);
   const bob = useSharedValue(0);
   const lift = useSharedValue(1);
   /** 1 floating; MINI_SCALE when shrunk into the header. */
@@ -167,7 +181,8 @@ export function ZippyBubble({ route }: { route?: string }) {
     prevPhase.current = phase;
     if (phase !== 'floating') return;
     const tx = sideRef.current === 'right' ? maxX : minX;
-    const ty = from === 'hydrating' ? maxY : clamp(y.value, minY, maxY);
+    const ty = from === 'hydrating' ? maxY : clamp(restRef.current?.y ?? y.value, minY, maxY);
+    restRef.current = { x: tx, y: ty };
     if (reduce || from === 'hydrating') { x.value = tx; y.value = ty; return; } // initial placement: instant
     x.value = withSpring(tx, { damping: 18 });
     y.value = withSpring(ty, { damping: 18 });
@@ -183,6 +198,52 @@ export function ZippyBubble({ route }: { route?: string }) {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, reduce]);
+
+  /** Orb top-left → everything floating Zippy draws (ride overhang, sparkles, bob, shadow). */
+  const bodyBox = (bx: number, by: number): Box => ({ left: bx - ext.left, top: by - ext.top - BOB, right: bx + SIZE + ext.right, bottom: by + SIZE + ext.bottom });
+  const bodyRef = useRef(bodyBox);
+  bodyRef.current = bodyBox;
+
+  /**
+   * v1.3.0 auto-placement. Measures the focused screen's avoid-rects (ZippyAvoid: controls and key values)
+   * and moves floating Zippy to a rest spot that covers none of them.
+   *  - 'default' (new screen): lowest spot on Zippy's side (lower-right unless the dealer moved it left),
+   *    then upwards along that edge, then the other edge.
+   *  - 'nudge' (layout / scroll / data change, or Zippy dropped on a control): stay unless the current
+   *    spot covers something; otherwise slide to the nearest clear spot.
+   */
+  const placeSeq = useRef(0);
+  const place = (mode: 'default' | 'nudge') => {
+    const seq = ++placeSeq.current;
+    measureZippyAvoid(routeRef.current, (rects) => {
+      const go = (ox: number, oy: number) => {
+        if (seq !== placeSeq.current || phaseRef.current !== 'floating' || draggingRef.current) return;
+        const g = geo.current;
+        const cur = restRef.current ?? { x: sideRef.current === 'right' ? g.maxX : g.minX, y: g.maxY };
+        const best = pickZippyRest({
+          rects: rects.map((r) => ({ ...r, x: r.x - ox, y: r.y - oy })),
+          minX: g.minX, maxX: g.maxX, minY: g.minY, maxY: g.maxY, body: bodyRef.current, side: sideRef.current, mode, from: cur,
+        });
+        if (!best || (best.x === cur.x && best.y === cur.y)) return;
+        restRef.current = { x: best.x, y: best.y };
+        setSide(best.side); sideRef.current = best.side;
+        if (reduceRef.current) { x.value = best.x; y.value = best.y; }
+        else { x.value = withSpring(best.x, { damping: 18 }); y.value = withSpring(best.y, { damping: 18 }); }
+      };
+      const o = origin.current;
+      if (!o) go(0, 0); else o.measureInWindow((ox, oy) => go(ox, oy));
+    });
+  };
+  const placeRef = useRef(place);
+  placeRef.current = place;
+  // Re-run on route change (after the screen transition settles), and on any layout / scroll / bounds change.
+  const placedRoute = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (phase !== 'floating' || hiddenHere) return;
+    const fresh = placedRoute.current !== route;
+    const t = setTimeout(() => { placedRoute.current = route; placeRef.current(fresh ? 'default' : 'nudge'); }, fresh ? 450 : 180);
+    return () => clearTimeout(t);
+  }, [route, avoidVersion, phase, hiddenHere, minX, maxX, minY, maxY]);
 
   // Contextual tip once per screen per session, docked or floating. It is shown by the screen's
   // ZippyTipSlot (above the footer / FAB), and auto-dismisses after TIP_MS.
@@ -261,6 +322,7 @@ export function ZippyBubble({ route }: { route?: string }) {
       const right = p ? p.x > g.W / 2 : true;
       const tx = right ? g.maxX : g.minX;
       const ty = p ? clamp(p.y - SIZE / 2, g.minY, g.maxY) : g.maxY;
+      restRef.current = { x: tx, y: ty };
       setSide(right ? 'right' : 'left'); sideRef.current = right ? 'right' : 'left';
       zippyDock.persist(false);
       zippyDock.setPhase('returning');
@@ -275,6 +337,22 @@ export function ZippyBubble({ route }: { route?: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
+  // v1.3.0: Zippy's "drop a short" bubble, anchored next to the floating orb or under the docked face.
+  const { nudge } = useTutorialState();
+  const [nudgeAnchor, setNudgeAnchor] = useState<NudgeAnchor | null>(null);
+  useEffect(() => {
+    if (!nudge) { setNudgeAnchor(null); return; }
+    zippyTip.hide(); // one Zippy message at a time
+    if (phaseRef.current === 'floating') {
+      clearPeek(); peek.value = withSpring(0, { damping: 16 });
+      setNudgeAnchor({ kind: 'floating', x: x.value, y: y.value, size: SIZE, below: ext.bottom, side: sideRef.current });
+      return;
+    }
+    measureTarget(({ cx, cy }) => setNudgeAnchor({ kind: 'docked', cx, cy, slot: DOCK_SLOT_SIZE }));
+  // Re-anchor when Zippy docks / floats or snaps to the other side while the bubble is up.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nudge?.id, phase, side, maxY, W, H]);
+
   const openSheet = () => { schedulePeek(); setTapKey((k) => k + 1); haptic.select(); zippyTip.hide(); setTimeout(() => setOpen(true), 160); };
 
   const clearLongPress = () => { if (longPress.current.timer) clearTimeout(longPress.current.timer); longPress.current.timer = null; };
@@ -287,6 +365,7 @@ export function ZippyBubble({ route }: { route?: string }) {
   };
   const endDrag = (g: { dx: number; dy: number }) => {
     clearLongPress(); lift.value = withSpring(1, { damping: 12 }); movingRef.current(false);
+    draggingRef.current = false;
     const over = zippyDock.snapshotDropHint();
     zippyDock.setDropHint(false);
     if (longPress.current.fired) return;
@@ -297,6 +376,7 @@ export function ZippyBubble({ route }: { route?: string }) {
     onMoveShouldSetPanResponder: (_, g) => phaseRef.current === 'floating' && Math.abs(g.dx) + Math.abs(g.dy) > 4,
     onPanResponderGrant: () => {
       clearPeek(); peek.value = withSpring(0, { damping: 16 }); start.current = { x: x.value, y: y.value }; lift.value = withSpring(1.12, { damping: 12 });
+      draggingRef.current = true;
       dragSlot.current = null;
       measureRef.current(({ cx, cy, real }) => { dragSlot.current = real ? { cx, cy } : null; });
       // Long-press (no drag) docks Zippy in the header; dragging it up into the header does too.
@@ -337,6 +417,7 @@ export function ZippyBubble({ route }: { route?: string }) {
     if (Math.abs(dx) + Math.abs(dy) < DRAG_SLOP) {
       // A tap: back to where it was (clamped), open the help sheet.
       const tx = clamp(start.current.x, g.minX, g.maxX), ty = clamp(start.current.y, g.minY, g.maxY);
+      restRef.current = { x: tx, y: ty };
       if (instant) { x.value = tx; y.value = ty; } else { x.value = withSpring(tx); y.value = withSpring(ty); }
       tapRef.current(); peekRef.current(); return;
     }
@@ -346,11 +427,14 @@ export function ZippyBubble({ route }: { route?: string }) {
     const toRight = cx > g.W / 2;
     const tx = toRight ? g.maxX : g.minX;
     const ty = clamp(start.current.y + dy, g.minY, g.maxY);
+    restRef.current = { x: tx, y: ty };
     if (instant) { x.value = tx; y.value = ty; }
     else { x.value = withSpring(tx, { damping: 15, stiffness: 170 }); y.value = withSpring(ty, { damping: 15, stiffness: 170 }); }
     setSide(toRight ? 'right' : 'left'); sideRef.current = toRight ? 'right' : 'left';
     haptic.select();
     peekRef.current();
+    // Dropped on a control or a key value → slide it to the nearest clear spot instead of leaving it there.
+    placeRef.current('nudge');
   }
 
   const wrap = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }, { translateY: y.value + bob.value }, { scale: lift.value * dockScale.value }] }));
@@ -361,7 +445,9 @@ export function ZippyBubble({ route }: { route?: string }) {
   });
 
   const floating = phase === 'floating';
-  const showOverlay = floating || phase === 'docking' || phase === 'returning';
+  // Hidden on this screen (e.g. Face KYC capture) → no floating orb; it comes back when the screen clears the flag.
+  // The shorts feed is full-screen video: no floating Zippy (or nudge bubble) over it.
+  const showOverlay = (floating || phase === 'docking' || phase === 'returning') && !hiddenHere && route !== 'ShortsFeed';
   // Sheet menu: dock (hide) a floating Zippy, or float a docked one.
   const toggleDock = () => {
     setOpen(false);
@@ -379,12 +465,13 @@ export function ZippyBubble({ route }: { route?: string }) {
               onAccessibilityAction={(e) => { if (e.nativeEvent.actionName === 'longpress') dock(); }}
               style={[{ width: SIZE, height: SIZE, borderRadius: SIZE / 2, alignItems: 'center', justifyContent: 'center' }, { cursor: 'grab' } as object]}>
               {rideProduct && floating
-                ? <ZippyRide size={SIZE} product={rideProduct} mood={mood} speaking={!!tip || open} tapKey={tapKey} moving={moving} driveKey={driveKey} driveInMax={side === 'right' ? maxX - minX : 0} />
-                : <ZippyCharacter size={SIZE} mood={mood} speaking={!!tip || open} tapKey={tapKey} />}
+                ? <ZippyRide size={SIZE} product={rideProduct} mood={mood} speaking={!!tip || open || !!nudge} tapKey={tapKey} moving={moving} driveKey={driveKey} driveInMax={side === 'right' ? maxX - minX : 0} />
+                : <ZippyCharacter size={SIZE} mood={mood} speaking={!!tip || open || !!nudge} tapKey={tapKey} />}
             </View>
           </Animated.View>
         </Animated.View>
       )}
+      {phase !== 'docking' && phase !== 'returning' && <TutorialNudgeBubble anchor={nudgeAnchor} />}
       <AssistantSheet visible={open} onClose={() => setOpen(false)} context={context} route={route} product={rideProduct}
         docked={!floating} onToggleDock={phase === 'floating' || phase === 'docked' ? toggleDock : undefined} />
     </>

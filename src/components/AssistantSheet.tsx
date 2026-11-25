@@ -13,6 +13,13 @@ import { colors, radius, space, touch, type } from '../theme/tokens';
 import { Icon, PressableScale, Text } from './ui';
 import { SHOW_DEV_UI } from '../config/devFlags';
 import { voiceSession } from '../voice/voiceSession';
+import { navRef } from '../navigation/navRef';
+import { tutorialForScreen } from '../tutorial/manifest';
+import { formatShortLength } from '../tutorial/stuckDetector';
+import { setNudgeSuppressed, tutorials } from '../tutorial/tutorialStore';
+
+/** Help & tutorials is a main-stack screen: reachable once signed in. */
+const canOpenHelp = () => navRef.isReady() && ((navRef.getRootState()?.routeNames as string[] | undefined) ?? []).includes('Help');
 
 /**
  * PLACEHOLDER — assistant (chatbot layer for dealer staff who get stuck).
@@ -87,6 +94,10 @@ const SUGGESTIONS: Record<AssistantContext, { q: string; a: string }[]> = {
     { q: 'Which insurance copy is valid?', a: 'Upload the policy schedule showing IDFC FIRST Bank as hypothecation.' },
     { q: 'When can I release the vehicle?', a: 'Only after invoice, insurance and the delivery photo are uploaded.' },
   ],
+  help: [
+    { q: 'Do the videos use mobile data?', a: 'No. They ship inside the app and play offline.' },
+    { q: 'Can I stop the how-to pop-ups?', a: 'Tap “Don’t show again here” on a pop-up, or turn off Tutorial nudges in Profile.' },
+  ],
   disbursal: [
     { q: 'Where is the money?', a: 'Credited to your dealer account; use the UTR to trace it with your bank.' },
     { q: 'RC still pending', a: 'Share it from Home → Actions → RC pendency once registration is done. Snap the RC and I’ll read the number.' },
@@ -95,14 +106,16 @@ const SUGGESTIONS: Record<AssistantContext, { q: string; a: string }[]> = {
 
 type Msg = { from: 'bot' | 'user'; text: string };
 
+/** Short screen names for the sheet subtitle ("Help for Home"), so it stays on one line at 360dp. */
 const CONTEXT_LABEL: Record<AssistantContext, string> = {
-  login: 'sign-in', home: 'Home', profile: 'your profile', scan: 'QR scan', search: 'customer search', offer: 'the offer', asset: 'vehicle & EMI',
-  kyc: 'Face KYC', mandate: 'AutoPay mandate', esign: 'KFS consent & e-sign', docs: 'documents', disbursal: 'disbursal',
-  payouts: 'Payouts', portfolio: 'Portfolio', cases: 'Cases done', rc: 'RC pendency', tainf: 'TA / INF',
+  login: 'sign-in', home: 'Home', profile: 'Profile', scan: 'Scan QR', search: 'search', offer: 'the offer', asset: 'Vehicle & EMI',
+  kyc: 'Face KYC', mandate: 'Mandate', esign: 'e\u2011sign', docs: 'Documents', disbursal: 'Disbursal',
+  payouts: 'Payouts', portfolio: 'Portfolio', cases: 'Cases done', rc: 'RC pendency', tainf: 'TA / INF', help: 'tutorials',
 };
 
 /**
- * FIRST.AI-style thread: lavender assistant bubbles, indigo (#434377) user bubbles and suggestion chips.
+ * v1.3.0 brand thread: cream assistant bubbles with ink text, maroon user bubbles, and suggestion chips
+ * with a maroon outline and maroon text (no off-brand indigo / lavender).
  * v1.2.2: section-aware — FAQs for the section in view come first, and anything on the screen that
  * still needs the dealer is shown as a nudge with a quick action (see zippySection.ts).
  */
@@ -119,6 +132,11 @@ export function AssistantSheet({ visible, onClose, context, route, product, dock
   const greeting: Msg = { from: 'bot', text: greetingText };
   const [thread, setThread] = useState<Msg[]>([greeting]);
   const [speaking, setSpeaking] = useState(false);
+  // v1.3.0: this screen's how-to short opens the shorts feed (full screen) at that short.
+  const short = tutorialForScreen(route);
+  const watchHowTo = () => { if (!short) return; onClose(); setTimeout(() => tutorials.openShorts(short.id), 250); };
+  const openHelp = () => { onClose(); setTimeout(() => { if (canOpenHelp()) navRef.navigate('Help'); }, 250); };
+  useEffect(() => { if (!visible) return; tutorials.dismissNudge(); setNudgeSuppressed('assistant-sheet', true); return () => setNudgeSuppressed('assistant-sheet', false); }, [visible]);
   useEffect(() => { if (!visible) return; setSpeaking(true); const t = setTimeout(() => setSpeaking(false), 1400); return () => clearTimeout(t); }, [visible, thread.length]);
   const seen = new Set<string>();
   const sugs: Faq[] = [...(sec?.faqs ?? []), ...SUGGESTIONS[context]].filter((f) => (seen.has(f.q) ? false : (seen.add(f.q), true))).slice(0, 4);
@@ -140,11 +158,29 @@ export function AssistantSheet({ visible, onClose, context, route, product, dock
           </View>
           <View style={{ flex: 1 }}>
             <Text variant="h3">{ASSISTANT_NAME}</Text>
-            <Text variant="caption" color={colors.textSecondary}>Quick help for {CONTEXT_LABEL[context]}{sec ? ` · ${sec.label}` : ''}</Text>
+            <Text variant="caption" color={colors.textSecondary} numberOfLines={1}>Help for {CONTEXT_LABEL[context]}</Text>
           </View>
           <PressableScale onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" style={{ width: touch.min, height: touch.min, alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="close" size={24} color={colors.text} />
           </PressableScale>
+        </View>
+        {/* v1.3.0: how-to videos — this screen's short inline, or the whole Help & tutorials list. */}
+        <View style={{ flexDirection: 'row', gap: space.xs }}>
+          {short && (
+            <PressableScale onPress={watchHowTo} accessibilityRole="button"
+              accessibilityLabel={`Watch a how-to for this screen, ${formatShortLength(short.durationSec)}`}
+              style={{ flex: 1.4, minHeight: touch.min, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: space.sm, borderRadius: radius.pill, backgroundColor: colors.primary }}>
+              <Icon name="play-circle" size={20} color={colors.onPrimary} />
+              <Text variant="label" color={colors.onPrimary} numberOfLines={2} style={{ flexShrink: 1 }}>Watch a how-to for this screen</Text>
+            </PressableScale>
+          )}
+          {canOpenHelp() && (
+            <PressableScale onPress={openHelp} accessibilityRole="button" accessibilityLabel="All tutorials"
+              style={{ flex: 1, minHeight: touch.min, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: space.sm, borderRadius: radius.pill, borderWidth: 1.5, borderColor: colors.primary, backgroundColor: colors.surface }}>
+              <Icon name="play-box-multiple-outline" size={20} color={colors.primary} />
+              <Text variant="label" color={colors.primary} numberOfLines={1}>All tutorials</Text>
+            </PressableScale>
+          )}
         </View>
         <ScrollView contentContainerStyle={{ gap: space.sm }}>
           {pending.length > 0 && (
@@ -168,7 +204,8 @@ export function AssistantSheet({ visible, onClose, context, route, product, dock
             </View>
           )}
           {thread.map((m, i) => (
-            <View key={i} style={{ alignSelf: m.from === 'user' ? 'flex-end' : 'flex-start', maxWidth: '86%', backgroundColor: m.from === 'user' ? colors.aiUser : colors.aiThread,
+            <View key={i} style={{ alignSelf: m.from === 'user' ? 'flex-end' : 'flex-start', maxWidth: '86%', backgroundColor: m.from === 'user' ? colors.primary : colors.bg,
+              borderWidth: m.from === 'user' ? 0 : 1, borderColor: colors.border,
               paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.lg, borderBottomRightRadius: m.from === 'user' ? 4 : radius.lg, borderBottomLeftRadius: m.from === 'bot' ? 4 : radius.lg }}>
               <Text variant="body" color={m.from === 'user' ? colors.onPrimary : colors.text}>{m.text}</Text>
             </View>
@@ -176,18 +213,18 @@ export function AssistantSheet({ visible, onClose, context, route, product, dock
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs, justifyContent: 'flex-end', marginTop: space.xs }}>
             {sugs.map((sug) => asked.has(sug.q) ? null : (
               <PressableScale key={sug.q} onPress={() => ask(sug)} accessibilityRole="button" accessibilityLabel={`Ask: ${sug.q}`}
-                style={{ minHeight: touch.min, justifyContent: 'center', paddingHorizontal: space.md, borderRadius: radius.pill, borderWidth: 1.5, borderColor: colors.aiUser, backgroundColor: colors.surface }}>
-                <Text variant="label" color={colors.aiUser}>{sug.q}</Text>
+                style={{ minHeight: touch.min, justifyContent: 'center', paddingHorizontal: space.md, borderRadius: radius.pill, borderWidth: 1.5, borderColor: colors.primary, backgroundColor: colors.surface }}>
+                <Text variant="label" color={colors.primary}>{sug.q}</Text>
               </PressableScale>
             ))}
           </View>
         </ScrollView>
-        {/* Menu option: the single way (besides dragging or long-press) to hide Zippy into the header or float it back out. */}
+        {/* Menu option: the single way (besides dragging or long-press) to dock Zippy into the header or float it back out. */}
         {onToggleDock && (
-          <PressableScale onPress={onToggleDock} accessibilityRole="button" accessibilityLabel={docked ? `Show ${ASSISTANT_NAME} on screen` : `Hide ${ASSISTANT_NAME} in the header`}
+          <PressableScale onPress={onToggleDock} accessibilityRole="button" accessibilityLabel={docked ? `Float ${ASSISTANT_NAME} on screen` : `Dock ${ASSISTANT_NAME} to the header`}
             style={{ minHeight: touch.min, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs }}>
             <Icon name={docked ? 'arrow-expand-down' : 'arrow-collapse-up'} size={18} color={colors.primary} />
-            <Text variant="label" color={colors.primary}>{docked ? `Show ${ASSISTANT_NAME} on screen` : `Hide ${ASSISTANT_NAME} in the header`}</Text>
+            <Text variant="label" color={colors.primary}>{docked ? `Float ${ASSISTANT_NAME} on screen` : `Dock ${ASSISTANT_NAME} to the header`}</Text>
           </PressableScale>
         )}
         {/* Prototype chrome (disabled chat box, "canned answers" note): tester builds only. */}

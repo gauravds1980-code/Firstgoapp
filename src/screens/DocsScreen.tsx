@@ -4,6 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import { JourneyScreen } from '../components/Screen';
 import { useZippyMood } from '../components/assistant/zippyStore';
 import { useSectionTracker, useZippyPending } from '../components/assistant/zippySection';
+import { ZippyAvoid } from '../components/assistant/zippyAvoid';
 import { Banner, Button, Icon, Pill, PressableScale, Text } from '../components/ui';
 import { PRODUCTS } from '../config/products';
 import { disbursal } from '../services';
@@ -12,6 +13,7 @@ import { useApp } from '../state/AppState';
 import { colors, fontScaleCap, radius, space } from '../theme/tokens';
 import { charges } from '../utils/finance';
 import { haptic } from '../utils/haptics';
+import { reportValidationError } from '../tutorial/tutorialStore';
 
 const DOCS: { key: DisbursalDocType; title: string; sub: string; icon: React.ComponentProps<typeof Icon>['name'] }[] = [
   { key: 'invoice', title: 'Invoice', sub: 'Vehicle tax invoice', icon: 'receipt-text-outline' },
@@ -41,7 +43,7 @@ export default function DocsScreen() {
     setBusy(k); setFailed((f) => ({ ...f, [k]: undefined }));
     const r = await disbursal.uploadDisbursalDoc(k);
     setBusy(null);
-    if (!r.ok) { haptic.error(); setFailed((f) => ({ ...f, [k]: r.message })); return; }
+    if (!r.ok) { haptic.error(); reportValidationError('Docs'); setFailed((f) => ({ ...f, [k]: r.message })); return; }
     if (r.ok) {
       haptic.success();
       const docs = { ...journey.docs, [k]: true };
@@ -90,17 +92,18 @@ export default function DocsScreen() {
               <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: space.xs, rowGap: 2 }}>
                   <Text variant="bodyStrong" style={{ flexShrink: 1 }}>{d.title}</Text>
-                  {!done && <Pill label="Required" tone={fail ? 'danger' : 'warning'} />}
+                  {!done && <ZippyAvoid><Pill label="Required" tone={fail ? 'danger' : 'warning'} /></ZippyAvoid>}
                 </View>
                 <Text variant="caption" color={colors.textSecondary}>{d.sub}</Text>
               </View>
-              <View style={{ width: DOC_ACTION_W, flexShrink: 0, alignItems: 'flex-end', justifyContent: 'center' }}>
+              {/* The Upload / Retry column is an avoid-rect: floating Zippy never rests on it. */}
+              <ZippyAvoid style={{ width: DOC_ACTION_W, flexShrink: 0, alignItems: 'flex-end', justifyContent: 'center' }}>
                 {done ? <Icon name="check-circle" size={26} color={colors.successBright} />
                   : <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                       <Icon name={busy === d.key ? 'loading' : 'tray-arrow-up'} size={22} color={colors.primary} />
                       <Text variant="label" color={colors.primary} numberOfLines={1} maxFontSizeMultiplier={fontScaleCap.control} style={{ flexShrink: 1 }}>{busy === d.key ? 'Uploading' : fail ? 'Retry' : 'Upload'}</Text>
                     </View>}
-              </View>
+              </ZippyAvoid>
             </PressableScale>
             {fail ? <Text variant="caption" color={colors.danger} accessibilityLiveRegion="polite">{fail} Tap to retry.</Text> : null}
             </View>

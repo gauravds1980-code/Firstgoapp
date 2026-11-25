@@ -6,9 +6,20 @@
     "moduleResolution": "nodenext",
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["node"],
-    "rootDir": "src/voice",
+    "types": [
+      "node"
+    ],
+    "rootDir": "src",
     "outDir": ".voicetest"
   },
-  "files": ["src/voice/__tests__/voiceLogic.test.ts"]
+  "files": [
+    "src/voice/__tests__/voiceLogic.test.ts",
+    "src/tutorial/__tests__/stuckDetector.test.ts",
+    "src/tutorial/__tests__/catalog.test.ts",
+    "src/tutorial/__tests__/feed.test.ts",
+    "src/tutorial/__tests__/shortMap.test.ts",
+    "src/services/__tests__/advance.test.ts",
+    "src/services/__tests__/taInf.test.ts",
+    "src/components/assistant/__tests__/zippyRest.test.ts"
+  ]
 }

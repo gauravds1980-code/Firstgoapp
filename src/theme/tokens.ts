@@ -121,6 +121,12 @@ export const radius = { sm: 8, md: 12, lg: 16, xl: 24, pill: 999 } as const;
 /** Minimum touch target (Material 48dp / Apple 44pt — we use 48). */
 export const touch = { min: 48, cta: 56, fab: 56, tabBar: 72, heroCta: 72 } as const;
 
+/**
+ * v1.3.0: every header action (Zippy dock slot, mic, bell, avatar, Home) is the same 40dp circle in a
+ * 44pt box, so the wordmark keeps its room at 360dp. `hitSlop` tops the touch area up to touch.min.
+ */
+export const headerBtn = { box: 44, disc: 40, hitSlop: 2 } as const;
+
 /** Screen gutters (16–24). */
 export const gutter = { screen: 20, card: 16 } as const;
 
@@ -183,5 +189,5 @@ export const button = {
 
 export const motion = { pressScale: 0.97, fast: 120, normal: 220 } as const;
 
-export const tokens = { gutter, colors, space, radius, touch, type, textFix, fontScaleCap, fontFamily, elevation, button, motion, brandSource };
+export const tokens = { gutter, colors, space, radius, touch, headerBtn, type, textFix, fontScaleCap, fontFamily, elevation, button, motion, brandSource };
 export default tokens;

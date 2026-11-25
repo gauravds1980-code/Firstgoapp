@@ -1,11 +1,13 @@
 import React, { useMemo } from 'react';
 import { View } from 'react-native';
 import { JourneyScreen } from '../components/Screen';
+import { ZippyAvoid } from '../components/assistant/zippyAvoid';
 import { DateFilterBar, ExampleTag, inrShort, StatCard } from '../components/business';
 import { Card, EmptyState, Icon, Pill, Text } from '../components/ui';
 import { useNavigation } from '@react-navigation/native';
 import { PRODUCTS } from '../config/products';
-import { casesFor, fmtDate } from '../services/business';
+import { casesFor, fmtDateShort } from '../services/business';
+import { NB_HYPHEN } from '../navigation/types';
 import { useApp } from '../state/AppState';
 import { inRange, presetRange, useDateRange } from '../state/stores';
 import { colors, radius, space } from '../theme/tokens';
@@ -21,17 +23,17 @@ export default function CasesScreen() {
   // "12 Two Wheeler · 3 Car · 2 Commercial Vehicle" — only when the dealer has more than one product.
   const mix = categories.length > 1 ? categories.map((p) => `${cases.filter((c) => c.product === p).length} ${PRODUCTS[p].label}`).join(' · ') : undefined;
   return (
-    <JourneyScreen title="Cases done" assistant="cases" showTerms={false}>
+    <JourneyScreen title="Cases done" titleInBody assistant="cases" showTerms={false}>
       <View style={{ gap: space.xxs }}>
         <Text variant="h1">Cases done</Text>
         <Text variant="body" color={colors.textSecondary}>Loans disbursed through your dealership</Text>
         <ExampleTag />
       </View>
       <DateFilterBar />
-      <View style={{ flexDirection: 'row', gap: space.sm, flexWrap: 'wrap' }}>
+      <ZippyAvoid style={{ flexDirection: 'row', gap: space.sm, flexWrap: 'wrap' }}>
         <StatCard label="Cases disbursed" value={String(cases.length)} sub={cases.length ? mix : undefined} />
         <StatCard label="Amount disbursed" value={inrShort(amt)} sub={cases.length ? `avg ${inrShort(amt / cases.length)}` : undefined} />
-      </View>
+      </ZippyAvoid>
       <Card style={{ padding: 0 }}>
         {cases.length === 0 && (
           <EmptyState icon="file-check-outline" title="No cases disbursed in this range"
@@ -43,15 +45,16 @@ export default function CasesScreen() {
             <View style={{ width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.successSoft, alignItems: 'center', justifyContent: 'center' }}>
               <Icon name={PRODUCTS[c.product].icon} size={20} color={colors.success} />
             </View>
+            {/* v1.3.0: vehicle on its own line; ID + short date (no year in the current year) on the next. */}
             <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
               <Text variant="bodyStrong">{c.customer}</Text>
-              <Text variant="caption" color={colors.textSecondary}>{c.lan} · {c.vehicle}</Text>
-              <Text variant="caption" color={colors.textSecondary}>Disbursed {fmtDate(c.disbursedOn)}</Text>
+              <Text variant="caption" color={colors.textSecondary}>{c.vehicle}</Text>
+              <Text variant="caption" color={colors.textSecondary}>{c.lan.replace('-', NB_HYPHEN)} · Disbursed {fmtDateShort(c.disbursedOn)}</Text>
             </View>
-            <View style={{ alignItems: 'flex-end', gap: 4 }}>
+            <ZippyAvoid style={{ alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
               <Text variant="label">{inr(c.amount)}</Text>
               <Pill label="Disbursed" tone="success" />
-            </View>
+            </ZippyAvoid>
           </View>
         ))}
       </Card>

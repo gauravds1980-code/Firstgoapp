@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { Easing, interpolate, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withSpring, withTiming } from 'react-native-reanimated';
 import { BRAND, Particle, seeded } from '../components/motion/primitives';
 import { Icon, Text } from '../components/ui';
+import { ZippyAvoid } from '../components/assistant/zippyAvoid';
 import { useApp } from '../state/AppState';
 import { colors, radius, space } from '../theme/tokens';
 import { inr } from '../utils/finance';
@@ -25,6 +26,7 @@ const CONFETTI = [BRAND.gold, BRAND.goldLight, BRAND.yellow, BRAND.white, '#FF8A
  * v1.2.8 — a ~1.6 s automatic "pre-approved offer" beat between a successful QR scan / mobile search and
  * the Vehicle & EMI screen. Nothing waits for a tap: it moves on by itself (tap anywhere to skip).
  * The route replaces itself with Asset, so back from Asset never replays it.
+ * v1.3.0: the offer card and the "Next:" line are avoid-rects, so floating Zippy rests clear of them.
  */
 export default function OfferRevealScreen() {
   const nav = useNavigation();
@@ -93,6 +95,7 @@ export default function OfferRevealScreen() {
       <View style={{ width: '100%', maxWidth: 380, alignItems: 'center', justifyContent: 'center' }}>
         {/* Confetti bursts from behind the card's centre. */}
         {!reduce && confetti.map((c, i) => <Particle key={i} t={burst} angle={c.angle} speed={c.speed} color={c.color} w={c.w} h={c.h} spin={c.spin} gravity={260} delay={c.delay} />)}
+        <ZippyAvoid style={{ width: '100%' }}>
         <Animated.View style={[{ width: '100%' }, cardStyle]}>
           {/* SOLID card: the same maroon gradient family as the Home hero. No blur, no transparency. */}
           <LinearGradient colors={['#B43140', colors.primary, colors.primaryDark]} locations={[0, 0.48, 1]} start={{ x: 0.2, y: 0 }} end={{ x: 0.8, y: 1 }}
@@ -108,11 +111,14 @@ export default function OfferRevealScreen() {
             <Text variant="caption" color="rgba(255,255,255,0.88)" style={{ textAlign: 'center' }}>Up to this amount · ready to disburse today</Text>
           </LinearGradient>
         </Animated.View>
+        </ZippyAvoid>
       </View>
 
-      <Animated.View style={headStyle}>
-        <Text variant="caption" color={colors.textSecondary} style={{ textAlign: 'center' }}>Next: confirm the vehicle and loan amount</Text>
-      </Animated.View>
+      <ZippyAvoid>
+        <Animated.View style={headStyle}>
+          <Text variant="caption" color={colors.textSecondary} style={{ textAlign: 'center' }}>Next: confirm the vehicle and loan amount</Text>
+        </Animated.View>
+      </ZippyAvoid>
     </Pressable>
   );
 }

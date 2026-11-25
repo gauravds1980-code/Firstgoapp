@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { DealerSession } from '../services/auth';
 import { secureStorage } from '../utils/secureStorage';
+import { hydrateDealerStores } from './stores';
 import { DEFAULT_PHASE, FeatureFlags, Phase, featuresFor, USED_VEHICLES_ENABLED } from '../config/phases';
 import { Asset, catalogueFor, Condition, PRODUCT_IDS, ProductId } from '../config/products';
 import { DealerProfile, enabledCategories, enabledConditions, mockDealerProfile } from '../services/dealer';
@@ -54,9 +55,16 @@ function defaultProduct(p: DealerProfile | null | undefined): ProductId {
 }
 const oemOf = (p: DealerProfile | null | undefined) => (p && p.type !== 'multiBrand' ? p.oem : undefined);
 
-/** Sessions saved before v1.1 have no profile — derive it from the mock dealer master. */
+/**
+ * Sessions saved before v1.1 have no profile — derive it from the mock dealer master. Sessions saved
+ * before v1.3.0 have no `facilityType` — backfill it (and keep `hasTaInf` in sync with it).
+ */
 function withProfile(s: DealerSession): DealerSession {
-  return s.profile && 'hasTaInf' in s.profile ? s : { ...s, profile: mockDealerProfile(s.mobile).profile };
+  if (!s.profile || !('hasTaInf' in s.profile)) return { ...s, profile: mockDealerProfile(s.mobile).profile };
+  const profile: DealerProfile = s.profile;
+  if (profile.facilityType !== undefined) return s;
+  const facilityType = mockDealerProfile(s.mobile).profile.facilityType;
+  return { ...s, profile: { ...profile, facilityType, hasTaInf: facilityType != null } };
 }
 
 interface Ctx {
@@ -98,9 +106,11 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     secureStorage.get(SESSION_KEY)
-      .then((raw) => {
+      .then(async (raw) => {
         if (!raw) return;
         const s = withProfile(JSON.parse(raw) as DealerSession);
+        // Saved payout claims / RC submissions load before the first signed-in paint (no stale tile counts).
+        await hydrateDealerStores(s.dealerId);
         const p = defaultProduct(s.profile);
         setProductRaw(p); setConditionRaw('new'); setJourney(freshJourney(p, 'new', oemOf(s.profile)));
         setSession(s);
@@ -124,6 +134,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const signIn = useCallback(async (s: DealerSession) => {
     const full = withProfile(s);
     await secureStorage.set(SESSION_KEY, JSON.stringify(full));
+    await hydrateDealerStores(full.dealerId);
     // Start on a product this dealer can originate (CV-only dealer → 'cv').
     const p = defaultProduct(full.profile);
     setProductRaw(p); setConditionRaw('new'); setJourney(freshJourney(p, 'new', oemOf(full.profile)));

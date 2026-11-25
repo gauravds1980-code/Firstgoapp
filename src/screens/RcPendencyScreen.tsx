@@ -7,11 +7,14 @@ import { Sheet } from '../components/Sheet';
 import { Chip, ExampleTag } from '../components/business';
 import { Banner, Button, Card, EmptyState, Field, Icon, Pill, PressableScale, Text } from '../components/ui';
 import { useSectionTracker, useZippyPending } from '../components/assistant/zippySection';
-import { casesFor, fmtDate, normaliseReg, ocrRegFromPhoto, prettyReg, RcCase, rcCasesFor, REG_REGEX, regSuggestions, TODAY } from '../services/business';
+import { ZippyAvoid } from '../components/assistant/zippyAvoid';
+import { casesFor, fmtDateShort, normaliseReg, ocrRegFromPhoto, prettyReg, RcCase, rcCasesFor, REG_REGEX, regSuggestions, TODAY } from '../services/business';
 import { useApp } from '../state/AppState';
 import { useRcCases } from '../state/stores';
 import { colors, radius, space, touch } from '../theme/tokens';
+import { NB_HYPHEN } from '../navigation/types';
 import { haptic, hapticMoment } from '../utils/haptics';
+import { reportValidationError } from '../tutorial/tutorialStore';
 
 const ageTone = (d: number) => (d > 30 ? colors.danger : d > 15 ? colors.cta : colors.successBright);
 const ageLabel = (d: number) => (d > 30 ? 'Overdue' : d > 15 ? 'Due soon' : 'On time');
@@ -22,7 +25,8 @@ interface Draft { reg: string; photo?: string; ocr?: boolean; reading?: boolean 
 export default function RcPendencyScreen() {
   const { profile, session } = useApp();
   const dealerId = session?.dealerId ?? 'anon';
-  const [cases, setCases] = useRcCases(dealerId, () => rcCasesFor(casesFor(profile)));
+  const seed = useMemo(() => rcCasesFor(casesFor(profile)), [profile]);
+  const [cases, setCases] = useRcCases(dealerId, seed);
   const [tab, setTab] = useState<'Pending' | 'Submitted'>('Pending');
   const [selected, setSelected] = useState<string[]>([]);
   const [editing, setEditing] = useState<string[] | null>(null); // lans in the sheet
@@ -72,7 +76,7 @@ export default function RcPendencyScreen() {
   const submit = () => {
     if (!editing) return;
     const ok = editing.filter(valid);
-    if (!ok.length) { haptic.error(); return; }
+    if (!ok.length) { haptic.error(); reportValidationError('RcPendency'); return; }
     haptic.success();
     setCases((cs) => cs.map((c) => (ok.includes(c.lan) ? { ...c, status: 'Submitted', regNo: prettyReg(drafts[c.lan]!.reg), photo: drafts[c.lan]!.photo, submittedOn: TODAY } : c)));
     setSelected((s) => s.filter((x) => !ok.includes(x)));
@@ -84,7 +88,7 @@ export default function RcPendencyScreen() {
   const validCount = (editing ?? []).filter(valid).length;
 
   return (
-    <JourneyScreen title="RC pendency" assistant="rc" showTerms={false} toast={toast} footer={selecting ? (
+    <JourneyScreen title="RC pendency" titleInBody assistant="rc" showTerms={false} toast={toast} footer={selecting ? (
       <View style={{ flexDirection: 'row', gap: space.xs }}>
         <Button label="Clear all" variant="secondary" onPress={() => setSelected([])} style={{ flex: 1 }} />
         <Button label={`Share ${selected.length} RC${selected.length > 1 ? 's' : ''}`} icon="share-variant" onPress={() => openSheet(selected)} style={{ flex: 2 }} />
@@ -123,24 +127,26 @@ export default function RcPendencyScreen() {
                 style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.md, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: on ? 2 : 1, borderColor: on ? colors.primary : colors.border, overflow: 'hidden' }}>
                 <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 5, backgroundColor: c.status === 'Submitted' ? colors.primary : ageTone(c.daysPending) }} />
                 {c.status === 'Pending' && (
-                  <PressableScale onPress={() => toggle(c.lan)} accessibilityRole="checkbox" accessibilityState={{ checked: on }} accessibilityLabel={`Select ${c.customer}`} style={{ width: 32, height: touch.min, alignItems: 'center', justifyContent: 'center' }}>
+                  // 48dp square hit area (touch.min) around the 24dp box; the negative margin keeps the row's text where it was.
+                  <PressableScale onPress={() => toggle(c.lan)} accessibilityRole="checkbox" accessibilityState={{ checked: on }} accessibilityLabel={`Select ${c.customer}`} style={{ width: touch.min, height: touch.min, marginLeft: -space.sm, marginRight: -space.xxs, alignItems: 'center', justifyContent: 'center' }}>
                     <Icon name={on ? 'checkbox-marked' : 'checkbox-blank-outline'} size={24} color={on ? colors.primary : colors.textSecondary} />
                   </PressableScale>
                 )}
                 <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                   <Text variant="bodyStrong">{c.customer}</Text>
-                  <Text variant="caption" color={colors.textSecondary}>{c.vehicle} · {c.lan}</Text>
-                  <Text variant="caption" color={colors.textSecondary}>Disbursed {fmtDate(c.disbursedOn)}</Text>
+                  {/* Model and ID on separate lines; the ID's hyphen never breaks ("TW‑184406"). */}
+                  <Text variant="caption" color={colors.textSecondary}>{c.vehicle}</Text>
+                  <Text variant="caption" color={colors.textSecondary}>{c.lan.replace('-', NB_HYPHEN)} · Disbursed {fmtDateShort(c.disbursedOn)}</Text>
                   {c.regNo && <Text variant="label" color={colors.primary}>{c.regNo}</Text>}
                 </View>
-                <View style={{ alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                <ZippyAvoid style={{ alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
                   {c.status === 'Pending' ? (
                     <>
                       <Text variant="h3" color={ageTone(c.daysPending)}>{c.daysPending}d</Text>
                       <Pill label={ageLabel(c.daysPending)} tone={c.daysPending > 30 ? 'danger' : c.daysPending > 15 ? 'warning' : 'success'} />
                     </>
                   ) : <Pill label="Submitted" tone="info" />}
-                </View>
+                </ZippyAvoid>
               </PressableScale>
             </Animated.View>
           );

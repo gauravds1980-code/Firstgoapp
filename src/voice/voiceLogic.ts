@@ -46,7 +46,26 @@ export const INTENT_ROUTE: Readonly<Record<string, { route: string; filter?: str
   SETUP_UPI_MANDATE: { route: 'Mandate' },
   UPLOAD_RC: { route: 'Docs', filter: 'rc' },
   TAKE_DELIVERY_PHOTO: { route: 'Docs', filter: 'delivery_photo' },
+  // v1.3.0: Help & tutorials (videos).
+  OPEN_HELP: { route: 'Help' },
+  OPEN_TUTORIALS: { route: 'Help' },
+  SHOW_TUTORIALS: { route: 'Help' },
+  HOW_TO: { route: 'Help' },
 };
+
+/** v1.3.0: "help", "tutorial(s)", "how to" / "how-to" in what the dealer said. */
+const TUTORIAL_RE = /\b(help|tutorials?|how[\s-]?tos?)\b/i;
+
+/**
+ * Spoken "help" / "tutorial" / "how to" opens Help & tutorials. Only overrides the server's generic
+ * HELP read-out or an UNKNOWN intent; any specific intent ("go home", "scan QR"…) keeps its own target.
+ */
+export function isTutorialRequest(cmd: CommandResponse): boolean {
+  if (cmd.intent !== 'UNKNOWN' && cmd.intent !== 'HELP') return false;
+  // A spoken number (mobile, OTP, amount) with no intent is a fill, never a trip to Help.
+  if (cmd.intent === 'UNKNOWN' && validFields(cmd).length) return false;
+  return TUTORIAL_RE.test(cmd.transcript ?? '');
+}
 
 /** Navigate target for a command: the server's action first, else the intent fallback map. */
 export function resolveNavTarget(cmd: CommandResponse): { route: string; filter?: string } | null {
@@ -116,6 +135,7 @@ export function planTarget(cmd: CommandResponse): PlanTarget {
   if (status !== 'ok') return { kind: 'none' };
   // A select stays on this screen; it wins over any navigation (these intents are not in INTENT_ROUTE).
   if (isSelectCommand(cmd)) return selectTarget(cmd) ?? { kind: 'none' };
+  if (isTutorialRequest(cmd)) return { kind: 'navigate', route: 'Help' };
   if (cmd.action.type === 'assistant' && cmd.intent !== 'UNKNOWN') return { kind: 'assistant' };
   const nav = cmd.intent === 'UNKNOWN' ? null : resolveNavTarget(cmd);
   if (nav) return { kind: 'navigate', ...nav };
@@ -388,6 +408,11 @@ const NAV_TOAST: Readonly<Record<string, string>> = {
   NEW_CAR_LOAN: 'Starting a car loan',
   NEW_CONSUMER_DURABLE_LOAN: 'Starting a consumer durable loan',
   GO_HOME: 'Opening Home',
+  OPEN_HELP: 'Opening Help & tutorials',
+  OPEN_TUTORIALS: 'Opening Help & tutorials',
+  SHOW_TUTORIALS: 'Opening Help & tutorials',
+  HOW_TO: 'Opening Help & tutorials',
+  HELP: 'Opening Help & tutorials',
 };
 
 const OTP_WORDS: Readonly<Record<number, string>> = { 4: 'four', 5: 'five', 6: 'six', 7: 'seven', 8: 'eight' };

@@ -338,7 +338,7 @@ function FurryBody({ id, compact, mood, scarf, w }: { id: string; compact: boole
 }
 
 /** Contract for the character. `scarf` is set only by ZippyRide on the two-wheeler. */
-export interface ZippyCharacterProps { size?: number; mood?: ZippyMood; speaking?: boolean; tapKey?: number; scarf?: boolean }
+export interface ZippyCharacterProps { size?: number; mood?: ZippyMood; speaking?: boolean; tapKey?: number; scarf?: boolean; /** Force the head-and-hood bust at any size (docked header avatar). */ bust?: boolean }
 
 /**
  * ZippyCharacter — the ONE swappable character component. Everything else (floating bubble, header
@@ -353,11 +353,11 @@ export interface ZippyCharacterProps { size?: number; mood?: ZippyMood; speaking
  * - Tap reaction (bump `tapKey`): squash → stretch → spring back, with a wink.
  * All loops run on the UI thread via Reanimated; reduced motion → static face in the right mood.
  */
-export function ZippyCharacter({ size = 56, mood = 'idle', speaking = false, tapKey = 0, scarf = false }: ZippyCharacterProps) {
+export function ZippyCharacter({ size = 56, mood = 'idle', speaking = false, tapKey = 0, scarf = false, bust = false }: ZippyCharacterProps) {
   const reduce = useReducedMotion();
   const gid = `zg${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`; // unique per instance (orb, sheet, header)
   const pose = POSE[mood];
-  const compact = size < COMPACT_BELOW;
+  const compact = bust || size < COMPACT_BELOW;
   const vb = compact ? VB_BUST : VB_FULL;
   const px = (v: number, o: number) => ((v - o) / vb.w) * size; // character units → dp
   /** Face-line weight: thicken strokes as the figure shrinks so the smile never disappears. */

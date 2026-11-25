@@ -6,6 +6,7 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { button, colors, elevation, fontScaleCap, motion, radius, space, textFix, touch, type } from '../theme/tokens';
 import { haptic } from '../utils/haptics';
+import { reportActivity } from '../tutorial/tutorialStore';
 
 export type IconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 export const Icon = MaterialCommunityIcons;
@@ -33,9 +34,10 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 /**
  * Pressable with scale-down press feedback + haptic tick. The pressable itself carries layout so absolute FABs stay hittable.
- * `pressedStyle` is merged while the finger is down (e.g. a darker CTA fill).
+ * `pressedStyle` is merged while the finger is down (e.g. a darker CTA fill). Disabled dims to 50% unless
+ * `dimDisabled={false}` (the caller draws its own disabled look, e.g. <Button>).
  */
-export function PressableScale({ style, pressedStyle, children, onPress, disabled, haptics = true, ...rest }: PressableProps & { style?: StyleProp<ViewStyle>; pressedStyle?: StyleProp<ViewStyle>; haptics?: boolean; children?: React.ReactNode }) {
+export function PressableScale({ style, pressedStyle, children, onPress, disabled, haptics = true, dimDisabled = true, ...rest }: PressableProps & { style?: StyleProp<ViewStyle>; pressedStyle?: StyleProp<ViewStyle>; haptics?: boolean; dimDisabled?: boolean; children?: React.ReactNode }) {
   const scale = useRef(new Animated.Value(1)).current;
   const [pressed, setPressed] = useState(false);
   const to = (v: number) => Animated.timing(scale, { toValue: v, duration: motion.fast, useNativeDriver: true }).start();
@@ -47,7 +49,7 @@ export function PressableScale({ style, pressedStyle, children, onPress, disable
       onPressOut={() => { to(1); if (pressedStyle) setPressed(false); }}
       onPress={(e) => { if (haptics) haptic.tap(); onPress?.(e); }}
       accessibilityState={{ disabled: !!disabled, ...(rest.accessibilityState ?? {}) }}
-      style={[style, pressed ? pressedStyle : null, { transform: [{ scale }] }, disabled ? { opacity: 0.5 } : null]}
+      style={[style, pressed ? pressedStyle : null, { transform: [{ scale }] }, disabled && dimDisabled ? { opacity: 0.5 } : null]}
     >
       {children}
     </AnimatedPressable>
@@ -58,7 +60,8 @@ export function PressableScale({ style, pressedStyle, children, onPress, disable
 const PRESS_LOCK_MS = 700;
 
 /**
- * Primary CTA. States: pressed (scale + darker fill), disabled (50% + a11y disabled), loading (spinner,
+ * Primary CTA. States: pressed (scale + darker fill), disabled (neutral grey fill with dark-grey label,
+ * ≥ 4.5:1 — not a faded gold pill — + a11y disabled), loading (spinner,
  * label kept for screen readers, taps ignored), success (green fill + check). Double-tap protection:
  * taps are ignored while loading, while an async onPress is pending, and for PRESS_LOCK_MS after a tap.
  * Labels are verb-led, centred, at most 2 lines (never clipped) — see ButtonLabel.
@@ -72,10 +75,11 @@ export function Button({ label, onPress, variant = 'primary', icon, iconRight, l
   const mounted = useRef(true);
   useEffect(() => () => { mounted.current = false; }, []);
   const busy = !!loading || pending;
+  const off = !!disabled && !busy && !success;
   // primary = brand gold CTA (ink text for AA contrast); brand = maroon; secondary = outlined
-  const bg = success ? colors.successBright : variant === 'primary' ? colors.cta : variant === 'brand' ? colors.primary : variant === 'secondary' ? colors.surface : 'transparent';
+  const bg = off ? (variant === 'ghost' ? 'transparent' : colors.surfaceMuted) : success ? colors.successBright : variant === 'primary' ? colors.cta : variant === 'brand' ? colors.primary : variant === 'secondary' ? colors.surface : 'transparent';
   const pressedBg = variant === 'primary' ? colors.ctaPressed : variant === 'brand' ? colors.primaryPressed : variant === 'secondary' ? colors.primaryTint : colors.surfaceMuted;
-  const fg = success ? colors.onPrimary : fgOverride ?? (variant === 'primary' ? colors.onCta : variant === 'brand' ? colors.onPrimary : colors.primary);
+  const fg = off ? colors.textSecondary : success ? colors.onPrimary : fgOverride ?? (variant === 'primary' ? colors.onCta : variant === 'brand' ? colors.onPrimary : colors.primary);
   const press = () => {
     const now = Date.now();
     if (busy || success || now - lastTap.current < PRESS_LOCK_MS) return;
@@ -90,8 +94,9 @@ export function Button({ label, onPress, variant = 'primary', icon, iconRight, l
     <PressableScale
       accessibilityRole="button" accessibilityLabel={label} accessibilityHint={accessibilityHint}
       accessibilityState={{ busy, disabled: !!disabled || busy, checked: success ? true : undefined }}
-      onPress={press} disabled={disabled || busy} pressedStyle={success ? undefined : { backgroundColor: pressedBg }}
-      style={[s.btn, { backgroundColor: bg }, variant === 'secondary' && s.btnSecondary, variant === 'ghost' && s.btnGhost, success && { borderColor: colors.successBright }, style]}
+      onPress={press} disabled={disabled || busy} dimDisabled={busy} pressedStyle={success ? undefined : { backgroundColor: pressedBg }}
+      style={[s.btn, { backgroundColor: bg }, variant === 'secondary' && s.btnSecondary, variant === 'ghost' && s.btnGhost, success && { borderColor: colors.successBright },
+        off && variant === 'secondary' && { borderColor: colors.borderStrong }, style]}
     >
       {busy ? (
         <>
@@ -207,6 +212,8 @@ export function Field({ label, prefix, error, hint, right, ...input }: TextInput
           accessibilityLabel={label}
           maxFontSizeMultiplier={fontScaleCap.compact}
           {...input}
+          // Typing is activity for Zippy's idle nudge (soft-keyboard keys are not root touches).
+          onChangeText={input.onChangeText ? (t) => { reportActivity(); input.onChangeText?.(t); } : undefined}
           style={[inputText, s.input, { outlineStyle: 'none' } as object]}
         />
         {right}
@@ -265,7 +272,7 @@ export function OtpInput({ value, onChange, length = 6, error, disabled, label =
       })}
       <TextInput
         ref={ref} value={value} autoFocus editable={!disabled} keyboardType="number-pad" textContentType="oneTimeCode" autoComplete="sms-otp"
-        onChangeText={(t) => onChange(t.replace(/\D/g, '').slice(0, length))}
+        onChangeText={(t) => { reportActivity(); onChange(t.replace(/\D/g, '').slice(0, length)); }}
         style={{ position: 'absolute', opacity: 0, width: '100%', height: '100%' }}
         accessibilityLabel={label}
       />

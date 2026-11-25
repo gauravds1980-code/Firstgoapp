@@ -4,9 +4,9 @@ import type { AssistantContext } from '../../navigation/types';
 
 /** Route name → assistant context (drives Zippy's tip and the sheet's suggestions). */
 export const ROUTE_CONTEXT: Record<string, AssistantContext> = {
-  DealerLogin: 'login', DealerOtp: 'login', Home: 'home', Profile: 'profile', QuickList: 'home', ScanQr: 'scan', SearchMobile: 'search',
+  DealerLogin: 'login', DealerOtp: 'login', Home: 'home', Profile: 'profile', HelpSupport: 'profile', PrivacyTerms: 'profile', ComingSoon: 'profile', QuickList: 'home', ScanQr: 'scan', SearchMobile: 'search',
   Offer: 'offer', OfferReveal: 'offer', Asset: 'asset', FaceKyc: 'kyc', Mandate: 'mandate', Esign: 'esign', Docs: 'docs', Disbursal: 'disbursal',
-  Payouts: 'payouts', Portfolio: 'portfolio', Cases: 'cases', RcPendency: 'rc', TaInf: 'tainf',
+  Payouts: 'payouts', Portfolio: 'portfolio', Cases: 'cases', RcPendency: 'rc', TaInf: 'tainf', Help: 'help',
 };
 
 /** One short tip per screen — upbeat and confident, still dealer-floor professional. */
@@ -28,6 +28,7 @@ export const TIPS: Record<AssistantContext, string> = {
   cases: 'Flip the date range up top to compare months side by side.',
   rc: "Snap the RC and I'll read the number. Tick a few to share them in one go.",
   tainf: 'Keep an eye on the bar: past 80% utilised, it turns red.',
+  help: 'Pick any how-to. Most are under 20 seconds, and they play offline.',
 };
 
 /**
