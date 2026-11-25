@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
+import { Pressable, ScrollView, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius, space, touch } from '../theme/tokens';
 import { Button, Field, Icon, Pill, Text } from '../components/ui';
+import { KeyboardRevealProvider, useKeyboardForm } from '../components/keyboard';
 import { formatSlot, hasSlots, ROUTE_LABEL, SLOT_LABELS, VOICE_EXAMPLES, type ApplyOutcome } from './applyCommand';
 import type { CommandResponse, IntentCandidate, NormalizedField, VoiceExpect, VoiceSlots } from './types';
 import { candidateLabel, displayFields, FIELD_TYPE_FOR_EXPECT, fillLabel, hideFieldForSelect, safeTranscript, typedField } from './voiceLogic';
@@ -54,6 +55,9 @@ export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, 
   onEditField?: (index: number, type: NormalizedField['type'], text: string) => void;
 }) {
   const insets = useSafeAreaInsets();
+  // v1.3.1: the typed-field editor and Confirm / Cancel lift above the keyboard (may sit inside a Modal).
+  const { height: winH } = useWindowDimensions();
+  const kb = useKeyboardForm({ assumeHeight: winH });
   const [edit, setEdit] = useState<Edit | null>(null);
   const [typed, setTyped] = useState('');
   const [typedErr, setTypedErr] = useState<string | undefined>();
@@ -103,8 +107,7 @@ export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, 
   };
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, justifyContent: 'flex-end' }} accessibilityViewIsModal>
+    <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, justifyContent: 'flex-end', paddingBottom: kb.lift, paddingTop: insets.top }} accessibilityViewIsModal>
       <Pressable style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: colors.scrim }} onPress={onCancel} accessibilityLabel="Cancel voice command" />
       <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, paddingHorizontal: space.lg, paddingTop: space.sm, paddingBottom: space.md + insets.bottom, gap: space.md, maxHeight: '85%' }}>
         <View style={{ alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: colors.borderStrong }} />
@@ -112,7 +115,8 @@ export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, 
           <Icon name={status === 'retry' || status === 'reprompt' ? 'microphone-question' : 'microphone'} size={20} color={colors.primary} />
           <Text variant="h3" style={{ flex: 1 }} accessibilityRole="header">{title}</Text>
         </View>
-        <ScrollView contentContainerStyle={{ gap: space.sm }} keyboardShouldPersistTaps="handled">
+        <ScrollView ref={kb.scrollRef} onScroll={kb.onScroll} scrollEventThrottle={32} style={{ flexShrink: 1 }} contentContainerStyle={{ gap: space.sm }} keyboardShouldPersistTaps="handled">
+         <KeyboardRevealProvider value={kb.api}>
           {!!command.transcript.trim() && (
             <View style={{ alignSelf: 'flex-end', maxWidth: '92%', backgroundColor: colors.aiUser, paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.lg, borderBottomRightRadius: 4 }}>
               <Text variant="body" color={colors.onPrimary}>“{safeTranscript(command)}”</Text>
@@ -201,12 +205,13 @@ export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, 
               <Text variant="caption" color={colors.textSecondary}>Saved as a draft on Confirm — check them on the next screen.</Text>
             </View>
           )}
+         </KeyboardRevealProvider>
         </ScrollView>
         <View style={{ gap: space.xs }}>
           {actionable && <Button label={confirmLabel(plan)} onPress={onConfirm} icon="check" />}
           <Button label="Cancel" variant={actionable ? 'ghost' : 'secondary'} onPress={onCancel} />
         </View>
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }

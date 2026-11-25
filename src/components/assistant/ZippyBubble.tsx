@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Keyboard, PanResponder, Platform, useWindowDimensions, View } from 'react-native';
+import { PanResponder, Platform, useWindowDimensions, View } from 'react-native';
 import Animated, {
   cancelAnimation, Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withSequence, withSpring, withTiming,
 } from 'react-native-reanimated';
@@ -19,6 +19,7 @@ import { measureActiveSlot, useRouteMood, useZippyStore, zippyDock, zippyTip } f
 import { useApp } from '../../state/AppState';
 import { type NudgeAnchor, TutorialNudgeBubble } from '../tutorial/TutorialNudgeBubble';
 import { useTutorialState } from '../../tutorial/tutorialStore';
+import { useKeyboardHeight } from '../keyboard';
 
 const SIZE = 60;
 /** The vehicle mount hangs below the orb box; keep it clear of CTAs too. */
@@ -106,14 +107,13 @@ export function ZippyBubble({ route }: { route?: string }) {
   const rideProduct = session ? product : undefined;
   const { footer } = useRouteHelp(route);
   const ext = zippyOverhang(rideProduct);
-  // Keyboard up → less room at the bottom (Android does not always resize the window for it).
-  const [kb, setKb] = useState(0);
-  useEffect(() => {
-    if (Platform.OS === 'web') return;
-    const show = Keyboard.addListener('keyboardDidShow', (e) => setKb(e.endCoordinates?.height ?? 0));
-    const hide = Keyboard.addListener('keyboardDidHide', () => setKb(0));
-    return () => { show.remove(); hide.remove(); };
-  }, []);
+  // Keyboard up → less room at the bottom (the Android window never resizes: edge-to-edge). Shared
+  // listener (./keyboard). On web the window dims already follow the visual viewport, so no extra offset.
+  const kbRaw = useKeyboardHeight();
+  const kb = Platform.OS === 'web' ? 0 : kbRaw;
+  // v1.3.1: while the dealer types, floating Zippy steps aside so it never sits on the focused field or
+  // the lifted CTA. It comes back when the keyboard closes; a docked (header) Zippy is unaffected.
+  const typing = kbRaw > 0;
   // Resting bounds for the orb box's top-left corner, so the full visual body stays on screen.
   const minX = insets.left + MARGIN + ext.left;
   const maxX = Math.max(minX, W - insets.right - MARGIN - SIZE - ext.right);
@@ -447,7 +447,7 @@ export function ZippyBubble({ route }: { route?: string }) {
   const floating = phase === 'floating';
   // Hidden on this screen (e.g. Face KYC capture) → no floating orb; it comes back when the screen clears the flag.
   // The shorts feed is full-screen video: no floating Zippy (or nudge bubble) over it.
-  const showOverlay = (floating || phase === 'docking' || phase === 'returning') && !hiddenHere && route !== 'ShortsFeed';
+  const showOverlay = (floating || phase === 'docking' || phase === 'returning') && !hiddenHere && !typing && route !== 'ShortsFeed';
   // Sheet menu: dock (hide) a floating Zippy, or float a docked one.
   const toggleDock = () => {
     setOpen(false);

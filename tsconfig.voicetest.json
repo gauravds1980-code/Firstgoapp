@@ -20,6 +20,7 @@
     "src/tutorial/__tests__/shortMap.test.ts",
     "src/services/__tests__/advance.test.ts",
     "src/services/__tests__/taInf.test.ts",
-    "src/components/assistant/__tests__/zippyRest.test.ts"
+    "src/components/assistant/__tests__/zippyRest.test.ts",
+    "src/components/__tests__/keyboardMath.test.ts"
   ]
 }

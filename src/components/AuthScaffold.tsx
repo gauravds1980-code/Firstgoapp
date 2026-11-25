@@ -1,5 +1,5 @@
 import React from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, gutter, radius, space } from '../theme/tokens';
@@ -11,16 +11,19 @@ import { HeaderVoiceMic } from '../voice/HeaderVoiceMic';
 import { useRoute } from '@react-navigation/native';
 import { reportFooterHeight } from './assistant/zippySection';
 import { scrollZippyAvoid } from './assistant/zippyAvoid';
+import { KeyboardRevealProvider, useKeyboardForm } from './keyboard';
 
 /**
  * Auth layout: maroon hero header with the shared bank lockup (IDFC mark + one-line "IDFC FIRST Bank"
  * + "» FIRSTgo · Dealer app" in mixed case), warm canvas body, fixed bottom CTA bar. Zippy's tip slot
  * sits right above the CTA bar, never over the form. The CTA bar reports its height so floating Zippy
  * rests above it.
+ * v1.3.1: form + CTA bar lift above the keyboard (see ./keyboard) and the focused input scrolls into view.
  */
 export function AuthScaffold({ title, subtitle, children, footer, top }: { title: string; subtitle: string; children: React.ReactNode; footer: React.ReactNode; top?: React.ReactNode }) {
   const insets = useSafeAreaInsets();
   const route = useRoute().name;
+  const kb = useKeyboardForm();
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <LinearGradient colors={['#B43140', colors.primary, colors.primaryDark]} locations={[0, 0.5, 1]} start={{ x: 0.1, y: 0 }} end={{ x: 0.9, y: 1 }}
@@ -39,13 +42,16 @@ export function AuthScaffold({ title, subtitle, children, footer, top }: { title
           <Text variant="body" color="rgba(255,255,255,0.88)">{subtitle}</Text>
         </View>
       </LinearGradient>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={{ padding: gutter.screen, gap: space.lg }} keyboardShouldPersistTaps="handled" onScroll={scrollZippyAvoid} scrollEventThrottle={64}>{children}</ScrollView>
+      <View style={{ flex: 1, paddingBottom: kb.lift }}>
+        <ScrollView ref={kb.scrollRef} contentContainerStyle={{ padding: gutter.screen, gap: space.lg }} keyboardShouldPersistTaps="handled"
+          onScroll={(e) => { kb.onScroll(e); scrollZippyAvoid(); }} scrollEventThrottle={64}>
+          <KeyboardRevealProvider value={kb.api}>{children}</KeyboardRevealProvider>
+        </ScrollView>
         <ZippyTipSlot />
         <View onLayout={(e) => reportFooterHeight(route, e.nativeEvent.layout.height)} style={{ backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.border, paddingHorizontal: gutter.screen, paddingTop: space.md, paddingBottom: Math.max(insets.bottom, space.md), gap: space.xs }}>
           {footer}
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </View>
   );
 }

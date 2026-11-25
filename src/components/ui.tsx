@@ -7,6 +7,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { button, colors, elevation, fontScaleCap, motion, radius, space, textFix, touch, type } from '../theme/tokens';
 import { haptic } from '../utils/haptics';
 import { reportActivity } from '../tutorial/tutorialStore';
+import { useRevealOnFocus } from './keyboard';
 
 export type IconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 export const Icon = MaterialCommunityIcons;
@@ -202,8 +203,10 @@ export function ErrorState({ title, body, onRetry }: { title: string; body: stri
 }
 
 export function Field({ label, prefix, error, hint, right, ...input }: TextInputProps & { label: string; prefix?: string; error?: string; hint?: string; right?: React.ReactNode }) {
+  // v1.3.1: the enclosing form (Sheet / JourneyScreen / AuthScaffold) scrolls the whole field — label to hint — above the keyboard.
+  const reveal = useRevealOnFocus();
   return (
-    <View style={{ gap: space.xs }}>
+    <View ref={reveal.ref} collapsable={false} style={{ gap: space.xs }}>
       <Text variant="label">{label}</Text>
       <View style={[s.field, error ? { borderColor: colors.danger } : null]}>
         {prefix && <Text variant="bodyStrong" color={colors.textSecondary} maxFontSizeMultiplier={fontScaleCap.compact} style={s.prefix}>{prefix}</Text>}
@@ -212,6 +215,8 @@ export function Field({ label, prefix, error, hint, right, ...input }: TextInput
           accessibilityLabel={label}
           maxFontSizeMultiplier={fontScaleCap.compact}
           {...input}
+          onFocus={(e) => { reveal.onFocus(); input.onFocus?.(e); }}
+          onBlur={(e) => { reveal.onBlur(); input.onBlur?.(e); }}
           // Typing is activity for Zippy's idle nudge (soft-keyboard keys are not root touches).
           onChangeText={input.onChangeText ? (t) => { reportActivity(); input.onChangeText?.(t); } : undefined}
           style={[inputText, s.input, { outlineStyle: 'none' } as object]}
@@ -260,8 +265,9 @@ export function Segmented<T extends string>({ options, value, onChange, inverse 
 /** 6-box OTP: autofocus, SMS autofill (oneTimeCode / sms-otp) and paste — pasted text is stripped to digits, so 'OTP is 123456' works. */
 export function OtpInput({ value, onChange, length = 6, error, disabled, label = 'Enter OTP' }: { value: string; onChange: (v: string) => void; length?: number; error?: boolean; disabled?: boolean; label?: string }) {
   const ref = useRef<React.ComponentRef<typeof TextInput>>(null);
+  const reveal = useRevealOnFocus();
   return (
-    <Pressable onPress={() => ref.current?.focus()} accessibilityLabel="One-time password" style={{ flexDirection: 'row', gap: space.xs, justifyContent: 'space-between' }}>
+    <Pressable ref={reveal.ref} collapsable={false} onPress={() => ref.current?.focus()} accessibilityLabel="One-time password" style={{ flexDirection: 'row', gap: space.xs, justifyContent: 'space-between' }}>
       {Array.from({ length }).map((_, i) => {
         const active = i === value.length;
         return (
@@ -273,6 +279,7 @@ export function OtpInput({ value, onChange, length = 6, error, disabled, label =
       <TextInput
         ref={ref} value={value} autoFocus editable={!disabled} keyboardType="number-pad" textContentType="oneTimeCode" autoComplete="sms-otp"
         onChangeText={(t) => { reportActivity(); onChange(t.replace(/\D/g, '').slice(0, length)); }}
+        onFocus={reveal.onFocus} onBlur={reveal.onBlur}
         style={{ position: 'absolute', opacity: 0, width: '100%', height: '100%' }}
         accessibilityLabel={label}
       />

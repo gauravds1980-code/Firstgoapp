@@ -1,5 +1,5 @@
 import React from 'react';
-import { KeyboardAvoidingView, NativeScrollEvent, NativeSyntheticEvent, Platform, ScrollView, View } from 'react-native';
+import { NativeScrollEvent, NativeSyntheticEvent, ScrollView, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { reportFooterHeight } from './assistant/zippySection';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,6 +18,7 @@ import { ZIPPY_SAFE_GUTTER } from './assistant/ZippyBubble';
 import { HeaderVoiceMic } from '../voice/HeaderVoiceMic';
 import { Icon, PressableScale, Text } from './ui';
 import { ToastView, type ToastTone } from './Toast';
+import { KeyboardRevealProvider, useKeyboardForm } from './keyboard';
 
 /**
  * Compact header used by every main-stack screen except Home and Scan QR.
@@ -82,6 +83,8 @@ export function HeaderCircleButton({ icon, label, onPress, children }: { icon?: 
  * v1.3.0: `titleInBody` (the page opens with its own H1) drops the repeated header title. The scroll body
  * ends with ZIPPY_SAFE_GUTTER, so the last card can scroll clear of floating Zippy, and every scroll end
  * lets Zippy re-check that it is not resting on a control.
+ * v1.3.1: the body + sticky footer lift above the keyboard (padding by its height, every platform), and a
+ * focused Field / OtpInput scrolls into view above the footer.
  */
 export function JourneyScreen({ step, title, titleInBody = false, interstitial, back, assistant, children, footer, showTerms = true, onScroll, toast, toastTone }: {
   step?: JourneyStep; title?: string; titleInBody?: boolean; interstitial?: string; back?: boolean; assistant: AssistantContext; children: React.ReactNode; footer?: React.ReactNode; showTerms?: boolean;
@@ -93,6 +96,8 @@ export function JourneyScreen({ step, title, titleInBody = false, interstitial, 
   const [footerH, setFooterH] = React.useState(0);
   const showBack = back ?? (!step && !interstitial);
   React.useEffect(() => { if (!hasFooter) { reportFooterHeight(route, 0); setFooterH(0); } }, [hasFooter, route]);
+  // No sticky footer → the field's action is inline below it: keep room for it above the keyboard.
+  const kb = useKeyboardForm({ revealBelow: hasFooter ? 16 : 140 });
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }}>
       <View style={{ backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border }}>
@@ -100,11 +105,11 @@ export function JourneyScreen({ step, title, titleInBody = false, interstitial, 
         <BrandHeader title={step || interstitial ? undefined : title} hideTitle={titleInBody && !step && !interstitial} back={showBack} showHome={!showBack} />
         {step && <StepProgress step={step} interstitial={interstitial} />}
       </View>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <View style={{ flex: 1, paddingBottom: kb.lift }}>
         <View style={{ flex: 1 }}>
-        <ScrollView style={{ flex: 1, width: '100%' }} contentContainerStyle={{ padding: gutter.screen, gap: space.lg, paddingBottom: ZIPPY_SAFE_GUTTER }} keyboardShouldPersistTaps="handled"
-          onScroll={(e) => { onScroll?.(e); scrollZippyAvoid(); }} scrollEventThrottle={64}>
-          {children}
+        <ScrollView ref={kb.scrollRef} style={{ flex: 1, width: '100%' }} contentContainerStyle={{ padding: gutter.screen, gap: space.lg, paddingBottom: ZIPPY_SAFE_GUTTER }} keyboardShouldPersistTaps="handled"
+          onScroll={(e) => { kb.onScroll(e); onScroll?.(e); scrollZippyAvoid(); }} scrollEventThrottle={64}>
+          <KeyboardRevealProvider value={kb.api}>{children}</KeyboardRevealProvider>
         </ScrollView>
         {/* A short fade above the sticky footer, so the last visible row (e.g. Disbursal's UTR) never sits flush against the CTA bar. */}
         {hasFooter && <LinearGradient pointerEvents="none" colors={['rgba(253,244,239,0)', colors.bg]} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: space.md }} />}
@@ -116,8 +121,8 @@ export function JourneyScreen({ step, title, titleInBody = false, interstitial, 
           {footer}
           {showTerms && <Text variant="caption" color={colors.textSecondary} style={{ textAlign: 'center' }}>Terms and eligibility conditions apply.</Text>}
         </View>}
-        {toast ? <ToastView text={toast} tone={toastTone} side={gutter.screen} bottom={(hasFooter ? footerH : Math.max(insets.bottom, space.sm)) + space.sm} /> : null}
-      </KeyboardAvoidingView>
+        {toast ? <ToastView text={toast} tone={toastTone} side={gutter.screen} bottom={(hasFooter ? footerH : Math.max(insets.bottom, space.sm)) + space.sm + kb.lift} /> : null}
+      </View>
     </View>
   );
 }
