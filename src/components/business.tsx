@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ScrollView, View } from 'react-native';
-import { colors, fontScaleCap, radius, space, touch } from '../theme/tokens';
+import { colors, elevation, fontScaleCap, radius, space, touch } from '../theme/tokens';
 import { DateRange, Preset, presetRange, rangeLabel, useDateRange } from '../state/stores';
 import { TODAY } from '../services/business';
 import { inr } from '../utils/finance';
@@ -109,9 +109,10 @@ function Stepper({ value, onPrev, onNext, a11y }: { value: string; onPrev: () =>
   );
 }
 
+/** design-a: white card on the cream canvas — hairline border + the brand soft card shadow (same language as Home's Action tiles). */
 export function StatCard({ label, value, sub, tone = colors.text, compact }: { label: string; value: string; sub?: string; tone?: string; compact?: boolean }) {
   return (
-    <View style={{ flex: 1, minWidth: compact ? 96 : 140, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: compact ? space.sm : space.md, gap: 2 }}>
+    <View style={[{ flex: 1, minWidth: compact ? 96 : 140, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: compact ? space.sm : space.md, gap: 2 }, elevation.card as object]}>
       <Text variant="caption" color={colors.textSecondary} numberOfLines={1}>{label}</Text>
       <Text variant={compact ? 'h3' : 'h2'} color={tone} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} maxFontSizeMultiplier={fontScaleCap.compact}>{value}</Text>
       {sub ? <Text variant="caption" color={colors.textSecondary}>{sub}</Text> : null}

@@ -3,13 +3,13 @@ import { View } from 'react-native';
 import { JourneyScreen } from '../components/Screen';
 import { ZippyAvoid } from '../components/assistant/zippyAvoid';
 import { Chip, DateFilterBar, ExampleTag, inrShort, StatCard } from '../components/business';
-import { Card, EmptyState, Icon, Pill, Text } from '../components/ui';
+import { Card, EmptyState, Pill, Text } from '../components/ui';
+import { IconWell } from '../components/phosphor';
 import { presetRange } from '../state/stores';
-import { PRODUCTS } from '../config/products';
 import { Bucket, BUCKETS, bucketOf, casesFor, fmtDate } from '../services/business';
 import { useApp } from '../state/AppState';
 import { inRange, useDateRange } from '../state/stores';
-import { colors, radius, space } from '../theme/tokens';
+import { colors, space } from '../theme/tokens';
 import { inr } from '../utils/finance';
 
 const BUCKET_COLOR: Record<Bucket, string> = { Current: colors.successBright, '1–30': colors.cta, '31–60': '#E07B24', '61–90': colors.danger, '90+': colors.primaryDark };
@@ -68,9 +68,8 @@ export default function PortfolioScreen() {
               action={{ label: 'Show all loans', icon: 'filter-off-outline', onPress: () => setBucket('All') }} />)}
         {shown.map((c, i) => (
           <View key={c.lan} style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.md, borderBottomWidth: i === shown.length - 1 ? 0 : 1, borderBottomColor: colors.border }}>
-            <View style={{ width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.primaryTint, alignItems: 'center', justifyContent: 'center' }}>
-              <Icon name={PRODUCTS[c.product].icon} size={20} color={colors.primary} />
-            </View>
+            {/* design-a: Phosphor fill glyph in the Portfolio (teal) well, white glyph ≥ 7.4:1. */}
+            <IconWell name={c.product} bg={colors.tileTeal} />
             <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
               <Text variant="bodyStrong">{c.customer}</Text>
               <Text variant="caption" color={colors.textSecondary}>{c.lan} · {c.vehicle} · {fmtDate(c.disbursedOn)}</Text>

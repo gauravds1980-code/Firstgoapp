@@ -25,6 +25,7 @@ import { BrandLockup } from '../components/BrandMarks';
 import { ZippyTipSlot } from '../components/assistant/ZippyTipSlot';
 import { SHOW_DEV_UI } from '../config/devFlags';
 import { copyUtr, ToastView, useToast } from '../components/Toast';
+import { IconWell, PhosphorName } from '../components/phosphor';
 
 type HomeData = Awaited<ReturnType<typeof fetchDealerHome>>;
 
@@ -32,6 +33,12 @@ type HomeData = Awaited<ReturnType<typeof fetchDealerHome>>;
 const FAB_H = 72 + space.xxs + 22;
 /** Compact loan preview row (id, then amount · time). Only as many rows as fit above the FAB are previewed. */
 const LOAN_ROW_H = 64;
+/** One "today's credit" row on the Home Payouts card (amount · LAN, time, UTR) + its top rule; re-measured on layout. */
+const CREDIT_ROW_H = 76;
+/** Clear space kept between the bottom of the Payouts card and the top of the Scan QR FAB + label. */
+const PAY_CLEAR = space.md;
+/** 'this month' → 'This month'. */
+const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 /** Short hero chip labels, so they never ellipsize at 360dp. */
 const PRODUCT_SHORT: Record<ProductId, string> = { twoWheeler: '2W', car: 'Car', cv: 'CV' };
 
@@ -64,36 +71,45 @@ export default function HomeScreen() {
   // Tiles use the SAME source and date range (shared date filter) as the Payouts / Portfolio / Cases screens,
   // so a tile never says 72 when the screen behind it says 21.
   const [range] = useDateRange();
-  const tiles = React.useMemo<Tile[]>(() => {
-    const cs = cases.filter((c) => inRange(c.disbursedOn, range));
-    const inv = invoices.filter((i) => inRange(i.date, range));
-    const unclaimed = inv.filter((i) => i.status === 'Not claimed');
-    const when = range.preset === 'thisMonth' ? 'this month' : range.preset === 'lastMonth' ? 'last month' : 'in range';
-    const t: Tile[] = [
-      { route: 'Payouts', label: 'Payouts', icon: 'cash-multiple', color: colors.tileMustard, count: unclaimed.length, sub: `${inrShort(unclaimed.reduce((a, i) => a + i.amount, 0))} to claim`, sub2: advanceLine },
-      { route: 'Portfolio', label: 'Portfolio', icon: 'chart-donut', color: colors.tileTeal, count: 0, sub: `${cs.filter((c) => c.pos > 0).length} active · ${when}` },
-      { route: 'Cases', label: 'Cases done', icon: 'check-decagram-outline', color: colors.tileNavy, count: 0, sub: `${cs.length} loans · ${when}` },
-      { route: 'RcPendency', label: 'RC pendency', icon: 'card-account-details-outline', color: colors.tileMaroon, count: rc.filter((c) => c.status === 'Pending').length, sub: 'pending RCs' },
-    ];
-    if (profile?.hasTaInf && facility !== null) {
-      const inf = profile.facilityType === 'INF';
-      t.push({ route: 'TaInf', label: inf ? 'Inventory Funding' : 'Trade Advance', icon: inf ? 'warehouse' : 'swap-horizontal-bold', color: colors.primaryDark,
-        count: facility ? facility.tranches.filter((x) => x.status === 'overdue').length : 0, sub: facility ? `${inrShort(availableOf(facility))} available` : 'Loading…',
-        chip: facility ? (facility.enhancement ? 'Enhancement requested' : 'Enhance my limit') : undefined });
-    } else if (profile) {
-      // No TA / INF yet: the same route opens the "Avail a limit" comparison and apply flow.
-      t.push({ route: 'TaInf', label: 'Get working capital', icon: 'cash-plus', color: colors.primaryDark, count: 0,
-        sub: wcApp ? `Application submitted · ${wcApp.facility}` : 'Apply for Trade Advance or INF', chip: wcApp ? 'Pending' : undefined });
-    }
-    return t;
-  }, [profile, cases, invoices, rc, range, advanceLine, facility, wcApp]);
-
   // Section-aware Zippy help: which Home block is in view.
   const sec = useSectionTracker<'start' | 'today' | 'loans' | 'actions' | 'payouts'>('start');
   // Only this dealer's products (a CV-only dealer never sees two-wheeler rows).
   const recent = data ? data.recent.filter((r) => categories.includes(r.product)) : null;
   const payouts = data ? data.payouts.filter((po) => categories.includes(po.product)) : null;
   const payoutsToday = payouts ? payouts.reduce((t, po) => t + po.amount, 0) : 0;
+  // design-a (Proposal B): each tile leads with ONE live figure from the same source as the screen behind it.
+  // No figure until its source has loaded (no fake "0" hero); a real zero (e.g. 0 pending RCs) is shown.
+  const tiles = React.useMemo<Tile[]>(() => {
+    const cs = cases.filter((c) => inRange(c.disbursedOn, range));
+    const inv = invoices.filter((i) => inRange(i.date, range));
+    const unclaimed = inv.filter((i) => i.status === 'Not claimed');
+    const when = range.preset === 'thisMonth' ? 'this month' : range.preset === 'lastMonth' ? 'last month' : 'in range';
+    const t: Tile[] = [
+      { route: 'Payouts', label: 'Payouts', icon: 'payouts', color: colors.tileMustard, count: unclaimed.length,
+        hero: payouts ? inrShort(payoutsToday) : undefined, heroNote: 'credited today',
+        sub: `${inrShort(unclaimed.reduce((a, i) => a + i.amount, 0))} to claim`, sub2: advanceLine },
+      { route: 'Portfolio', label: 'Portfolio', icon: 'portfolio', color: colors.tileTeal, count: 0,
+        hero: profile ? String(cs.filter((c) => c.pos > 0).length) : undefined, heroNote: 'active loans', sub: cap(when) },
+      { route: 'Cases', label: 'Cases done', icon: 'cases', color: colors.tileNavy, count: 0,
+        hero: profile ? String(cs.length) : undefined, heroNote: 'disbursed', sub: cap(when) },
+      // The pending-RC count IS the hero figure (prominent), so no duplicate badge beside it.
+      { route: 'RcPendency', label: 'RC pendency', icon: 'rc', color: colors.tileMaroon, count: 0,
+        hero: String(rc.filter((c) => c.status === 'Pending').length), heroNote: 'pending' },
+    ];
+    if (profile?.hasTaInf && facility !== null) {
+      const inf = profile.facilityType === 'INF';
+      t.push({ route: 'TaInf', label: inf ? 'Inventory Funding' : 'Trade Advance', icon: inf ? 'inventoryFunding' : 'tradeAdvance', color: colors.primaryDark,
+        count: facility ? facility.tranches.filter((x) => x.status === 'overdue').length : 0,
+        hero: facility ? inrShort(availableOf(facility)) : undefined, heroNote: 'available', sub: facility ? undefined : 'Loading…',
+        chip: facility ? (facility.enhancement ? 'Enhancement requested' : 'Enhance my limit') : undefined });
+    } else if (profile) {
+      // No TA / INF yet: the same route opens the "Avail a limit" comparison and apply flow. No facility numbers here.
+      t.push({ route: 'TaInf', label: 'Get working capital', icon: 'workingCapital', color: colors.primaryDark, count: 0,
+        sub: wcApp ? `Application submitted · ${wcApp.facility}` : 'Apply for Trade Advance or INF', chip: wcApp ? 'Pending' : undefined });
+    }
+    return t;
+  }, [profile, cases, invoices, rc, range, advanceLine, facility, wcApp, payouts, payoutsToday]);
+
   // Today's three figures come from ONE list (today's applications), so "Approved" can never be 0 next
   // to a non-zero "Disbursed": a disbursed loan was approved first.
   const today = recent ? {
@@ -111,6 +127,13 @@ export default function HomeScreen() {
   const loansTop = loansAt.section + loansAt.card;
   const fabTop = viewH - fabBottom - FAB_H;
   const previewRows = viewH && loansTop ? Math.max(1, Math.min(3, Math.floor((fabTop - space.xs - loansTop - 2) / LOAN_ROW_H))) : 2;
+  // design-a P1: the whole Payouts card (credited-today amount, advance row, today's credit rows) must fit in the band
+  // between the top of the scroller and the Scan QR FAB, so it can be scrolled fully clear of the FAB + label.
+  // Measure the card's fixed part and one credit row; preview only as many credit rows (max 2) as fit.
+  const [payHeadH, setPayHeadH] = useState(0);
+  const [creditRowH, setCreditRowH] = useState(CREDIT_ROW_H);
+  const payBand = fabTop - PAY_CLEAR - space.md * 2; // card padding top + bottom
+  const creditRows = viewH && payHeadH ? Math.max(0, Math.min(2, Math.floor((payBand - payHeadH) / (creditRowH + space.sm)))) : 2;
 
   const load = useCallback(async () => {
     setError(false);
@@ -142,7 +165,7 @@ export default function HomeScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={{ paddingHorizontal: gutter.screen, paddingTop: space.xs, gap: space.md, paddingBottom: fabBottom + FAB_H + ZIPPY_SAFE_GUTTER }}
+        contentContainerStyle={{ paddingHorizontal: gutter.screen, paddingTop: space.xs, gap: space.md, paddingBottom: fabBottom + FAB_H + Math.max(ZIPPY_SAFE_GUTTER, PAY_CLEAR) }}
         onLayout={(e) => setViewH(e.nativeEvent.layout.height)}
         onScroll={(e) => { sec.onScroll(e); scrollZippyAvoid(); }} scrollEventThrottle={64}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
@@ -234,6 +257,8 @@ export default function HomeScreen() {
         {/* Payouts / disbursals (formerly the Pay tab) */}
         <Section title="Payouts" link="View all" onLink={() => nav.navigate('Payouts')} onLayout={sec.at('payouts')}>
           <Card style={{ gap: space.sm }}>
+            {/* Fixed part of the card (amount + advance row + empty note), measured to fit the credit rows above the FAB. */}
+            <View style={{ gap: space.sm }} onLayout={(e) => { const h = Math.ceil(e.nativeEvent.layout.height); setPayHeadH((v) => (v === h ? v : h)); }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
               <View style={{ width: 44, height: 44, borderRadius: radius.md, backgroundColor: colors.successSoft, alignItems: 'center', justifyContent: 'center' }}>
                 <Icon name="bank-transfer-in" size={24} color={colors.success} />
@@ -257,8 +282,10 @@ export default function HomeScreen() {
             {payouts && payouts.length === 0 && (
               <Text variant="caption" color={colors.textSecondary}>No credits yet today. Payouts land here minutes after each disbursal.</Text>
             )}
-            {payouts?.slice(0, 2).map((po) => (
-              <View key={po.utr} style={{ flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: colors.border, paddingTop: space.sm, gap: space.sm }}>
+            </View>
+            {payouts?.slice(0, creditRows).map((po, i) => (
+              <View key={po.utr} onLayout={i === 0 ? (e) => { const h = Math.ceil(e.nativeEvent.layout.height); setCreditRowH((v) => (v === h ? v : h)); } : undefined}
+                style={{ flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: colors.border, paddingTop: space.sm, gap: space.sm }}>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <ZippyAvoid style={{ alignSelf: 'flex-start', maxWidth: '100%' }}><Text variant="label" numberOfLines={1}>{inr(po.amount)} · {po.lan}</Text></ZippyAvoid>
                   <Text variant="caption" color={colors.textSecondary} numberOfLines={1}>{po.when}</Text>
@@ -334,35 +361,50 @@ function Section({ title, link, onLink, children, onLayout }: { title: string; l
   );
 }
 
-type Tile = { route: keyof RootStackParamList; label: string; icon: IconName; color: string; count: number; sub: string; sub2?: string; chip?: string };
+type Tile = {
+  route: keyof RootStackParamList; label: string; icon: PhosphorName; color: string; count: number;
+  /** The tile's one live figure (omitted while its source loads, or when it has none, e.g. Get working capital). */
+  hero?: string; heroNote?: string; sub?: string; sub2?: string; chip?: string;
+};
 
+/**
+ * design-a, Proposal B: a white card on the cream canvas (hairline border, soft card shadow). Ink title and
+ * secondary caption on white; the tile's colour lives only in the 40dp icon well (Phosphor fill glyph, ink on
+ * mustard / white on teal, navy, maroon, primaryDark — see wellGlyph). Count badge stays yellow with ink digits.
+ */
 function ActionTile({ action, onPress }: { action: Tile | null; onPress: () => void }) {
-  if (!action) return <View style={{ width: '48%', flexGrow: 1 }}><Skeleton h={104} r={radius.lg} /></View>;
+  if (!action) return <View style={{ width: '48%', flexGrow: 1 }}><Skeleton h={136} r={radius.lg} /></View>;
+  const a11y = [action.label, action.hero ? `${action.hero} ${action.heroNote ?? ''}`.trim() : '', action.sub ?? '', action.sub2 ?? '',
+    action.count ? `${action.count} pending` : '', action.chip ?? ''].filter(Boolean).join(', ');
   return (
-    <PressableScale onPress={onPress} accessibilityRole="button" accessibilityLabel={`${action.label}${action.count ? `, ${action.count} pending` : ''}${action.chip ? `, ${action.chip}` : ''}`}
-      style={[{ width: '48%', flexGrow: 1, minHeight: 104, backgroundColor: action.color, borderRadius: radius.lg, padding: space.md, justifyContent: 'space-between', overflow: IOS ? 'visible' : 'hidden' }, elevation.card as object]}>
-      <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-        <View style={{ width: 40, height: 40, borderRadius: radius.md, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}>
-          <Icon name={action.icon} size={22} color={colors.onPrimary} />
-        </View>
+    <PressableScale onPress={onPress} accessibilityRole="button" accessibilityLabel={a11y}
+      style={[{ width: '48%', flexGrow: 1, minHeight: 136, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: space.md, gap: space.xs }, elevation.card as object]}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: space.xs }}>
+        <IconWell name={action.icon} bg={action.color} />
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, flexShrink: 1 }}>
           {action.chip ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1, paddingHorizontal: space.xs, paddingVertical: 2, borderRadius: radius.pill, backgroundColor: 'rgba(255,255,255,0.18)' }}>
-              <Icon name={action.chip === 'Enhance my limit' ? 'trending-up' : 'clock-outline'} size={14} color={colors.onPrimary} />
-              <Text variant="caption" color={colors.onPrimary} numberOfLines={1} maxFontSizeMultiplier={fontScaleCap.compact} style={{ flexShrink: 1 }}>{action.chip}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1, paddingHorizontal: space.xs, paddingVertical: 2, borderRadius: radius.pill, backgroundColor: action.chip === 'Pending' ? colors.warningSoft : colors.primarySoft }}>
+              <Icon name={action.chip === 'Enhance my limit' ? 'trending-up' : 'clock-outline'} size={14} color={action.chip === 'Pending' ? colors.warning : colors.primary} />
+              <Text variant="caption" color={action.chip === 'Pending' ? colors.warning : colors.primary} numberOfLines={1} maxFontSizeMultiplier={fontScaleCap.compact} style={{ flexShrink: 1 }}>{action.chip}</Text>
             </View>
           ) : null}
           {action.count > 0 && (
             <View style={{ minWidth: 26, height: 26, borderRadius: 13, paddingHorizontal: 7, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' }}>
-              <Text variant="label" color={colors.text}>{action.count}</Text>
+              <Text variant="label" color={colors.text} maxFontSizeMultiplier={fontScaleCap.control}>{action.count}</Text>
             </View>
           )}
         </View>
       </View>
       <View>
-        <Text variant="bodyStrong" color={colors.onPrimary} numberOfLines={1}>{action.label}</Text>
-        <Text variant="caption" color="rgba(255,255,255,0.82)" numberOfLines={1}>{action.sub}</Text>
-        {action.sub2 ? <Text variant="caption" color="rgba(255,255,255,0.82)" numberOfLines={1}>{action.sub2}</Text> : null}
+        <Text variant="bodyStrong" color={colors.text} numberOfLines={1} maxFontSizeMultiplier={fontScaleCap.compact}>{action.label}</Text>
+        {action.hero ? (
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+            <Text variant="h1" color={colors.text} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} maxFontSizeMultiplier={fontScaleCap.compact} style={{ fontVariant: ['tabular-nums'], flexShrink: 1 }}>{action.hero}</Text>
+            {action.heroNote ? <Text variant="caption" color={colors.textSecondary} numberOfLines={1} maxFontSizeMultiplier={fontScaleCap.compact} style={{ flexShrink: 1 }}>{action.heroNote}</Text> : null}
+          </View>
+        ) : null}
+        {action.sub ? <Text variant="caption" color={colors.textSecondary} numberOfLines={action.hero ? 1 : 2}>{action.sub}</Text> : null}
+        {action.sub2 ? <Text variant="caption" color={colors.textSecondary} numberOfLines={1}>{action.sub2}</Text> : null}
       </View>
     </PressableScale>
   );
@@ -375,9 +417,9 @@ function ActionTile({ action, onPress }: { action: Tile | null; onPress: () => v
 function HelpRow({ onPress }: { onPress: () => void }) {
   return (
     <PressableScale onPress={onPress} accessibilityRole="button" accessibilityLabel="Help and tutorials. Short how-to videos for every step"
-      style={{ minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingLeft: space.sm, paddingRight: space.sm, paddingVertical: space.xs, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }}>
-      <ZippyAvoid weight="soft" style={{ width: 44, height: 44, borderRadius: radius.md, backgroundColor: colors.aiUser, alignItems: 'center', justifyContent: 'center' }}>
-        <Icon name="play-circle" size={26} color={colors.accent} />
+      style={[{ minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingLeft: space.sm, paddingRight: space.sm, paddingVertical: space.xs, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }, elevation.card as object]}>
+      <ZippyAvoid weight="soft">
+        <IconWell name="help" bg={colors.aiUser} />
       </ZippyAvoid>
       <ZippyAvoid style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
         <View style={{ flex: 1, minWidth: 0 }}>

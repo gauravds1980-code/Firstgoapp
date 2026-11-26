@@ -173,6 +173,15 @@ export function ZippyBubble({ route }: { route?: string }) {
 
   useEffect(() => { zippyDock.hydrate(); return () => { clearPeek(); if (flightTimer.current) clearTimeout(flightTimer.current); }; }, []);
 
+  // design-a: route-level dock default. Portfolio / Cases / Payouts / TA-INF present Zippy docked (never
+  // persisted, so Home keeps floating); leaving them floats it again unless the dealer docked it globally.
+  useEffect(() => {
+    const d = zippyDock.applyRouteDefault(route);
+    if (d === 'dock') { zippyTip.hide(); clearPeek(); cancelAnimation(bob); bob.value = 0; }
+    if (d === 'float') { dockScale.value = 1; peek.value = 0; }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route, phase]);
+
   // Keep the whole body inside bounds on placement, rotation / resize / split screen, safe-area, footer
   // and keyboard changes (not mid-flight or while docked). Snaps to the current side's edge.
   const prevPhase = useRef(phase);
@@ -324,6 +333,8 @@ export function ZippyBubble({ route }: { route?: string }) {
       const ty = p ? clamp(p.y - SIZE / 2, g.minY, g.maxY) : g.maxY;
       restRef.current = { x: tx, y: ty };
       setSide(right ? 'right' : 'left'); sideRef.current = right ? 'right' : 'left';
+      // A dealer undock on a data screen holds for the rest of that visit (route default re-applies next visit).
+      zippyDock.noteUndock(routeRef.current);
       zippyDock.persist(false);
       zippyDock.setPhase('returning');
       const done = () => { if (phaseRef.current === 'returning') { zippyDock.setPhase('floating'); setDriveKey((k) => k + 1); if (!reduce) setTapKey((k) => k + 1); } };

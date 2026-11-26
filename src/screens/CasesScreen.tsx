@@ -3,14 +3,15 @@ import { View } from 'react-native';
 import { JourneyScreen } from '../components/Screen';
 import { ZippyAvoid } from '../components/assistant/zippyAvoid';
 import { DateFilterBar, ExampleTag, inrShort, StatCard } from '../components/business';
-import { Card, EmptyState, Icon, Pill, Text } from '../components/ui';
+import { Card, EmptyState, Pill, Text } from '../components/ui';
+import { IconWell } from '../components/phosphor';
 import { useNavigation } from '@react-navigation/native';
 import { PRODUCTS } from '../config/products';
 import { casesFor, fmtDateShort } from '../services/business';
 import { NB_HYPHEN } from '../navigation/types';
 import { useApp } from '../state/AppState';
 import { inRange, presetRange, useDateRange } from '../state/stores';
-import { colors, radius, space } from '../theme/tokens';
+import { colors, space } from '../theme/tokens';
 import { inr } from '../utils/finance';
 
 /** Cases done = loans disbursed in the selected range (example data). */
@@ -42,9 +43,8 @@ export default function CasesScreen() {
         )}
         {cases.map((c, i) => (
           <View key={c.lan} style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.md, borderBottomWidth: i === cases.length - 1 ? 0 : 1, borderBottomColor: colors.border }}>
-            <View style={{ width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.successSoft, alignItems: 'center', justifyContent: 'center' }}>
-              <Icon name={PRODUCTS[c.product].icon} size={20} color={colors.success} />
-            </View>
+            {/* design-a: Phosphor fill glyph in the Cases (navy) well, white glyph ≥ 7.4:1. */}
+            <IconWell name={c.product} bg={colors.tileNavy} />
             {/* v1.3.0: vehicle on its own line; ID + short date (no year in the current year) on the next. */}
             <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
               <Text variant="bodyStrong">{c.customer}</Text>

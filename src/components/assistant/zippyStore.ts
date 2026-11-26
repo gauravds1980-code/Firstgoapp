@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 import { Platform } from 'react-native';
 import { useRoute } from '@react-navigation/native';
 import { secureStorage } from '../../utils/secureStorage';
+import { routeDockDecision } from './zippyDockDefault';
 
 /**
  * Tiny shared store for Zippy (no provider needed): dock state shared by the floating overlay
@@ -68,6 +69,13 @@ export function useZippyStore(): Snapshot {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
+/**
+ * design-a: route-level dock default (see zippyDockDefault.ts). Module state, never persisted:
+ * globalPref mirrors the stored preference; routeDocked = the current dock came from the route default;
+ * undockedVisit = the data screen the dealer undocked on during this visit; forced = `?zippy=` on web.
+ */
+const routeDock = { globalPref: 'floating' as DockPref, routeDocked: false, undockedVisit: null as string | null, visitRoute: undefined as string | undefined, forced: false };
+
 export const zippyDock = {
   get phase() { return snap.phase; },
   setPhase(phase: DockPhase) { if (snap.phase !== phase) emit({ phase }); },
@@ -75,14 +83,38 @@ export const zippyDock = {
   hydrate() {
     if (snap.phase !== 'hydrating') return;
     const forced = webForcedPhase();
-    if (forced) { emit({ phase: forced }); return; }
+    if (forced) { routeDock.forced = true; routeDock.globalPref = forced; emit({ phase: forced }); return; }
     secureStorage.get(DOCK_STORAGE_KEY)
-      .then((v) => { if (snap.phase === 'hydrating') emit({ phase: v === 'docked' ? 'docked' : 'floating' }); })
+      .then((v) => { routeDock.globalPref = v === 'docked' ? 'docked' : 'floating'; if (snap.phase === 'hydrating') emit({ phase: routeDock.globalPref }); })
       .catch(() => { if (snap.phase === 'hydrating') emit({ phase: 'floating' }); });
   },
+  /** The dealer chose docked / floating (drag, long-press, sheet menu): the global preference. */
   persist(docked: boolean) {
     const v: DockPref = docked ? 'docked' : 'floating';
+    routeDock.globalPref = v;
+    routeDock.routeDocked = false;
     secureStorage.set(DOCK_STORAGE_KEY, v).catch(() => { /* non-critical UI preference */ });
+  },
+  /**
+   * design-a: apply the route-level default for the focused route (call on focus and on every phase
+   * change). Docks on Portfolio / Cases / Payouts / TA-INF and floats again on leaving them — without
+   * touching the stored preference. Returns what it did so the overlay can reset its orb.
+   */
+  applyRouteDefault(route: string | undefined): 'dock' | 'float' | null {
+    if (route !== routeDock.visitRoute) {
+      // A new visit: a "stay undocked" override only lasts for the visit it was made in.
+      routeDock.visitRoute = route;
+      if (routeDock.undockedVisit !== route) routeDock.undockedVisit = null;
+    }
+    const d = routeDockDecision({ route, phase: snap.phase, ...routeDock });
+    if (d === 'dock') { routeDock.routeDocked = true; emit({ phase: 'docked' }); }
+    else if (d === 'float') { routeDock.routeDocked = false; emit({ phase: 'floating' }); }
+    return d;
+  },
+  /** The dealer undocked Zippy on `route`: keep it floating there for the rest of this visit. */
+  noteUndock(route: string | undefined) {
+    routeDock.routeDocked = false;
+    routeDock.undockedVisit = route ?? null;
   },
   /**
    * Docked face long-pressed / dragged out of the header (or "Show on screen" in the sheet) → the

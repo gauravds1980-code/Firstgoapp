@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { AuthScaffold } from '../components/AuthScaffold';
+import { ZippyAvoid } from '../components/assistant/zippyAvoid';
 import { Banner, Button, OtpInput, PressableScale, Text } from '../components/ui';
 import type { RootStackParamList } from '../navigation/types';
 import { MAX_OTP_ATTEMPTS, OTP_COOLDOWN_SEC, requestDealerOtp, verifyDealerOtp } from '../services/auth';
@@ -94,12 +95,15 @@ function DealerOtpForm() {
         <Text variant="caption" color={colors.textSecondary} style={{ textAlign: 'center' }}>Terms and eligibility conditions apply.</Text>
       </>}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        {/* The one place the (masked) number shows: the hero subtitle does not repeat it. */}
+        {/* The one place the (masked) number shows: the hero subtitle does not repeat it. Edit / Resend and the
+            OTP boxes (OtpInput) are Zippy avoid-rects, so floating Zippy never covers them. */}
         <Text variant="bodyStrong">{maskMobile(params.mobile)}</Text>
+        <ZippyAvoid>
         <PressableScale onPress={() => nav.navigate('DealerLogin', { mobile: params.mobile })} accessibilityRole="link" accessibilityLabel="Edit mobile number"
           style={{ minHeight: touch.min, justifyContent: 'center', paddingLeft: space.md }}>
           <Text variant="bodyStrong" color={colors.primary}>Edit number</Text>
         </PressableScale>
+        </ZippyAvoid>
       </View>
       <View style={{ gap: space.xs }}>
         <Text variant="label">6-digit OTP</Text>
@@ -110,10 +114,12 @@ function DealerOtpForm() {
       </View>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <Text variant="caption" color={colors.textSecondary}>{locked ? 'Locked after 3 wrong attempts' : `${attemptsLeft} of ${MAX_OTP_ATTEMPTS} attempts left`}</Text>
+        <ZippyAvoid>
         <PressableScale disabled={resendIn > 0 || resending || locked} dimDisabled={false} onPress={resend} accessibilityRole="button" accessibilityLabel="Resend OTP" style={{ minHeight: touch.min, justifyContent: 'center', paddingLeft: space.md }}>
           {/* Countdown in textSecondary (≥ 4.5:1 on the canvas); the PressableScale's disabled dim is off so it stays readable. */}
           <Text variant="bodyStrong" color={resendIn > 0 || locked ? colors.textSecondary : colors.primary}>{resending ? 'Sending…' : resendIn > 0 ? `Resend in ${mmss(resendIn)}` : 'Resend OTP'}</Text>
         </PressableScale>
+        </ZippyAvoid>
       </View>
       {locked && <Banner tone="danger" icon="lock-clock" title="Login temporarily locked" body={`For your security, wait ${mmss(cooldown)} before trying again, or request a new OTP after the cooldown.`} />}
     </AuthScaffold>

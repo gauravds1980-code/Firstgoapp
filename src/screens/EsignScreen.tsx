@@ -106,9 +106,8 @@ export default function EsignScreen() {
       </Card>
       <View style={{ gap: space.xs }} onLayout={sec.at('otp')}>
         <Text variant="label">Customer's e-sign OTP</Text>
-        <ZippyAvoid>
-          <OtpInput value={otp} onChange={(v) => { setOtp(v); setErr(''); if (v.length === 6 && session && !loading) verify(v); /* auto-submit */ }} error={!!err} />
-        </ZippyAvoid>
+        {/* OtpInput registers its own Zippy avoid-rect. */}
+        <OtpInput value={otp} onChange={(v) => { setOtp(v); setErr(''); if (v.length === 6 && session && !loading) verify(v); /* auto-submit */ }} error={!!err} />
         {err ? <Text variant="caption" color={colors.danger} accessibilityLiveRegion="polite">{err}</Text>
           : <Text variant="caption" color={colors.textSecondary}>The customer reads the 6-digit OTP from their SMS.</Text>}
       </View>

@@ -11,6 +11,7 @@ import { casesFor, claimInvoice, fmtDate, invoicesFor, InvoiceStatus, payoutMont
 import { useApp } from '../state/AppState';
 import { inRange, markInvoiceClaimed, presetRange, useAdvance, useDateRange, useInvoices } from '../state/stores';
 import { AdvancePayoutCard } from '../components/AdvancePayout';
+import { IconWell } from '../components/phosphor';
 import { useNavigation } from '@react-navigation/native';
 import { colors, radius, space, touch } from '../theme/tokens';
 import { inr } from '../utils/finance';
@@ -60,8 +61,12 @@ export default function PayoutsScreen() {
         <ExampleTag />
       </View>
       {/* Hero figure: what's waiting to be claimed dominates the screen */}
-      <Card style={{ gap: 2, backgroundColor: colors.ctaTint, borderColor: colors.cta }}>
-        <Text variant="label" color={colors.ctaDark}>READY TO CLAIM</Text>
+      {/* design-a: white card on cream; the Payouts mustard lives only in the icon well (ink glyph, 7.4:1). */}
+      <Card style={{ gap: 2 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, marginBottom: space.xxs }}>
+          <IconWell name="payouts" bg={colors.tileMustard} />
+          <Text variant="label" color={colors.textSecondary}>READY TO CLAIM</Text>
+        </View>
         <ZippyAvoid style={{ alignSelf: 'flex-start' }}><Text variant="display" style={{ fontVariant: ['tabular-nums'] }}>{inr(toClaim.amt)}</Text></ZippyAvoid>
         <Text variant="caption" color={colors.textSecondary}>{toClaim.n ? `${toClaim.n} invoice${toClaim.n === 1 ? '' : 's'} in this range · scroll to claim each invoice` : 'Nothing to claim in this range'}</Text>
       </Card>
@@ -148,10 +153,11 @@ export default function PayoutsScreen() {
                 ))}
                 {inv.status === 'Not claimed' && (
                   <ZippyAvoid>
-                  <PressableScale onPress={() => claim(inv.id)} disabled={busy === inv.id} accessibilityRole="button" accessibilityLabel={`Claim ${inv.id}`}
-                    style={{ minHeight: touch.min, borderRadius: radius.pill, backgroundColor: colors.cta, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}>
-                    <Icon name={busy === inv.id ? 'loading' : 'hand-coin-outline'} size={18} color={colors.text} />
-                    <Text variant="label">{busy === inv.id ? 'Claiming…' : 'Claim payout'}</Text>
+                  {/* Busy = disabled: cool grey fill + dark-grey label (≥ 4.5:1), not a 50%-faded gold pill. */}
+                  <PressableScale onPress={() => claim(inv.id)} disabled={busy === inv.id} dimDisabled={false} accessibilityRole="button" accessibilityLabel={`Claim ${inv.id}`}
+                    style={{ minHeight: touch.min, borderRadius: radius.pill, backgroundColor: busy === inv.id ? colors.disabledBg : colors.cta, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}>
+                    <Icon name={busy === inv.id ? 'loading' : 'hand-coin-outline'} size={18} color={busy === inv.id ? colors.onDisabled : colors.onCta} />
+                    <Text variant="label" color={busy === inv.id ? colors.onDisabled : colors.onCta}>{busy === inv.id ? 'Claiming…' : 'Claim payout'}</Text>
                   </PressableScale>
                   </ZippyAvoid>
                 )}

@@ -8,6 +8,7 @@ import { button, colors, elevation, fontScaleCap, motion, radius, space, textFix
 import { haptic } from '../utils/haptics';
 import { reportActivity } from '../tutorial/tutorialStore';
 import { useRevealOnFocus } from './keyboard';
+import { ZippyAvoid } from './assistant/zippyAvoid';
 
 export type IconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 export const Icon = MaterialCommunityIcons;
@@ -61,8 +62,8 @@ export function PressableScale({ style, pressedStyle, children, onPress, disable
 const PRESS_LOCK_MS = 700;
 
 /**
- * Primary CTA. States: pressed (scale + darker fill), disabled (neutral grey fill with dark-grey label,
- * ≥ 4.5:1 — not a faded gold pill — + a11y disabled), loading (spinner,
+ * Primary CTA. States: pressed (scale + darker fill), disabled (cool neutral grey fill colors.disabledBg with a
+ * dark-grey label colors.onDisabled, ≥ 4.5:1 — not a faded gold / pale-amber pill — + a11y disabled), loading (spinner,
  * label kept for screen readers, taps ignored), success (green fill + check). Double-tap protection:
  * taps are ignored while loading, while an async onPress is pending, and for PRESS_LOCK_MS after a tap.
  * Labels are verb-led, centred, at most 2 lines (never clipped) — see ButtonLabel.
@@ -78,9 +79,9 @@ export function Button({ label, onPress, variant = 'primary', icon, iconRight, l
   const busy = !!loading || pending;
   const off = !!disabled && !busy && !success;
   // primary = brand gold CTA (ink text for AA contrast); brand = maroon; secondary = outlined
-  const bg = off ? (variant === 'ghost' ? 'transparent' : colors.surfaceMuted) : success ? colors.successBright : variant === 'primary' ? colors.cta : variant === 'brand' ? colors.primary : variant === 'secondary' ? colors.surface : 'transparent';
+  const bg = off ? (variant === 'ghost' ? 'transparent' : colors.disabledBg) : success ? colors.successBright : variant === 'primary' ? colors.cta : variant === 'brand' ? colors.primary : variant === 'secondary' ? colors.surface : 'transparent';
   const pressedBg = variant === 'primary' ? colors.ctaPressed : variant === 'brand' ? colors.primaryPressed : variant === 'secondary' ? colors.primaryTint : colors.surfaceMuted;
-  const fg = off ? colors.textSecondary : success ? colors.onPrimary : fgOverride ?? (variant === 'primary' ? colors.onCta : variant === 'brand' ? colors.onPrimary : colors.primary);
+  const fg = off ? colors.onDisabled : success ? colors.onPrimary : fgOverride ?? (variant === 'primary' ? colors.onCta : variant === 'brand' ? colors.onPrimary : colors.primary);
   const press = () => {
     const now = Date.now();
     if (busy || success || now - lastTap.current < PRESS_LOCK_MS) return;
@@ -97,7 +98,7 @@ export function Button({ label, onPress, variant = 'primary', icon, iconRight, l
       accessibilityState={{ busy, disabled: !!disabled || busy, checked: success ? true : undefined }}
       onPress={press} disabled={disabled || busy} dimDisabled={busy} pressedStyle={success ? undefined : { backgroundColor: pressedBg }}
       style={[s.btn, { backgroundColor: bg }, variant === 'secondary' && s.btnSecondary, variant === 'ghost' && s.btnGhost, success && { borderColor: colors.successBright },
-        off && variant === 'secondary' && { borderColor: colors.borderStrong }, style]}
+        off && variant === 'secondary' && { borderColor: colors.disabledBorder }, style]}
     >
       {busy ? (
         <>
@@ -267,6 +268,8 @@ export function OtpInput({ value, onChange, length = 6, error, disabled, label =
   const ref = useRef<React.ComponentRef<typeof TextInput>>(null);
   const reveal = useRevealOnFocus();
   return (
+    // The six boxes are a Zippy avoid-rect on every OTP screen (login, customer search, e-sign): floating Zippy never rests on them.
+    <ZippyAvoid>
     <Pressable ref={reveal.ref} collapsable={false} onPress={() => ref.current?.focus()} accessibilityLabel="One-time password" style={{ flexDirection: 'row', gap: space.xs, justifyContent: 'space-between' }}>
       {Array.from({ length }).map((_, i) => {
         const active = i === value.length;
@@ -284,6 +287,7 @@ export function OtpInput({ value, onChange, length = 6, error, disabled, label =
         accessibilityLabel={label}
       />
     </Pressable>
+    </ZippyAvoid>
   );
 }
 

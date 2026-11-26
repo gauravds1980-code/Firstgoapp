@@ -54,9 +54,9 @@ export default function HelpScreen() {
             <Text variant="h3" numberOfLines={1} maxFontSizeMultiplier={fontScaleCap.compact}>{hero.title}</Text>
             <Text variant="caption" color={colors.textSecondary} numberOfLines={2}>{hero.subtitle}</Text>
           </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xxs, minHeight: touch.min, paddingHorizontal: space.md, borderRadius: radius.pill, backgroundColor: soon(hero) ? colors.surfaceMuted : colors.cta }}>
-            <Icon name={soon(hero) ? 'clock-outline' : 'play'} size={20} color={soon(hero) ? colors.textSecondary : colors.onCta} />
-            <Text variant="label" color={soon(hero) ? colors.textSecondary : colors.onCta} maxFontSizeMultiplier={fontScaleCap.control}>{soon(hero) ? 'Soon' : 'Play'}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xxs, minHeight: touch.min, paddingHorizontal: space.md, borderRadius: radius.pill, backgroundColor: soon(hero) ? colors.disabledBg : colors.cta }}>
+            <Icon name={soon(hero) ? 'clock-outline' : 'play'} size={20} color={soon(hero) ? colors.onDisabled : colors.onCta} />
+            <Text variant="label" color={soon(hero) ? colors.onDisabled : colors.onCta} maxFontSizeMultiplier={fontScaleCap.control}>{soon(hero) ? 'Soon' : 'Play'}</Text>
           </View>
         </ZippyAvoid>
       </PressableScale>

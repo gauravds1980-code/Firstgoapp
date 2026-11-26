@@ -6,6 +6,7 @@
  * (23 Nov 2026). Spacing/touch sizes are deliberately MORE generous than the bank app.
  */
 import { Platform } from 'react-native';
+import { DISABLED_CTA } from './contrast';
 
 export const brandSource = 'boom-brand/tokens.json' as 'placeholder' | 'boom-brand/tokens.json';
 
@@ -70,6 +71,10 @@ export const colors = {
   bgAlt: palette.canvasAlt,
   surface: palette.white,
   surfaceMuted: '#F5F1EE',
+  /** Disabled CTA: cool neutral grey + dark-grey label (≥ 4.5:1). Not surfaceMuted, which reads as pale gold. */
+  disabledBg: DISABLED_CTA.bg,
+  onDisabled: DISABLED_CTA.fg,
+  disabledBorder: DISABLED_CTA.border,
   border: palette.border,
   borderStrong: palette.borderStrong,
 
