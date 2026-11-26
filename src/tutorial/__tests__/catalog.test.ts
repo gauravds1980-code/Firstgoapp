@@ -1,11 +1,12 @@
 /**
- * Streaming catalogue: URL building, (empty) alias table, remote manifest merge, source fallback, probe. Pure Node.
+ * Tutorial catalogue: URL building, (empty) alias table, remote manifest merge, bundled-first source
+ * order and fallback, probe, and failure → Retry (never "coming soon"). Pure Node.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ASSET_ALIAS, BUILTIN_AVAILABLE_ASSETS, assetIdFor, buildCatalog, classifyProbe, condenseManifest, joinUrl, nextSourceIndex,
-  normalizeBase, parseRemoteManifest, sourcesFor, tutorialPaths, tutorialUrls,
+  ASSET_ALIAS, BUILTIN_AVAILABLE_ASSETS, assetIdFor, buildCatalog, classifyProbe, condenseManifest, failureFromProbe,
+  isCatalogComingSoon, joinUrl, nextSourceIndex, normalizeBase, parseRemoteManifest, sourcesFor, tutorialPaths, tutorialUrls,
 } from '../catalog';
 
 const BASE = 'https://example.test/tutorial';
@@ -18,6 +19,11 @@ test('URLs: base + relative paths with the server-side names', () => {
     hls: `${BASE}/hls/mandate/master.m3u8`, mp4: `${BASE}/mandate.mp4`, poster: `${BASE}/posters/mandate.jpg`,
     thumb: `${BASE}/posters/mandate-thumb.jpg`, vtt: `${BASE}/mandate.vtt`,
   });
+  // Web default base is same-origin: relative, or the page origin + /tutorial.
+  assert.equal(joinUrl('/tutorial', 'scan-offer.mp4'), '/tutorial/scan-offer.mp4');
+  assert.equal(joinUrl('/tutorial/', '/posters/scan-offer.jpg'), '/tutorial/posters/scan-offer.jpg');
+  assert.equal(joinUrl('http://localhost:8091/tutorial', 'manifest.json'), 'http://localhost:8091/tutorial/manifest.json');
+  assert.equal(tutorialUrls('/tutorial', 'ekyc').hls, '/tutorial/hls/ekyc/master.m3u8');
 });
 
 test('no alias: scan-offer streams its own render (not sample-scan-qr)', () => {
@@ -81,7 +87,49 @@ test('sources: HLS then MP4 on native (cache where supported), MP4 only on web',
   assert.equal(nextSourceIndex(0, 1), null);
 });
 
-test('probe: HTML / 404 = coming soon, network / timeout = offline, video types = video', () => {
+test('sources: a bundled MP4 goes first on native (then HLS, then MP4); web never gets one', () => {
+  const urls = { hls: `${BASE}/hls/a/master.m3u8`, mp4: `${BASE}/a.mp4` };
+  const android = sourcesFor(urls, 'android', { assetId: 42 });
+  assert.deepEqual(android.map((s) => [s.kind, s.useCaching]), [['bundled', false], ['hls', true], ['mp4', true]]);
+  assert.deepEqual(android[0], { kind: 'bundled', assetId: 42, useCaching: false });
+  assert.equal('uri' in android[0]!, false, 'no uri on a bundled source (it would override assetId)');
+  assert.deepEqual(sourcesFor(urls, 'ios', { assetId: 7 }).map((s) => s.kind), ['bundled', 'hls', 'mp4']);
+  assert.deepEqual(sourcesFor(urls, 'web', { assetId: 7 }).map((s) => s.kind), ['mp4'], 'web: same-origin MP4 only');
+  assert.deepEqual(sourcesFor(urls, 'android', {}).map((s) => s.kind), ['hls', 'mp4'], 'remote-only short');
+  assert.deepEqual(sourcesFor(urls, 'android', { assetId: undefined }).map((s) => s.kind), ['hls', 'mp4']);
+  assert.equal(nextSourceIndex(0, 3), 1, 'bundled failed → HLS');
+  assert.equal(nextSourceIndex(1, 3), 2, 'HLS failed → MP4');
+  assert.equal(nextSourceIndex(2, 3), null);
+});
+
+test('failure: a catalogue short that failed to play is retryable, never coming soon', () => {
+  const item = buildCatalog(null).find((i) => i.id === 'scan-offer')!;
+  assert.equal(isCatalogComingSoon(item), false);
+  // Tunnel 404 / HTML fallback, timeouts, 5xx, CORS: all "Couldn't load" + Retry, never "missing".
+  for (const p of [
+    { ok: false, status: 404 }, { ok: true, status: 200, contentType: 'text/html' }, { ok: false, status: 503 },
+    { error: 'cors' as const }, { ok: true, status: 206, contentType: 'video/mp4' },
+  ]) assert.equal(failureFromProbe(classifyProbe(p)), 'error', JSON.stringify(p));
+  assert.equal(failureFromProbe(classifyProbe({ error: 'timeout' })), 'offline');
+  assert.equal(failureFromProbe(classifyProbe({ error: 'network' })), 'offline');
+  assert.equal(failureFromProbe(null), 'error');
+  assert.equal(isCatalogComingSoon(item), false, 'still available after the failure');
+  // Coming soon comes from the catalogue alone.
+  assert.equal(isCatalogComingSoon(undefined), true);
+  assert.equal(isCatalogComingSoon({ availability: 'missing' }), true);
+});
+
+test('bundled shorts stay available even when a manifest does not list them', () => {
+  const m = parseRemoteManifest(JSON.stringify({ items: [{ id: 'mandate' }, { id: 'promo' }, { id: 'sample-scan-qr' }] }))!;
+  const byId = Object.fromEntries(buildCatalog(m, new Set(['esign'])).map((i) => [i.id, i]));
+  assert.equal(byId.esign!.availability, 'available', 'packed in the app');
+  assert.equal(byId.mandate!.availability, 'available');
+  assert.equal(byId.ekyc!.availability, 'missing', 'neither packed nor listed');
+  assert.equal(byId.promo, undefined, 'bare promo is hidden like promo-*');
+  assert.equal(byId['sample-scan-qr'], undefined);
+});
+
+test('probe: HTML / 404 = not a video, network / timeout = offline, video types = video', () => {
   assert.equal(classifyProbe({ ok: true, status: 200, contentType: 'text/html; charset=utf-8' }), 'missing');
   assert.equal(classifyProbe({ ok: false, status: 404 }), 'missing');
   assert.equal(classifyProbe({ error: 'network' }), 'offline');

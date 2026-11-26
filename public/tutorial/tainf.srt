@@ -1,0 +1,35 @@
+1
+00:00:00,300 --> 00:00:01,167
+How much limit
+
+2
+00:00:01,167 --> 00:00:02,133
+is left?
+
+3
+00:00:02,500 --> 00:00:04,133
+TA and INF shows
+
+4
+00:00:04,133 --> 00:00:05,000
+your Trade Advance
+
+5
+00:00:05,000 --> 00:00:06,933
+and Inventory Funding limits.
+
+6
+00:00:07,433 --> 00:00:09,200
+Check what’s utilised,
+
+7
+00:00:09,200 --> 00:00:09,567
+and the dues
+
+8
+00:00:09,567 --> 00:00:10,500
+coming up.
+
+9
+00:00:11,867 --> 00:00:14,300
+Check your TA and INF limits now.

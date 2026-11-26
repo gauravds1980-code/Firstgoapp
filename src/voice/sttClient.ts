@@ -4,10 +4,15 @@ import {
   type VoiceAction, type VoiceReference,
 } from './types';
 
+/** v1.4.0 request extras: skipTts = return the action without waiting for Piper (the app speaks after acting). */
+export type CommandExtras = { skipTts?: boolean; languageCode?: string };
+
 export interface SttProvider {
   name: SttProviderName;
   /** Send one recorded command (base64 audio) and get transcript + matched intent back. */
-  command(audioBase64: string, mimeType: string, ctx?: CommandContext): Promise<CommandResponse>;
+  command(audioBase64: string, mimeType: string, ctx?: CommandContext, extras?: CommandExtras): Promise<CommandResponse>;
+  /** v1.4.0: a transcript the phone already recognized (or the dealer typed) → intent, slots, numbers. No audio. */
+  text(transcript: string, ctx?: CommandContext, extras?: CommandExtras): Promise<CommandResponse>;
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
@@ -127,6 +132,7 @@ export function parseResponse(body: unknown): CommandResponse {
     ...(typeof b.autoExecute === 'boolean' ? { autoExecute: b.autoExecute } : {}),
     ...(BANDS.includes(b.confidenceBand as ConfidenceBand) ? { confidenceBand: b.confidenceBand as ConfidenceBand } : {}),
     ...(typeof b.autoReason === 'string' ? { autoReason: b.autoReason } : {}),
+    ...(typeof b.matcher === 'string' ? { matcher: b.matcher } : {}),
   };
 }
 
@@ -162,14 +168,23 @@ async function readCommand(res: Response): Promise<CommandResponse> {
  * STT_TIMEOUT_MS timeout. Network / timeout / non-2xx → VoiceError('network' | 'timeout' | 'http');
  * 409 → 'busy' (Zippy still speaking); empty transcript with no fields → 'no_speech'.
  */
-export async function postToCommand(audioBase64: string, mimeType = 'audio/mp4', ctx?: CommandContext): Promise<CommandResponse> {
+export async function postToCommand(audioBase64: string, mimeType = 'audio/mp4', ctx?: CommandContext, extras?: CommandExtras): Promise<CommandResponse> {
+  return postCommandBody({ audio: audioBase64, mimeType, ...ctx, ...extras });
+}
+
+/** v1.4.0: POST /command with `{ transcript }` (no audio): keyword-first match, slots, normalized numbers. */
+export async function postText(transcript: string, ctx?: CommandContext, extras?: CommandExtras): Promise<CommandResponse> {
+  return postCommandBody({ transcript, ...ctx, ...extras });
+}
+
+async function postCommandBody(body: Record<string, unknown>): Promise<CommandResponse> {
   if (!isVoiceConfigured()) throw new VoiceError('not_configured');
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), STT_TIMEOUT_MS);
   try {
     let res: Response;
     try {
-      res = await postJson(commandUrl(), { audio: audioBase64, mimeType, ...ctx }, ctrl);
+      res = await postJson(commandUrl(), body, ctrl);
     } catch (e) {
       throw new VoiceError(ctrl.signal.aborted ? 'timeout' : 'network', e instanceof Error ? e.message : undefined);
     }
@@ -217,7 +232,7 @@ export async function streamCommand(pcmBase64: string, ctx: CommandContext): Pro
  * AAC (.m4a) today, so with the current recorder this always takes the whole-clip path; any streaming
  * failure other than 'busy' / 'no_speech' falls back to /command.
  */
-async function command(audioBase64: string, mimeType: string, ctx?: CommandContext): Promise<CommandResponse> {
+async function command(audioBase64: string, mimeType: string, ctx?: CommandContext, extras?: CommandExtras): Promise<CommandResponse> {
   if (VOICE_STREAMING && ctx && isPcm(mimeType)) {
     try {
       return await streamCommand(audioBase64, ctx);
@@ -225,15 +240,16 @@ async function command(audioBase64: string, mimeType: string, ctx?: CommandConte
       if (e instanceof VoiceError && (e.code === 'busy' || e.code === 'no_speech' || e.code === 'not_configured')) throw e;
     }
   }
-  return postToCommand(audioBase64, mimeType, ctx);
+  return postToCommand(audioBase64, mimeType, ctx, extras);
 }
 
-const google: SttProvider = { name: 'google', command };
+const google: SttProvider = { name: 'google', command, text: postText };
 
 /** Placeholder so the provider can be swapped later. Not wired to any Sarvam API yet. */
 const sarvam: SttProvider = {
   name: 'sarvam',
   command: async () => { throw new VoiceError('provider_not_configured', 'Sarvam voice is not configured yet. Set EXPO_PUBLIC_STT_PROVIDER=google.'); },
+  text: async () => { throw new VoiceError('provider_not_configured', 'Sarvam voice is not configured yet. Set EXPO_PUBLIC_STT_PROVIDER=google.'); },
 };
 
 export function getSttProvider(name: SttProviderName = STT_PROVIDER): SttProvider {

@@ -14,6 +14,7 @@ import { DEALER_TYPE_LABEL, initials } from '../services/dealer';
 import { maskMobile } from '../utils/finance';
 import { SHOW_DEV_UI } from '../config/devFlags';
 import { setAskBeforeActing, useAskBeforeActing } from '../voice/voiceSettings';
+import { VoiceSettingsPanel } from '../voice/VoiceSettingsPanel';
 import { tutorials, useTutorialState } from '../tutorial/tutorialStore';
 
 /** Dealer profile & settings (reached from the Home header avatar). The rollout-phase panel is tester-only (SHOW_DEV_UI). */
@@ -89,6 +90,8 @@ export default function ProfileScreen() {
             trackColor={{ false: colors.borderStrong, true: colors.primary }} thumbColor={colors.surface} ios_backgroundColor={colors.borderStrong} />
         </ZippyAvoid>
       </View>
+      {/* v1.4.0: talk mode, language, the phone's recognizer and voice speed stats. */}
+      <VoiceSettingsPanel />
       {/* v1.3.0: Zippy offers a screen's how-to short on the first visit and when the dealer seems stuck. */}
       <View style={{ minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.md, paddingVertical: space.sm, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border }}>
         <Icon name="play-circle-outline" size={22} color={colors.primary} />

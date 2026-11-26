@@ -2,16 +2,18 @@ import { useSyncExternalStore } from 'react';
 import { Platform } from 'react-native';
 import type { RootStackParamList } from '../navigation/types';
 import { secureStorage } from '../utils/secureStorage';
-import { buildCatalog, condenseManifest, parseRemoteManifest, tutorialUrls, type CatalogItem, type RemoteManifest, type TutorialPaths } from './catalog';
+import { BUNDLED_VIDEO_IDS } from './bundledAssets';
+import { buildCatalog, condenseManifest, isCatalogComingSoon, parseRemoteManifest, tutorialUrls, type CatalogItem, type RemoteManifest, type TutorialPaths } from './catalog';
 import { MANIFEST_TIMEOUT_MS, TUTORIAL_BASE_URL } from './config';
 import { SCREEN_SHORT, SHORT_IDS, screenToShort, type ScreenName, type ShortId } from './shortMap';
 
 export { screenToShort, SHORT_IDS, type ShortId };
 
 /**
- * In-app tutorial videos (v1.3.0): URL-based, nothing bundled. Each entry carries absolute URLs for the
- * HLS master playlist (native), the faststart MP4 (fallback + web), the poster, the 360x640 thumbnail
- * and the WebVTT captions. The built-in list (shortMap.ts) is merged with `${base}/manifest.json`,
+ * In-app tutorial videos (v1.3.0; bundled v1.3.2). The 12 catalogue shorts are packed in the native app
+ * (bundledAssets.ts) and served same-origin from /tutorial on web. Each entry also carries absolute
+ * URLs (TUTORIAL_BASE_URL) for the HLS master playlist and the faststart MP4 (native fallbacks; the MP4
+ * is what web plays), the poster, the 360x640 thumbnail and the WebVTT captions. The built-in list (shortMap.ts) is merged with `${base}/manifest.json`,
  * fetched once per launch with a short timeout and cached (memory + secure storage), so durations and
  * new shorts show up without an app update.
  */
@@ -32,13 +34,11 @@ type CatalogSnapshot = {
   byId: Readonly<Record<string, TutorialEntry>>;
   /** 'builtin' until manifest.json (or its cached copy) is read. */
   source: 'builtin' | 'cache' | 'remote';
-  /** Shorts that failed to stream this session (HTML fallback, 404): shown as coming soon. */
-  failed: ReadonlySet<string>;
 };
 
 const index = (entries: TutorialEntry[]) => Object.fromEntries(entries.map((e) => [e.id, e]));
-const builtinEntries = toEntries(buildCatalog(null));
-let snap: CatalogSnapshot = { entries: builtinEntries, byId: index(builtinEntries), source: 'builtin', failed: new Set() };
+const builtinEntries = toEntries(buildCatalog(null, BUNDLED_VIDEO_IDS));
+let snap: CatalogSnapshot = { entries: builtinEntries, byId: index(builtinEntries), source: 'builtin' };
 const listeners = new Set<() => void>();
 const emit = (next: Partial<CatalogSnapshot>) => { snap = { ...snap, ...next }; listeners.forEach((l) => l()); };
 const subscribe = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
@@ -49,7 +49,7 @@ export function useTutorialCatalog(): CatalogSnapshot {
 }
 
 const apply = (m: RemoteManifest, source: CatalogSnapshot['source']) => {
-  const entries = toEntries(buildCatalog(m));
+  const entries = toEntries(buildCatalog(m, BUNDLED_VIDEO_IDS));
   emit({ entries, byId: index(entries), source });
 };
 
@@ -68,10 +68,11 @@ export function loadTutorialManifest(): Promise<void> {
       if (m && snap.source === 'builtin') apply(m, 'cache');
     } catch { /* no cache */ }
     // Web: the tunnel sends no CORS headers, so a cross-origin fetch only logs a browser error. Skip it
-    // there (the built-in list is used); same-origin web hosting still reads the manifest.
+    // there (the built-in list is used). The web default base is same-origin /tutorial, which is read.
     if (Platform.OS === 'web') {
       const origin = (globalThis as { location?: { origin?: string } }).location?.origin;
-      if (!origin || !TUTORIAL_BASE_URL.startsWith(origin)) return;
+      const sameOrigin = TUTORIAL_BASE_URL.startsWith('/') || (!!origin && TUTORIAL_BASE_URL.startsWith(origin));
+      if (!sameOrigin) return;
     }
     const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
     const timer = setTimeout(() => ctrl?.abort(), MANIFEST_TIMEOUT_MS);
@@ -88,16 +89,11 @@ export function loadTutorialManifest(): Promise<void> {
   return loading;
 }
 
-/** Playback of `id` failed for good (not a video / not found): coming soon for the rest of the session. */
-export function markTutorialMissing(id: string) {
-  if (snap.failed.has(id)) return;
-  const f = new Set(snap.failed); f.add(id);
-  emit({ failed: f });
-}
-
-/** Coming soon: not available per the catalogue, or failed to stream this session. */
-export const isComingSoon = (e: TutorialEntry | undefined, failed: ReadonlySet<string> = snap.failed): boolean =>
-  !e || e.availability === 'missing' || failed.has(e.id);
+/**
+ * Coming soon: not available per the catalogue (not shipped, not in manifest.json). A failed play never
+ * makes a short "coming soon" — the player shows "Couldn't load" / "You're offline" with Retry instead.
+ */
+export const isComingSoon = (e: TutorialEntry | undefined): boolean => isCatalogComingSoon(e);
 
 export const getTutorial = (id: string | null | undefined): TutorialEntry | undefined => (id ? snap.byId[id] : undefined);
 export const getCatalog = () => snap;

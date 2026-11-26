@@ -64,12 +64,50 @@ function voiceProxy(req, res, next) {
   req.pipe(upstream); // stream audio bodies (can be a few MB) without buffering
 }
 
+/**
+ * /tutorial/* (public/tutorial: same-origin web videos, posters, manifest.json, and the native fallback
+ * through the tunnel): allow cross-origin reads and let clients cache. Static serving would otherwise
+ * send Cache-Control: no-store and no CORS header, so a web build on another origin could not read the
+ * manifest. Headers are applied at writeHead so they win over the static handler's own.
+ */
+const TUTORIAL_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges',
+  'Cache-Control': 'public, max-age=86400',
+};
+
+function tutorialHeaders(req, res, next) {
+  const url = req.url || '';
+  if (!url.startsWith('/tutorial/')) return next();
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, { ...TUTORIAL_HEADERS, 'Access-Control-Allow-Methods': 'GET,HEAD,OPTIONS', 'Access-Control-Allow-Headers': 'range', 'Access-Control-Max-Age': '600' });
+    return res.end();
+  }
+  const writeHead = res.writeHead;
+  res.writeHead = function patchedWriteHead(...args) {
+    const status = args[0];
+    // Only real files: a 404 (or the SPA HTML fallback) must not be cached for a day.
+    const ctIdx = typeof args[1] === 'string' ? 2 : 1;
+    const ct = String(res.getHeader('content-type') || (args[ctIdx] && (args[ctIdx]['Content-Type'] || args[ctIdx]['content-type'])) || '');
+    const ok = (status === 200 || status === 206 || status === 304) && !/text\/html/i.test(ct);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Expose-Headers', TUTORIAL_HEADERS['Access-Control-Expose-Headers']);
+    if (ok) {
+      res.setHeader('Cache-Control', TUTORIAL_HEADERS['Cache-Control']);
+      const h = args[ctIdx];
+      if (h && typeof h === 'object' && !Array.isArray(h)) for (const k of Object.keys(h)) if (k.toLowerCase() === 'cache-control') delete h[k];
+    }
+    return writeHead.apply(this, args);
+  };
+  next();
+}
+
 const prevEnhance = config.server && config.server.enhanceMiddleware;
 config.server = {
   ...config.server,
   enhanceMiddleware: (middleware, server) => {
     const base = prevEnhance ? prevEnhance(middleware, server) : middleware;
-    return (req, res, next) => voiceProxy(req, res, () => base(req, res, next));
+    return (req, res, next) => voiceProxy(req, res, () => tutorialHeaders(req, res, () => base(req, res, next)));
   },
 };
 

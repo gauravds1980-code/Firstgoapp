@@ -1,0 +1,47 @@
+1
+00:00:00,300 --> 00:00:01,067
+Three uploads,
+
+2
+00:00:01,067 --> 00:00:02,267
+and you’re done.
+
+3
+00:00:02,667 --> 00:00:04,067
+Upload the invoice,
+
+4
+00:00:04,067 --> 00:00:05,033
+the insurance,
+
+5
+00:00:05,033 --> 00:00:06,367
+and the delivery photo.
+
+6
+00:00:06,533 --> 00:00:08,267
+After the third upload,
+
+7
+00:00:08,267 --> 00:00:08,833
+the disbursal
+
+8
+00:00:08,833 --> 00:00:10,433
+is requested automatically.
+
+9
+00:00:10,800 --> 00:00:12,467
+Approved and disbursed,
+
+10
+00:00:12,467 --> 00:00:13,133
+with the UTR
+
+11
+00:00:13,133 --> 00:00:14,000
+right there.
+
+12
+00:00:15,700 --> 00:00:17,833
+Upload the three documents now.

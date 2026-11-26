@@ -1,8 +1,10 @@
 /**
- * Streaming tutorial catalogue helpers (v1.3.0). PURE (no React Native) so they are unit-tested in Node.
+ * Tutorial catalogue helpers (v1.3.0, bundled playback v1.3.2). PURE (no React Native) so they are
+ * unit-tested in Node.
  *
- * Videos are NOT bundled: every short streams from TUTORIAL_BASE_URL with these server-side names
- * (produced by the render pipeline):
+ * The 12 catalogue shorts are bundled in the native app (bundledVideos.native.ts / bundledPosters.ts)
+ * and served same-origin from /tutorial on web. TUTORIAL_BASE_URL is the remote fallback, and the only
+ * source for new remote-only ids from manifest.json. Server-side names (produced by the render pipeline):
  *   <asset>.mp4                 720x1280 H.264 main, faststart (fallback + web)
  *   hls/<asset>/master.m3u8     480p + 720p adaptive HLS (native)
  *   posters/<asset>.jpg         720x1280 poster
@@ -20,13 +22,13 @@ import { SHORT_IDS, SHORT_INFO, type ShortId } from './shortMap';
 export const ASSET_ALIAS: Readonly<Partial<Record<string, string>>> = {};
 
 /**
- * Assets known to exist server-side when the remote manifest can't be read (offline, timeout, the
- * tunnel's HTML fallback). Everything else is "coming soon" until manifest.json lists it.
+ * Assets known to exist when the remote manifest can't be read (offline, timeout, the tunnel's HTML
+ * fallback). Everything else is "coming soon" until manifest.json lists it (or the app bundles it).
  */
 export const BUILTIN_AVAILABLE_ASSETS: ReadonlySet<string> = new Set<string>(SHORT_IDS);
 
 /** Remote manifest items with these prefixes are drafts / samples, never shown as new shorts. */
-const HIDDEN_REMOTE = /^(promo|sample|draft)[-_]/i;
+const HIDDEN_REMOTE = /^(promo|sample|draft)([-_]|$)/i;
 
 export const assetIdFor = (id: string): string => ASSET_ALIAS[id] ?? id;
 
@@ -87,7 +89,10 @@ export type CatalogItem = {
   subtitle: string;
   durationSec: number;
   paths: TutorialPaths;
-  /** 'available' = worth trying to stream; 'missing' = coming soon. */
+  /**
+   * 'available' = shipped / worth trying to play; 'missing' = coming soon. Only the catalogue decides
+   * this: a failed play is a load error with Retry, never "coming soon" (see failureFromProbe).
+   */
   availability: 'available' | 'missing';
   /** Built into the app (has a screen mapping, copy) vs. picked up from the remote manifest. */
   builtin: boolean;
@@ -95,10 +100,11 @@ export type CatalogItem = {
 
 /**
  * Built-in list + optional remote manifest → catalogue. With a manifest, an item is available iff the
- * manifest lists its asset (and its paths / duration win); without one, BUILTIN_AVAILABLE_ASSETS decides.
- * New remote ids (not built in, not drafts / samples, not alias targets) are appended as extra shorts.
+ * manifest lists its asset (and its paths / duration win) or `bundled` (short ids packed in the app)
+ * has it; without one, BUILTIN_AVAILABLE_ASSETS decides. New remote ids (not built in, not drafts /
+ * samples, not alias targets) are appended as extra shorts.
  */
-export function buildCatalog(remote: RemoteManifest | null): CatalogItem[] {
+export function buildCatalog(remote: RemoteManifest | null, bundled: ReadonlySet<string> = new Set()): CatalogItem[] {
   const byAsset = new Map((remote?.items ?? []).map((i) => [i.id, i] as const));
   const out: CatalogItem[] = SHORT_IDS.map((id: ShortId) => {
     const info = SHORT_INFO[id];
@@ -106,7 +112,7 @@ export function buildCatalog(remote: RemoteManifest | null): CatalogItem[] {
     const r = byAsset.get(assetId);
     const base = tutorialPaths(id);
     const paths: TutorialPaths = r ? { hls: r.hls ?? base.hls, mp4: r.mp4 ?? base.mp4, poster: r.poster ?? base.poster, thumb: r.thumb ?? base.thumb, vtt: r.vtt ?? base.vtt } : base;
-    const available = remote ? !!r : BUILTIN_AVAILABLE_ASSETS.has(assetId);
+    const available = bundled.has(id) || (remote ? !!r : BUILTIN_AVAILABLE_ASSETS.has(assetId));
     return {
       id, assetId, title: info.title, subtitle: info.subtitle,
       // The length of what actually plays (also for an aliased stand-in), else the planned length.
@@ -134,20 +140,26 @@ export function condenseManifest(m: RemoteManifest): string {
 
 // ---- sources & fallback --------------------------------------------------------------------------
 
-export type SourceKind = 'hls' | 'mp4';
-export type PlannedSource = { kind: SourceKind; uri: string; useCaching: boolean };
+export type SourceKind = 'bundled' | 'hls' | 'mp4';
+export type PlannedSource =
+  | { kind: 'bundled'; assetId: number; useCaching: false }
+  | { kind: 'hls' | 'mp4'; uri: string; useCaching: boolean };
 
 /**
- * Ordered sources to try. Native: adaptive HLS first, then the faststart MP4 (one fallback). Web: MP4
- * only (Chrome has no native HLS). Caching: expo-video's disk cache for MP4 everywhere native and for
- * HLS on Android (iOS can't cache HLS).
+ * Ordered sources to try. Native: the MP4 packed in the app (when `bundled.assetId` is given), then
+ * adaptive HLS, then the faststart MP4. Web: the (same-origin) MP4 only (Chrome has no native HLS, and
+ * web never gets a packed MP4). Caching: expo-video's disk cache for remote MP4 everywhere native and
+ * for HLS on Android (iOS can't cache HLS); a packed file needs none.
  */
-export function sourcesFor(urls: Pick<TutorialPaths, 'hls' | 'mp4'>, platform: 'ios' | 'android' | 'web' | string): PlannedSource[] {
+export function sourcesFor(
+  urls: Pick<TutorialPaths, 'hls' | 'mp4'>, platform: 'ios' | 'android' | 'web' | string, bundled: { assetId?: number } = {},
+): PlannedSource[] {
   if (platform === 'web') return [{ kind: 'mp4', uri: urls.mp4, useCaching: false }];
-  return [
+  const remote: PlannedSource[] = [
     { kind: 'hls', uri: urls.hls, useCaching: platform === 'android' },
     { kind: 'mp4', uri: urls.mp4, useCaching: true },
   ];
+  return bundled.assetId != null ? [{ kind: 'bundled', assetId: bundled.assetId, useCaching: false }, ...remote] : remote;
 }
 
 /** After source `failedIndex` errored: the next one to try, or null when everything failed. */
@@ -172,3 +184,16 @@ export function classifyProbe(p: ProbeResult): ProbeVerdict {
   if (p.status && p.status >= 500) return 'unknown';
   return p.ok ? 'unknown' : 'missing';
 }
+
+/** Why playback gave up: 'offline' → "You're offline" + Retry; 'error' → "Couldn't load" + Retry. */
+export type PlaybackFailure = 'offline' | 'error';
+
+/**
+ * Every source failed → what to tell the dealer. Never "coming soon": a 404 / HTML fallback / timeout
+ * from the tunnel is often transient, and a short in the catalogue is one we ship. Always retryable.
+ */
+export const failureFromProbe = (v: ProbeVerdict | null | undefined): PlaybackFailure => (v === 'offline' ? 'offline' : 'error');
+
+/** "Coming soon" comes from the catalogue alone (not listed / not shipped), never from a failed play. */
+export const isCatalogComingSoon = (item: Pick<CatalogItem, 'availability'> | undefined | null): boolean =>
+  !item || item.availability === 'missing';

@@ -25,6 +25,9 @@ export interface VoiceSlots {
 /** Push-to-talk UI phase shared by the header mic and the voice overlay. */
 export type VoiceUiPhase = 'idle' | 'listening' | 'thinking';
 
+/** v1.4.0: what the dealer said, live. `final` once the turn ended; `checking` while Whisper re-checks it. Never OTP digits. */
+export type VoiceLive = { text: string; final: boolean; checking: boolean };
+
 export type AssistantActionName = 'help' | 'list_commands' | 'explain_screen' | 'repeat' | 'open';
 
 /** Kind of an on-screen pickable chip. Kept open for forward compatibility. */
@@ -134,6 +137,8 @@ export interface CommandResponse {
   confidenceBand?: ConfidenceBand;
   /** 'option' | 'semantic' | 'keyword_exact' | 'field:PHONE' | 'destructive' | … */
   autoReason?: string;
+  /** v1.4.0: which matcher decided — 'keyword' | 'fuzzy' (device) | 'labse' | 'keyword_timeout' (server). */
+  matcher?: string;
 }
 
 /** How the server banded this command's confidence (v1.2.7). */

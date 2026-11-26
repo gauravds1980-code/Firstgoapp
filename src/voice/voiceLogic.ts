@@ -29,6 +29,10 @@ export const INTENT_ROUTE: Readonly<Record<string, { route: string; filter?: str
   OPEN_PAYOUTS: { route: 'Payouts' },
   OPEN_PROFILE: { route: 'Profile' },
   OPEN_ACTIONS: { route: 'Cases', filter: 'actions' },
+  // v1.4.0
+  OPEN_CASES: { route: 'Cases' },
+  OPEN_TA_INF: { route: 'TaInf' },
+  OPEN_OFFER: { route: 'Offer' },
   SHOW_PENDING_DISBURSALS: { route: 'Cases', filter: 'pending_disbursal' },
   SHOW_OVERDUE_CASES: { route: 'Cases', filter: 'overdue' },
   SHOW_APPLICATION_STATUS: { route: 'Cases' },
@@ -413,6 +417,7 @@ const NAV_TOAST: Readonly<Record<string, string>> = {
   SHOW_TUTORIALS: 'Opening Help & tutorials',
   HOW_TO: 'Opening Help & tutorials',
   HELP: 'Opening Help & tutorials',
+  OPEN_TA_INF: 'Opening TA / INF',
 };
 
 const OTP_WORDS: Readonly<Record<number, string>> = { 4: 'four', 5: 'five', 6: 'six', 7: 'seven', 8: 'eight' };

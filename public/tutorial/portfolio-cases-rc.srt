@@ -1,0 +1,43 @@
+1
+00:00:00,300 --> 00:00:01,467
+Your whole book,
+
+2
+00:00:01,467 --> 00:00:02,467
+in one place.
+
+3
+00:00:02,933 --> 00:00:04,533
+Cases done shows every
+
+4
+00:00:04,533 --> 00:00:06,000
+loan you’ve disbursed.
+
+5
+00:00:06,233 --> 00:00:07,633
+Portfolio shows every
+
+6
+00:00:07,633 --> 00:00:08,800
+loan you sourced,
+
+7
+00:00:08,800 --> 00:00:10,100
+by DPD bucket.
+
+8
+00:00:10,567 --> 00:00:12,400
+RC pendency lists every
+
+9
+00:00:12,400 --> 00:00:14,033
+RC still due.
+
+10
+00:00:14,033 --> 00:00:15,667
+Tick and update together.
+
+11
+00:00:16,600 --> 00:00:18,667
+Clear your RC pendency now.

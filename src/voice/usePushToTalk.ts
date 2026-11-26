@@ -5,6 +5,7 @@ import { File } from 'expo-file-system';
 import { PTT_MAX_HOLD_MS, PTT_MIN_HOLD_MS } from './config';
 import { hasMicPermission, requestMicPermission } from './permissions';
 import { VoiceError } from './types';
+import { createEndpointer, type EndpointDecision } from './voiceMode';
 
 /** AAC in an .m4a (MPEG-4) container, 16 kHz mono — small uploads, plenty for speech. */
 export const PTT_RECORDING: RecordingOptions = {
@@ -13,10 +14,24 @@ export const PTT_RECORDING: RecordingOptions = {
   sampleRate: 16000,
   numberOfChannels: 1,
   bitRate: 32000,
+  // v1.4.0: input level for the hands-free end-of-turn fallback (server path only).
+  isMeteringEnabled: true,
 };
 
 /** What the proxy is told the audio is. Web records webm/opus (the proxy transcodes with ffmpeg). */
 export const PTT_MIME_TYPE = Platform.OS === 'web' ? 'audio/webm' : 'audio/mp4';
+
+/** Web: read a blob: / data: URL into base64 (no expo-file-system on web). */
+async function blobUrlToBase64(uri: string): Promise<string> {
+  const blob = await (await fetch(uri)).blob();
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result ?? ''));
+    r.onerror = () => reject(r.error ?? new Error('read failed'));
+    r.readAsDataURL(blob);
+  });
+  return dataUrl.slice(dataUrl.indexOf(',') + 1);
+}
 
 export type PttPhase = 'idle' | 'starting' | 'recording';
 
@@ -40,7 +55,10 @@ export function usePushToTalk() {
   const startError = useRef<unknown>(null);
   const maxTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mounted = useRef(true);
-  useEffect(() => () => { mounted.current = false; if (maxTimer.current) clearTimeout(maxTimer.current); }, []);
+  /** Hands-free: polls the input level and calls back when the dealer stopped talking. */
+  const meter = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopMeter = () => { if (meter.current) { clearInterval(meter.current); meter.current = null; } };
+  useEffect(() => () => { mounted.current = false; if (maxTimer.current) clearTimeout(maxTimer.current); stopMeter(); }, []);
   const set = (p: PttPhase) => { if (mounted.current) setPhase(p); };
 
   const start = useCallback(async (): Promise<'recording' | 'prompted' | 'failed'> => {
@@ -73,6 +91,7 @@ export function usePushToTalk() {
   /** Stop and read the file. Always deletes the recording (audio is ephemeral). */
   const finish = useCallback(async (): Promise<PttResult> => {
     if (maxTimer.current) { clearTimeout(maxTimer.current); maxTimer.current = null; }
+    stopMeter();
     const durationMs = Date.now() - startedAt.current;
     try { await recorder.stop(); } catch { /* already stopped */ }
     resetAudioMode();
@@ -82,9 +101,19 @@ export function usePushToTalk() {
       if (durationMs < PTT_MIN_HOLD_MS) return { kind: 'too_short' };
       throw new VoiceError('recording', 'No recording file');
     }
+    if (durationMs < PTT_MIN_HOLD_MS) return { kind: 'too_short' };
+    if (Platform.OS === 'web') {
+      // expo-file-system has no web implementation: the web recorder hands back a blob: URL.
+      try {
+        const base64 = await blobUrlToBase64(uri);
+        if (!base64) throw new VoiceError('recording', 'Empty recording');
+        return { kind: 'audio', base64, mimeType: PTT_MIME_TYPE, durationMs };
+      } catch (e) {
+        throw e instanceof VoiceError ? e : new VoiceError('recording', e instanceof Error ? e.message : undefined);
+      }
+    }
     const file = new File(uri);
     try {
-      if (durationMs < PTT_MIN_HOLD_MS) return { kind: 'too_short' };
       const base64 = await file.base64();
       if (!base64) throw new VoiceError('recording', 'Empty recording');
       return { kind: 'audio', base64, mimeType: PTT_MIME_TYPE, durationMs };
@@ -98,8 +127,12 @@ export function usePushToTalk() {
   /** Resolves (via pressOut) when the hold ends; used by the max-duration timer too. */
   const onAutoStop = useRef<(() => void) | null>(null);
 
-  const pressIn = useCallback(() => {
-    if (starting.current || phase !== 'idle') return;
+  /**
+   * Start recording. `onEndpoint` (hands-free on the server path): called once when the input level says the
+   * dealer finished ('end'), never started ('no_speech') or hit the cap ('max'). Push-to-talk passes nothing.
+   */
+  const pressIn = useCallback((onEndpoint?: (d: Exclude<EndpointDecision, 'listen'>) => void) => {
+    if (starting.current) return;
     held.current = true;
     set('starting');
     const p = start();
@@ -107,8 +140,19 @@ export function usePushToTalk() {
     p.then((r) => {
       if (r !== 'recording') { set('idle'); return; }
       maxTimer.current = setTimeout(() => onAutoStop.current?.(), PTT_MAX_HOLD_MS);
+      if (onEndpoint) {
+        const ep = createEndpointer({ maxMs: PTT_MAX_HOLD_MS });
+        const t0 = Date.now();
+        let fired = false;
+        meter.current = setInterval(() => {
+          let db: number | undefined;
+          try { db = recorder.getStatus().metering; } catch { db = undefined; }
+          const d = ep.push(db, Date.now() - t0);
+          if (d !== 'listen' && !fired) { fired = true; stopMeter(); onEndpoint(d); }
+        }, 100);
+      }
     });
-  }, [phase, start]);
+  }, [start, recorder]);
 
   /** Returns null when there was no press in flight (e.g. duplicate release events). */
   const pressOut = useCallback(async (): Promise<PttResult | null> => {
@@ -129,6 +173,7 @@ export function usePushToTalk() {
   /** Abort without sending. */
   const cancel = useCallback(async () => {
     held.current = false;
+    stopMeter();
     const p = starting.current;
     starting.current = null;
     if (!p) return;

@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import type { IntentCandidate, NormalizedField, VoiceUiPhase } from './types';
+import type { IntentCandidate, NormalizedField, VoiceLive, VoiceUiPhase } from './types';
 import type { VoicePreview } from './useVoiceCommand';
 
 /**
@@ -12,12 +12,21 @@ export type VoiceSessionState = {
   phase: VoiceUiPhase;
   error: string | null;
   preview: VoicePreview | null;
+  /** v1.4.0: live / final words of the current turn (OTP masked). */
+  live: VoiceLive | null;
   /** Zippy's help sheet (a Modal) is visible: VoiceHost then lifts its overlay into its own Modal so it stays on top. */
   sheetOpen: boolean;
 };
 
 type Actions = {
-  pressIn: () => void; pressOut: () => void; confirm: () => void; cancel: () => void; abort: () => void;
+  /** `at` = performance.now() of the touch, for latency metrics. */
+  pressIn: (at?: number) => void; pressOut: (at?: number) => void; confirm: () => void; cancel: () => void; abort: () => void;
+  /** Hands-free (v1.4.0): tap to start, tap again to cancel. */
+  tap: (at?: number) => void;
+  /** Preview "Say again". */
+  sayAgain: () => void;
+  /** The dealer corrected the heard text by typing. */
+  editTranscript: (text: string) => void;
   /** "Did you mean…?" pick. */
   choose: (c: IntentCandidate) => void;
   /** "Type it instead" value for field `index` (-1 = new row of `type`). */
@@ -25,9 +34,9 @@ type Actions = {
 };
 
 const noop = () => {};
-let actions: Actions = { pressIn: noop, pressOut: noop, confirm: noop, cancel: noop, abort: noop, choose: noop, editField: noop };
+let actions: Actions = { pressIn: noop, pressOut: noop, tap: noop, confirm: noop, cancel: noop, abort: noop, choose: noop, editField: noop, sayAgain: noop, editTranscript: noop };
 
-let snap: VoiceSessionState = { phase: 'idle', error: null, preview: null, sheetOpen: false };
+let snap: VoiceSessionState = { phase: 'idle', error: null, preview: null, live: null, sheetOpen: false };
 const listeners = new Set<() => void>();
 const emit = (next: Partial<VoiceSessionState>) => {
   let changed = false;
@@ -46,8 +55,11 @@ export function useVoiceSession(): VoiceSessionState {
 export const voiceSession = {
   get state() { return snap; },
   // ---- Mic controls ----
-  pressIn: () => actions.pressIn(),
-  pressOut: () => actions.pressOut(),
+  pressIn: (at?: number) => actions.pressIn(at),
+  pressOut: (at?: number) => actions.pressOut(at),
+  tap: (at?: number) => actions.tap(at),
+  sayAgain: () => actions.sayAgain(),
+  editTranscript: (text: string) => actions.editTranscript(text),
   confirm: () => actions.confirm(),
   cancel: () => actions.cancel(),
   choose: (c: IntentCandidate) => actions.choose(c),

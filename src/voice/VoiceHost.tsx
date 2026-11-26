@@ -11,7 +11,7 @@ import { useVoiceCommand } from './useVoiceCommand';
 import { installVoiceDemo } from './voiceDemo';
 import { VoicePreviewSheet } from './VoicePreviewSheet';
 import { useVoiceSession, voiceSession } from './voiceSession';
-import { loadVoiceSettings } from './voiceSettings';
+import { loadVoiceSettings, useVoiceSettings } from './voiceSettings';
 import { setNudgeSuppressed } from '../tutorial/tutorialStore';
 
 /** Banner sits just under the header row (where the header mic lives). */
@@ -51,14 +51,15 @@ export function VoiceHost({ route }: { route?: string }) {
   }, [show]);
 
   const voice = useVoiceCommand({ readOut });
+  const { mode } = useVoiceSettings();
   useEffect(() => { void loadVoiceSettings(); }, []);
   // The auto-act toast replaces any read-out banner (one message at a time under the header).
   useEffect(() => { if (voice.toast) setBanner(null); }, [voice.toast]);
 
   useEffect(() => {
     voiceSession.bind({
-      pressIn: voice.pressIn, pressOut: () => { void voice.pressOut(); }, confirm: voice.confirm, cancel: voice.cancel, abort: voice.abort,
-      choose: voice.choose, editField: voice.editField,
+      pressIn: voice.pressIn, pressOut: (at) => { void voice.pressOut(at); }, tap: voice.tap, confirm: voice.confirm, cancel: voice.cancel, abort: voice.abort,
+      choose: voice.choose, editField: voice.editField, sayAgain: voice.sayAgain, editTranscript: voice.editTranscript,
     });
   });
   // __DEV__ + web only: window.__voiceDemo() or ?voiceDemo=1 stages a sample preview (screenshots).
@@ -66,11 +67,12 @@ export function VoiceHost({ route }: { route?: string }) {
   stageRef.current = voice.stagePreview;
   useEffect(() => (__DEV__ ? installVoiceDemo((p) => stageRef.current(p)) : undefined), []);
   useEffect(() => {
-    voiceSession.publish({ phase: voice.phase, error: voice.error, preview: voice.preview });
-  }, [voice.phase, voice.error, voice.preview]);
+    voiceSession.publish({ phase: voice.phase, error: voice.error, preview: voice.preview, live: voice.live });
+  }, [voice.phase, voice.error, voice.preview, voice.live]);
 
-  // Errors → short banner.
+  // Errors → short banner. Hints ("Hold the mic and say it again") → info banner.
   useEffect(() => { if (voice.error) show('error', voice.error); }, [voice.error, show]);
+  useEffect(() => { if (voice.info) show('info', voice.info); }, [voice.info, show]);
   // v1.3.0: Zippy's tutorial nudges stay away while the dealer is talking, a preview is staged or the
   // auto-act toast with Undo is up.
   const voiceBusy = voice.phase !== 'idle' || !!voice.preview;
@@ -91,15 +93,24 @@ export function VoiceHost({ route }: { route?: string }) {
     return () => sub.remove();
   }, [showPreview, voice.cancel]);
 
-  const status = voice.phase !== 'idle' ? (voice.phase === 'listening' ? 'Listening… let go to send' : 'Working it out…') : null;
+  // v1.4.0: live words while listening; the final / draft text right after release with a small "checking"
+  // dot while Whisper double-checks. Never a blocking spinner that hides what was heard.
+  const listeningNow = voice.phase === 'listening';
+  const heard = voice.live?.text?.trim() ?? '';
+  const status = listeningNow
+    ? (heard || (mode === 'handsfree' ? 'Listening… tap to cancel' : 'Listening… let go to send'))
+    : voice.live?.final ? (heard ? `“${heard}”` : 'Got it — checking…')
+    : voice.phase === 'thinking' ? 'Got it — checking…' : null;
+  const checking = !listeningNow && (voice.phase === 'thinking' || !!voice.live?.checking);
   const top = insets.top + HEADER_H;
   const overlay = (
     <>
-      {status && (
-        <View pointerEvents="none" accessibilityLiveRegion="polite" style={{ position: 'absolute', top, alignSelf: 'center', zIndex: 60 }}>
-          <View style={[{ flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingHorizontal: space.md, paddingVertical: space.xs, borderRadius: radius.pill, backgroundColor: voice.phase === 'listening' ? colors.primary : colors.surface }, elevation.card]}>
-            <Icon name={voice.phase === 'listening' ? 'microphone' : 'dots-horizontal'} size={18} color={voice.phase === 'listening' ? colors.onPrimary : colors.primary} />
-            <Text variant="label" color={voice.phase === 'listening' ? colors.onPrimary : colors.text}>{status}</Text>
+      {status && !showPreview && (
+        <View pointerEvents="none" accessibilityLiveRegion="polite" testID="voice-live-pill" style={{ position: 'absolute', top, left: gutter.screen, right: gutter.screen, alignItems: 'center', zIndex: 60 }}>
+          <View style={[{ maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingHorizontal: space.md, paddingVertical: space.xs, borderRadius: radius.pill, backgroundColor: listeningNow ? colors.primary : colors.surface }, elevation.card]}>
+            <Icon name={listeningNow ? 'microphone' : 'text-recognition'} size={18} color={listeningNow ? colors.onPrimary : colors.primary} />
+            <Text variant="label" numberOfLines={2} style={{ flexShrink: 1 }} color={listeningNow ? colors.onPrimary : colors.text}>{status}</Text>
+            {checking && <View accessibilityLabel="Checking" style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.cta }} />}
           </View>
         </View>
       )}
@@ -116,7 +127,13 @@ export function VoiceHost({ route }: { route?: string }) {
           style={[{ position: 'absolute', top: top + (status ? 48 : 0), left: gutter.screen, right: gutter.screen, zIndex: 65, flexDirection: 'row', alignItems: 'center', gap: space.xs,
             paddingLeft: space.md, paddingRight: space.xxs, minHeight: touch.min + space.xs, borderRadius: radius.md, backgroundColor: colors.textStrong }, elevation.card]}>
           <Icon name={voice.toast.icon === 'navigate' ? 'arrow-right-circle-outline' : voice.toast.icon === 'select' ? 'check-circle-outline' : 'form-textbox'} size={20} color={colors.onPrimary} />
-          <Text variant="bodyStrong" color={colors.onPrimary} numberOfLines={2} style={{ flex: 1 }}>{voice.toast.text}</Text>
+          <Text variant="bodyStrong" color={colors.onPrimary} numberOfLines={2} style={{ flex: 1 }}>{voice.toast.alt ? `${voice.toast.text}. Did you mean “${voice.toast.alt}”?` : voice.toast.text}</Text>
+          {voice.toast.alt && (
+            <Pressable onPress={voice.chooseAlt} accessibilityRole="button" accessibilityLabel={`Did you mean ${voice.toast.alt}`} hitSlop={8}
+              style={({ pressed }) => ({ minWidth: touch.min, minHeight: touch.min, paddingHorizontal: space.xs, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, opacity: pressed ? 0.7 : 1 })}>
+              <Text variant="label" color={colors.cta}>Yes</Text>
+            </Pressable>
+          )}
           <Pressable onPress={voice.undo} accessibilityRole="button" accessibilityLabel={`Undo: ${voice.toast.text}`} hitSlop={8}
             style={({ pressed }) => ({ minWidth: touch.min, minHeight: touch.min, paddingHorizontal: space.sm, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, opacity: pressed ? 0.7 : 1 })}>
             <Text variant="label" color={colors.cta}>Undo</Text>
@@ -126,7 +143,8 @@ export function VoiceHost({ route }: { route?: string }) {
       {showPreview && (
         <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { zIndex: 70 }]}>
           <VoicePreviewSheet command={voice.preview?.command ?? null} plan={voice.preview?.plan ?? null} expect={voice.preview?.expect}
-            onConfirm={voice.confirm} onCancel={voice.cancel} onChoose={voice.choose} onEditField={voice.editField} />
+            onConfirm={voice.confirm} onCancel={voice.cancel} onChoose={voice.choose} onEditField={voice.editField}
+            onSayAgain={voice.sayAgain} onEditTranscript={voice.editTranscript} />
         </View>
       )}
     </>

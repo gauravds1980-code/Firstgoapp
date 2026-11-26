@@ -2,23 +2,38 @@
 
 Dealer first go app.
 
-FIRSTgo v1.3.1 is the IDFC FIRST Bank dealer-side vehicle loan origination prototype for the bank's wheels business (two-wheeler, car and commercial vehicle). Dealers log in, pull a pre-qualified offer (scan the customer’s QR or search by mobile), and walk a new-vehicle journey through KYC, mandate, agreement, and disbursal. All data is mock. There are no real bank APIs — the integrations in `src/services/` are typed stubs.
+**Current version: v1.4.0** (versionCode 17). [Release](https://github.com/gauravds1980-code/Firstgoapp/releases/tag/v1.4.0) · [APK](https://github.com/gauravds1980-code/Firstgoapp/releases/download/v1.4.0/FIRSTgo-v1.4.0.apk).
+
+FIRSTgo v1.4.0 is the IDFC FIRST Bank dealer-side vehicle loan origination prototype for the bank's wheels business (two-wheeler, car and commercial vehicle). Dealers log in, pull a pre-qualified offer (scan the customer’s QR or search by mobile), and walk a new-vehicle journey through KYC, mandate, agreement, and disbursal. All data is mock. There are no real bank APIs — the integrations in `src/services/` are typed stubs.
 
 ## Download the Android APK
 
-[FIRSTgo-v1.3.1-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.3.1-arm64.apk) (arm64, v1.3.1, versionCode 16).
+[FIRSTgo v1.4.0 release](https://github.com/gauravds1980-code/Firstgoapp/releases/tag/v1.4.0) · [FIRSTgo-v1.4.0.apk](https://github.com/gauravds1980-code/Firstgoapp/releases/download/v1.4.0/FIRSTgo-v1.4.0.apk) (arm64, v1.4.0, versionCode 17).
 
-Direct link: https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.3.1-arm64.apk
+Direct link: https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.4.0.apk
 
-What's new in v1.3.1:
+What's new in v1.4.0:
 
-- Sheets and forms lift above the keyboard: the RC Share sheet, login and OTP, customer search and consent OTP, e-sign OTP, TA disburse, enhance-limit reason, payouts advance amount, and the voice type-in.
-- Zippy steps aside while typing.
-- Android `softwareKeyboardLayoutMode` is now `resize`.
-- iOS readiness: dropped expo-speech, iOS EAS profiles get the STT URL, and `IOS_BUILD.md` is rewritten.
-- versionCode 16.
+Zippy voice: fast, live, correctable
 
-Previous builds: [FIRSTgo-v1.3.0-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.3.0-arm64.apk), [FIRSTgo-v1.2.9-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.9-arm64.apk), [FIRSTgo-v1.2.8-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.8-arm64.apk), [FIRSTgo-v1.2.7-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.7-arm64.apk), [FIRSTgo-v1.2.6-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.6-arm64.apk), [FIRSTgo-v1.2.5-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.5-arm64.apk), [FIRSTgo-v1.2.4-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.4-arm64.apk), [FIRSTgo-v1.2.2-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.2-arm64.apk), [FIRSTgo-v1.2.1-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.1-arm64.apk), and [FIRSTgo-v1.2.0-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.0-arm64.apk).
+- Phone speech recognition first. Zippy uses the phone's own recogniser (expo-speech-recognition) and shows live words as you speak, in English (India) with a Hindi option. It prefers offline recognition and is tuned for dealer words (EMI, KYC, RC, UPI, TA, payouts and others). The local Whisper server checks the final audio as a second opinion, and is the fallback when the phone recogniser isn't available. There are no paid speech services.
+- Hold-to-talk or hands-free. Choose in Profile → voice settings. Hold-to-talk is the default. In hands-free mode you tap once, Zippy stops when you finish speaking, and a second tap cancels.
+- No more spinner. The mic reacts the moment you press it, words appear while you speak, and the heard text shows as soon as you let go.
+- Commands matched in milliseconds. A keyword and typo-tolerant matcher runs on the phone and on the server, with the heavy language model used only when it's unsure and on a time limit, so it can't stall a turn.
+- "Did you mean…?" When Zippy is unsure, it suggests the closest command with one-tap confirm, plus alternatives and Say again.
+- Acts first, speaks after. The screen changes right away and the spoken reply follows. Common replies such as "Opening portfolio" are bundled clips that play instantly. Other replies use Piper speech with a server cache.
+- Voice speed stats. Each turn is timed (press → feedback, release → text, release → action) and p50/p95 show in settings.
+- Safety is unchanged. Spoken OTPs stay masked, are never logged and are never auto-verified. Destructive or money-moving actions still need Confirm.
+- Measured on the box: press → feedback 65 ms; server median 850 → 730 ms; worst case 6.8 → 4.8 s. The phone-recogniser path still needs real-device testing.
+
+Tutorial videos load reliably
+
+- The 12 how-to shorts and their posters are bundled in the app (720x1280 H.264, about 12 MB) and play offline first. The web preview serves the same compressed files from the same site, which keeps the repo lean.
+- A failed load now shows "Couldn't load this how-to" with Retry instead of "Coming soon".
+
+A new dev or EAS build is needed for the speech-recognition native module. Expo Go falls back to the server voice path.
+
+Previous builds: [FIRSTgo-v1.3.1-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.3.1-arm64.apk), [FIRSTgo-v1.3.0-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.3.0-arm64.apk), [FIRSTgo-v1.2.9-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.9-arm64.apk), [FIRSTgo-v1.2.8-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.8-arm64.apk), [FIRSTgo-v1.2.7-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.7-arm64.apk), [FIRSTgo-v1.2.6-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.6-arm64.apk), [FIRSTgo-v1.2.5-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.5-arm64.apk), [FIRSTgo-v1.2.4-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.4-arm64.apk), [FIRSTgo-v1.2.2-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.2-arm64.apk), [FIRSTgo-v1.2.1-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.1-arm64.apk), and [FIRSTgo-v1.2.0-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.0-arm64.apk).
 
 ## Features in v1.2
 
@@ -88,7 +103,7 @@ npx expo prebuild -p android
 cd android && ./gradlew assembleRelease
 ```
 
-The published arm64 build for this version is checked in at `releases/FIRSTgo-v1.3.1-arm64.apk`. `android/` and `ios/` are generated and gitignored.
+The published arm64 build for this version is checked in at `releases/FIRSTgo-v1.4.0.apk`. `android/` and `ios/` are generated and gitignored.
 
 ## iOS
 

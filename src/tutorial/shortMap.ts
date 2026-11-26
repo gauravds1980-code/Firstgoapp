@@ -1,6 +1,7 @@
 /**
  * Tutorial shorts: ids, copy, lengths and the screen → short map (v1.3.0). PURE (no React Native) so the
- * map is unit-testable in Node. Videos stream from a URL (catalog.ts / manifest.ts); nothing is bundled.
+ * map is unit-testable in Node. The 12 videos and posters are bundled in the app (bundledAssets.ts) and
+ * served same-origin from /tutorial on web; the remote URL (catalog.ts / manifest.ts) is the fallback.
  */
 
 export const SHORT_IDS = [

@@ -1,4 +1,4 @@
-# FIRSTgo on iOS (v1.3.1)
+# FIRSTgo on iOS (v1.4.0)
 
 FIRSTgo (Expo SDK 58, React Native 0.88) runs on iPhone from the same code as the Android APK and the web build. This page covers the iOS settings, how voice (Zippy) works on a real iPhone, and the exact steps to test, build and ship.
 
@@ -11,8 +11,10 @@ FIRSTgo (Expo SDK 58, React Native 0.88) runs on iPhone from the same code as th
 | | iOS | Android |
 |---|---|---|
 | App ID | `com.idfcfirst.firstgo.dealer` (bundle id) | `com.idfcfirst.boom.dealer` (package) |
-| Marketing version | `1.3.1` (`expo.version`) | `1.3.1` |
-| Build number | `ios.buildNumber` = `"1"` | `android.versionCode` = `16` |
+| Marketing version | `1.4.0` (`expo.version`) | `1.4.0` |
+| Build number | `ios.buildNumber` = `"1"` | `android.versionCode` = `17` |
+
+**v1.4.0:** still `ios.buildNumber` "1" (new marketing version, no 1.4.0 iOS binary yet); adds `expo-speech-recognition` (its plugin sets `NSSpeechRecognitionUsageDescription`, needs a new dev build).
 
 **Why the iOS build number is "1".** No iOS binary of v1.3.0 was ever shipped, so v1.3.1 is the first iOS binary, and Apple only requires the build number to be unique and increasing *within one marketing version*. So `1.3.1 (1)` is correct. It doesn't need to match Android's `versionCode` 16, because the two stores count separately. Android reached 16 through earlier APKs; iOS has no history yet.
 
@@ -52,7 +54,7 @@ FIRSTgo (Expo SDK 58, React Native 0.88) runs on iPhone from the same code as th
 | `expo-camera` | QR scan, RC photo, face e-KYC | Needs a real device (no camera in the Simulator). Use "Simulate successful scan" there. |
 | `expo-image-picker` | RC upload | Uses the iOS photo picker (PHPicker) |
 | `expo-audio` | Zippy mic recording + Piper reply playback | Records AAC `.m4a`. Switches `allowsRecording` off before playback, so replies come out of the speaker, not the earpiece. Plays in silent mode. |
-| `expo-video` | Tutorials (HLS + MP4) | AVPlayer plays HLS natively. Streams over HTTPS from `EXPO_PUBLIC_TUTORIAL_BASE_URL`. |
+| `expo-video` | Tutorials (bundled MP4, HLS + MP4 fallback) | The 12 catalogue shorts are bundled and play offline. AVPlayer plays HLS natively for the HTTPS fallback (`EXPO_PUBLIC_TUTORIAL_BASE_URL`). |
 | `expo-clipboard` | Copy UTRs | — |
 | `expo-haptics` | Taps | Guarded for web |
 | `expo-secure-store`, `expo-file-system`, `expo-font`, `expo-linear-gradient`, `expo-splash-screen`, `expo-status-bar`, `react-native-svg`, `-reanimated`, `-worklets`, `-screens`, `-safe-area-context` | UI and storage | — |
@@ -78,7 +80,7 @@ EXPO_PUBLIC_STT_URL=https://yl0nisu-anonymous-8081.exp.direct/voice
 - **Expo Go / local Metro:** put that line in `.env.local` (gitignored), then restart Metro with `npx expo start --tunnel -c`. `EXPO_PUBLIC_*` values are baked into the JS bundle when it's built.
 - **EAS builds:** EAS doesn't upload `.env.local` (it's gitignored). That's why `eas.json` sets this URL under `ios.env` for the `development`, `development-simulator` and `preview` profiles. Android profiles are unchanged.
 - **`production` (TestFlight/App Store) does *not* set a voice URL yet.** A store build would fall back to `127.0.0.1` and Zippy would show a network error. Before a TestFlight build that should have voice, add a **permanent HTTPS** voice endpoint to `build.production.env.EXPO_PUBLIC_STT_URL` in `eas.json`, or use an EAS environment variable. The `exp.direct` tunnel only works while `npx expo start --tunnel` and the 8793 pipeline are running on this box, so it isn't fit for a store build.
-- The tutorial videos have the same dependency: `EXPO_PUBLIC_TUTORIAL_BASE_URL` defaults to the same tunnel (`…/tutorial`).
+- The tutorial videos no longer depend on it: the 12 catalogue shorts are bundled (v1.3.2). `EXPO_PUBLIC_TUTORIAL_BASE_URL` (default: the same tunnel, `…/tutorial`) is only the fallback and the source of `manifest.json` / new remote-only shorts.
 - In Expo Go, the microphone prompt shows Expo Go's text. In a real build, it shows FIRSTgo's string.
 
 ## 4. `eas.json` build profiles
@@ -191,7 +193,7 @@ npx expo export -p ios --output-dir /tmp/firstgo-export-ios    # pass (Hermes bu
 git archive HEAD | tar -x -C /tmp/firstgo-ios-prebuild
 ln -s "$PWD/node_modules" /tmp/firstgo-ios-prebuild/node_modules
 (cd /tmp/firstgo-ios-prebuild && npx expo prebuild -p ios --no-install)
-# Expected Info.plist: CFBundleShortVersionString 1.3.1, CFBundleVersion 1, camera / microphone / photo strings,
+# Expected Info.plist: CFBundleShortVersionString 1.4.0, CFBundleVersion 1, camera / microphone / photo strings,
 # no speech-recognition / location / Face ID strings, empty UIBackgroundModes, ATS default.
 # project.pbxproj: PRODUCT_BUNDLE_IDENTIFIER com.idfcfirst.firstgo.dealer, TARGETED_DEVICE_FAMILY 1,
 # IPHONEOS_DEPLOYMENT_TARGET 16.4. AppIcon: one 1024×1024 image.

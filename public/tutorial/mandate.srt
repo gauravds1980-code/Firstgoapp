@@ -1,0 +1,35 @@
+1
+00:00:00,300 --> 00:00:02,267
+AutoPay, in one scan.
+
+2
+00:00:02,700 --> 00:00:03,733
+Show your customer
+
+3
+00:00:03,733 --> 00:00:06,300
+this UPI AutoPay QR.
+
+4
+00:00:06,300 --> 00:00:07,400
+They approve it
+
+5
+00:00:07,400 --> 00:00:09,067
+in their own UPI app.
+
+6
+00:00:09,467 --> 00:00:10,833
+Once it’s approved,
+
+7
+00:00:10,833 --> 00:00:11,600
+FIRSTgo moves
+
+8
+00:00:11,600 --> 00:00:13,400
+on to e-sign by itself.
+
+9
+00:00:14,933 --> 00:00:17,567
+Show the AutoPay QR now.

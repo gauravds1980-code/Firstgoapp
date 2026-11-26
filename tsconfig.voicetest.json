@@ -14,6 +14,8 @@
   },
   "files": [
     "src/voice/__tests__/voiceLogic.test.ts",
+    "src/voice/__tests__/voiceMetrics.test.ts",
+    "src/voice/__tests__/intentMatcher.test.ts",
     "src/tutorial/__tests__/stuckDetector.test.ts",
     "src/tutorial/__tests__/catalog.test.ts",
     "src/tutorial/__tests__/feed.test.ts",

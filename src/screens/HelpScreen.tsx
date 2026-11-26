@@ -18,16 +18,16 @@ const GRID_MIN_W = 340;
 
 /**
  * Help & tutorials (v1.3.0): the full walkthrough as a hero card, then every short (thumbnail, title,
- * duration badge, "Watched" tick, or "Coming soon"). Thumbnails stream (branded skeleton until they
- * load). Tapping one opens the Reels-style shorts feed at that short. `focus` (deep link
+ * duration badge, "Watched" tick, or "Coming soon"). Thumbnails are bundled in the app (remote-only
+ * shorts load theirs, branded skeleton until then). Tapping one opens the Reels-style shorts feed at that short. `focus` (deep link
  * /help?focus=mandate) opens the feed straight away. While focused, the first unwatched short that can
- * stream is preloaded (one paused player) so the first tap starts fast.
+ * play is preloaded (one paused player) so the first tap starts fast.
  */
 export default function HelpScreen() {
   const { params } = useRoute<RouteProp<RootStackParamList, 'Help'>>();
   const { width } = useWindowDimensions();
   const { watched } = useTutorialState();
-  const { entries, byId, failed } = useTutorialCatalog();
+  const { entries, byId } = useTutorialCatalog();
   const focused = useIsFocused();
   const nav = useNavigation();
   const focus = params?.focus;
@@ -35,7 +35,7 @@ export default function HelpScreen() {
 
   const hero = byId.full!;
   const shorts = feedOrder(entries.map((e) => e.id)).filter((id) => id !== 'full').map((id) => byId[id]!).filter(Boolean);
-  const soon = (t: TutorialEntry) => isComingSoon(t, failed);
+  const soon = (t: TutorialEntry) => isComingSoon(t);
   const preload = shorts.find((t) => !soon(t) && !watched.has(t.id)) ?? shorts.find((t) => !soon(t));
   const grid = width >= GRID_MIN_W;
   // Exact half-width cards, so an odd last card stays half width instead of stretching.

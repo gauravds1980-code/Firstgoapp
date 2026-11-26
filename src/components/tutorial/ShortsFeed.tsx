@@ -36,8 +36,12 @@ const AMBER = colors.cta;
  *    instant jump to the start page). Web: wheel or ↑ / ↓ keys.
  *  - The page that is ≥ 80% visible autoplays and loops; others pause and rewind.
  *  - Players live only for the active page and the next two (preloaded, paused): at most 3.
- *  - Poster shows instantly (with a shimmer) until the first frame; coming-soon shorts show the
- *    branded skeleton and are skippable.
+ *  - Catalogue shorts play from the file bundled in the app (native) or same-origin /tutorial (web);
+ *    the remote stream is only a fallback (useStreamingPlayer).
+ *  - Poster shows instantly (bundled; shimmer until the first frame). If the page is not playing
+ *    after a moment (web autoplay blocked), the play button shows so one tap starts it with sound.
+ *  - A load failure shows "Couldn't load" / "You're offline" with Retry. Only shorts the catalogue
+ *    does not ship are "coming soon" (branded skeleton, skippable).
  *  - Top: progress bar, close (left), mute (right; session-wide). Tap the video = pause / play.
  *  - Bottom: title, subtitle and "Try it now" (closes the feed and opens that feature).
  */
@@ -59,7 +63,7 @@ export default function ShortsFeed() {
   const listRef = useRef<FlatList<TutorialEntry>>(null);
   const [progress, setProgress] = useState(0);
 
-  const soon = useCallback((i: number) => isComingSoon(items[i], catalog.failed), [items, catalog.failed]);
+  const soon = useCallback((i: number) => isComingSoon(items[i]), [items]);
   const live = useMemo(() => new Set(playerWindow(active, items.length, 2, soon)), [active, items.length, soon]);
 
   // Swiping onto a page is a play intent (time to first frame starts there).
@@ -141,7 +145,7 @@ export default function ShortsFeed() {
         initialNumToRender={2}
         maxToRenderPerBatch={2}
         removeClippedSubviews={false}
-        extraData={`${active}|${feedMuted}|${[...live].join(',')}|${catalog.failed.size}`}
+        extraData={`${active}|${feedMuted}|${[...live].join(',')}`}
         onScrollToIndexFailed={({ index }) => setTimeout(() => listRef.current?.scrollToIndex({ index, animated: false }), 50)}
         style={{ flex: 1 }}
       />
@@ -256,7 +260,13 @@ function FeedPage({ entry, index, count, W, H, insets, active, hasPlayer, coming
   );
 }
 
-/** The live player of one page: streams, plays while active, pauses + rewinds otherwise, loops. */
+/**
+ * Not playing this long after becoming active (and not paused by the dealer): show the play button.
+ * Browsers block autoplay with sound, so on web this is how a stuck poster becomes tappable.
+ */
+const NEEDS_TAP_MS = 1500;
+
+/** The live player of one page: plays while active, pauses + rewinds otherwise, loops. */
 function PageVideo({ entry, active, muted, onProgress, onFirstFrame, firstFrame }: {
   entry: TutorialEntry; active: boolean; muted: boolean; onProgress?: (p: number) => void; onFirstFrame: () => void; firstFrame: boolean;
 }) {
@@ -264,15 +274,24 @@ function PageVideo({ entry, active, muted, onProgress, onFirstFrame, firstFrame 
   const [playing, setPlaying] = useState(false);
   /** Paused by a tap: a persistent play button (Reels-style) until resumed. */
   const [userPaused, setUserPaused] = useState(false);
+  /** Active but not playing although nobody paused it (autoplay blocked): show the play button too. */
+  const [needsTap, setNeedsTap] = useState(false);
   const [glyph, setGlyph] = useState<{ n: number } | null>(null);
   const watched = useRef(false);
 
   useEffect(() => { player.muted = muted; }, [player, muted]);
   useEffect(() => {
     setUserPaused(false);
+    setNeedsTap(false);
     if (active) { try { player.play(); } catch { /* released */ } return; }
     try { player.pause(); player.currentTime = 0; } catch { /* released */ }
   }, [active, player]);
+  // A source became ready after a fallback swap or a Retry: keep the active page playing.
+  useEffect(() => {
+    if (!active || state !== 'ready' || userPaused) return;
+    try { if (!player.playing) player.play(); } catch { /* released */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
   // Became active with the first frame already rendered (preloaded): time to first frame ≈ 0.
   useEffect(() => { if (active && firstFrame) reportFirstFrame(entry.id, kind); }, [active, firstFrame, entry.id, kind]);
   // Web: play() before the <video> mounts is a no-op, so start again right after mount.
@@ -282,7 +301,15 @@ function PageVideo({ entry, active, muted, onProgress, onFirstFrame, firstFrame 
     return () => clearTimeout(t);
   }, [player, active]);
 
-  useEventListener(player, 'playingChange', ({ isPlaying }) => setPlaying(isPlaying));
+  useEventListener(player, 'playingChange', ({ isPlaying }) => { setPlaying(isPlaying); if (isPlaying) setNeedsTap(false); });
+  // Ready (or still loading on web, where a blocked autoplay can stall before readyToPlay) but not
+  // playing, and the dealer did not pause it: offer the play button instead of a poster forever.
+  const stuck = active && !playing && !userPaused && state !== 'failed' && (state === 'ready' || Platform.OS === 'web');
+  useEffect(() => {
+    if (!stuck) return;
+    const t = setTimeout(() => setNeedsTap(true), NEEDS_TAP_MS);
+    return () => clearTimeout(t);
+  }, [stuck]);
   useEventListener(player, 'timeUpdate', ({ currentTime }) => {
     const d = player.duration;
     onProgress?.(progressOf(currentTime, d));
@@ -292,9 +319,11 @@ function PageVideo({ entry, active, muted, onProgress, onFirstFrame, firstFrame 
   const toggle = () => {
     if (state === 'failed') return;
     const pause = !userPaused && playing;
+    // Called straight from the tap, so a browser that blocked autoplay allows play() (sound stays on).
     try { if (pause) player.pause(); else player.play(); } catch { /* released */ }
     haptic.select();
     setUserPaused(pause);
+    setNeedsTap(false);
     if (!pause) setGlyph({ n: Date.now() }); // brief "playing again" flash
   };
   useEffect(() => { if (!glyph) return; const t = setTimeout(() => setGlyph(null), 700); return () => clearTimeout(t); }, [glyph]);
@@ -308,38 +337,30 @@ function PageVideo({ entry, active, muted, onProgress, onFirstFrame, firstFrame 
           onFirstFrameRender={() => { onFirstFrame(); if (active) reportFirstFrame(entry.id, kind); }}
           accessibilityLabel={`${entry.title} video`} style={{ width: '100%', height: '100%' }} />
       </View>
-      <Pressable onPress={toggle} accessibilityRole="button" accessibilityLabel={userPaused ? 'Play video' : 'Pause video'}
+      <Pressable onPress={toggle} accessibilityRole="button" accessibilityLabel={userPaused || needsTap ? 'Play video' : 'Pause video'}
         style={{ position: 'absolute', left: 0, top: 110, right: 0, bottom: 190 }} />
       {firstFrame && state === 'loading' && active && (
         <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top: '46%', alignItems: 'center' }}><ActivityIndicator color="#fff" size="large" /></View>
       )}
-      {(userPaused || glyph) && (
-        <Animated.View key={userPaused ? 'paused' : glyph?.n} entering={FadeIn.duration(120)} exiting={FadeOut.duration(250)} pointerEvents="none"
-          style={{ position: 'absolute', left: 0, right: 0, top: '44%', alignItems: 'center' }} accessibilityLiveRegion="polite" accessibilityLabel={userPaused ? 'Paused' : undefined}>
+      {(userPaused || needsTap || glyph) && state !== 'failed' && (
+        <Animated.View key={userPaused || needsTap ? 'paused' : glyph?.n} entering={FadeIn.duration(120)} exiting={FadeOut.duration(250)} pointerEvents="none"
+          style={{ position: 'absolute', left: 0, right: 0, top: '44%', alignItems: 'center' }} accessibilityLiveRegion="polite" accessibilityLabel={userPaused ? 'Paused' : needsTap ? 'Tap to play' : undefined}>
           <View style={{ width: 76, height: 76, borderRadius: 38, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="play" size={44} color="#fff" style={{ marginLeft: 4 }} />
           </View>
         </Animated.View>
       )}
-      {state === 'failed' && failure && (
+      {state === 'failed' && (
         <View style={{ position: 'absolute', left: space.lg, right: space.lg, top: '34%', alignItems: 'center', gap: space.sm }}>
-          {failure === 'offline' ? (
-            <>
-              <Icon name="wifi-off" size={40} color="#fff" />
-              <Text variant="h3" color="#fff" style={{ textAlign: 'center' }}>You’re offline — connect to watch this how-to</Text>
-              <PressableScale onPress={retry} accessibilityRole="button" accessibilityLabel="Retry"
-                style={{ minHeight: touch.min, paddingHorizontal: space.lg, borderRadius: radius.pill, backgroundColor: AMBER, justifyContent: 'center' }}>
-                <Text variant="bodyStrong" color={colors.onCta}>Retry</Text>
-              </PressableScale>
-            </>
-          ) : (
-            <>
-              <View style={{ paddingHorizontal: space.sm, paddingVertical: 4, borderRadius: radius.pill, backgroundColor: AMBER }}>
-                <Text variant="label" color={colors.onCta}>COMING SOON</Text>
-              </View>
-              <Text variant="h2" color="#fff" style={{ textAlign: 'center' }}>This how-to is coming soon</Text>
-            </>
-          )}
+          <Icon name={failure === 'offline' ? 'wifi-off' : 'alert-circle-outline'} size={40} color="#fff" />
+          <Text variant="h3" color="#fff" style={{ textAlign: 'center' }} accessibilityLiveRegion="polite">
+            {failure === 'offline' ? 'You’re offline — connect to watch this how-to' : 'Couldn’t load this how-to'}
+          </Text>
+          <PressableScale onPress={() => { haptic.tap(); setNeedsTap(false); retry(); }}
+            accessibilityRole="button" accessibilityLabel="Retry"
+            style={{ minHeight: touch.min, paddingHorizontal: space.lg, borderRadius: radius.pill, backgroundColor: AMBER, justifyContent: 'center' }}>
+            <Text variant="bodyStrong" color={colors.onCta}>Retry</Text>
+          </PressableScale>
         </View>
       )}
     </>

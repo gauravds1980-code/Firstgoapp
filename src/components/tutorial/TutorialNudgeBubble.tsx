@@ -45,7 +45,7 @@ export function TutorialNudgeBubble({ anchor }: { anchor: NudgeAnchor | null }) 
   const pop = useSharedValue(0);
   const id = nudge?.id;
 
-  const { byId, failed } = useTutorialCatalog();
+  const { byId } = useTutorialCatalog();
   useEffect(() => { setH(0); pop.value = 0; }, [id, pop]);
   // Pop once measured (so it never flashes in the wrong place).
   const ready = !!nudge && !!anchor && h > 0;
@@ -124,7 +124,7 @@ export function TutorialNudgeBubble({ anchor }: { anchor: NudgeAnchor | null }) 
         </View>
       </View>
 
-      {!isComingSoon(entry, failed) && <PreloadTutorial entry={entry} />}
+      {!isComingSoon(entry) && <PreloadTutorial entry={entry} />}
       {(
         <View style={{ flexDirection: 'row', gap: space.sm, alignItems: 'center' }}>
           <PressableScale onPress={watch} accessibilityRole="button" accessibilityLabel={`Watch ${entry.title}, ${formatClock(entry.durationSec)}`}

@@ -2,7 +2,7 @@
   "expo": {
     "name": "FIRSTgo",
     "slug": "boom-dealer",
-    "version": "1.3.1",
+    "version": "1.4.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -15,7 +15,8 @@
         "NSCameraUsageDescription": "FIRSTgo uses the camera to scan the customer's IDFC FIRST offer QR code, photograph RCs, and run the customer's face e-KYC (front camera liveness check).",
         "NSPhotoLibraryUsageDescription": "FIRSTgo needs access to your photos to upload the customer's RC.",
         "ITSAppUsesNonExemptEncryption": false,
-        "NSMicrophoneUsageDescription": "FIRSTgo uses the microphone so you can talk to Zippy."
+        "NSMicrophoneUsageDescription": "FIRSTgo uses the microphone so you can talk to Zippy.",
+        "NSSpeechRecognitionUsageDescription": "FIRSTgo uses speech recognition so Zippy can show your words as you speak and act on voice commands."
       }
     },
     "android": {
@@ -28,7 +29,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "softwareKeyboardLayoutMode": "resize",
-      "versionCode": 16,
+      "versionCode": 17,
       "permissions": [
         "android.permission.RECORD_AUDIO"
       ]
@@ -86,6 +87,18 @@
         {
           "supportsBackgroundPlayback": false,
           "supportsPictureInPicture": false
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "FIRSTgo uses the microphone so you can talk to Zippy.",
+          "speechRecognitionPermission": "FIRSTgo uses speech recognition so Zippy can show your words as you speak and act on voice commands.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox",
+            "com.google.android.as",
+            "com.google.android.tts"
+          ]
         }
       ]
     ]

@@ -6,7 +6,7 @@ import { Button, Field, Icon, Pill, Text } from '../components/ui';
 import { KeyboardRevealProvider, useKeyboardForm } from '../components/keyboard';
 import { formatSlot, hasSlots, ROUTE_LABEL, SLOT_LABELS, VOICE_EXAMPLES, type ApplyOutcome } from './applyCommand';
 import type { CommandResponse, IntentCandidate, NormalizedField, VoiceExpect, VoiceSlots } from './types';
-import { candidateLabel, displayFields, FIELD_TYPE_FOR_EXPECT, fillLabel, hideFieldForSelect, safeTranscript, typedField } from './voiceLogic';
+import { candidateLabel, displayFields, FIELD_TYPE_FOR_EXPECT, fillLabel, hideFieldForSelect, isDestructiveCommand, isOtpCommand, safeTranscript, typedField } from './voiceLogic';
 
 const ASSISTANT_LABEL: Record<string, string> = {
   help: 'Read out help for this screen',
@@ -44,15 +44,23 @@ type Edit = { index: number; type: NormalizedField['type'] };
  * intent + score, any detected slots and spoken numbers. UNKNOWN / blocked / retry / reprompt commands
  * get no Confirm (Cancel only) until the dealer picks a candidate or types the value.
  *
+ * v1.4.0 draft transcript: low confidence (or Whisper disagreeing with the phone) reads "Did you mean:
+ * <command>?" with a one-tap pick (the tap is the confirm, except for destructive commands, which stage the
+ * normal Confirm), up to two alternatives and "Say again". The heard text is editable: fix it and Zippy
+ * matches it again.
+ *
  * OTP: rows come from `displayFields` (the server's masked copy, re-masked here) so digits are never
  * shown; typing an OTP uses a secure input. Drawn as an absolute overlay by VoiceHost (inside
  * VoiceHost's own transparent Modal while Zippy's help sheet is open).
  */
-export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, onChoose, onEditField }: {
+export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, onChoose, onEditField, onSayAgain, onEditTranscript }: {
   command: CommandResponse | null; plan: ApplyOutcome | null; expect?: VoiceExpect;
   onConfirm: () => void; onCancel: () => void;
   onChoose?: (c: IntentCandidate) => void;
   onEditField?: (index: number, type: NormalizedField['type'], text: string) => void;
+  /** v1.4.0 */
+  onSayAgain?: () => void;
+  onEditTranscript?: (text: string) => void;
 }) {
   const insets = useSafeAreaInsets();
   // v1.3.1: the typed-field editor and Confirm / Cancel lift above the keyboard (may sit inside a Modal).
@@ -63,12 +71,17 @@ export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, 
   const [typedErr, setTypedErr] = useState<string | undefined>();
   // A new utterance closes any open editor.
   const transcript = command?.transcript;
-  useEffect(() => { setEdit(null); setTyped(''); setTypedErr(undefined); }, [transcript]);
+  const [fixing, setFixing] = useState(false);
+  const [fixed, setFixed] = useState('');
+  useEffect(() => { setEdit(null); setTyped(''); setTypedErr(undefined); setFixing(false); setFixed(''); }, [transcript]);
 
   if (!command || !plan) return null;
   const status = command.status ?? 'ok';
-  const candidates = status === 'clarify' ? (command.candidates ?? []).slice(0, 2) : [];
-  const clarify = candidates.length >= 2;
+  // Clarify: "Did you mean <top>?" + up to two alternatives. Retry: the same picks, offered under "Say again".
+  const candidates = status === 'clarify' || status === 'retry' ? (command.candidates ?? []).filter((c) => c.intent !== 'UNKNOWN').slice(0, 3) : [];
+  const clarify = status === 'clarify' && candidates.length >= 1;
+  const top = candidates[0];
+  const canFix = !!onEditTranscript && !isOtpCommand(command) && !!command.transcript.trim() && command.transcript !== '[otp utterance]';
   const fields = displayFields(command);
   // A select never shows an Amount row (a model number like 125 / 350 is not money).
   const shownFields = fields.map((f) => !hideFieldForSelect(command, f));
@@ -83,7 +96,7 @@ export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, 
   const offerType = firstInvalid >= 0 ? fields[firstInvalid].type : expectType ?? fields[0]?.type;
   const showTypeCta = status === 'reprompt' && !edit && !!offerType && (!!command.offerKeyboard || (command.repromptCount ?? 0) >= 2);
 
-  const title = clarify ? 'Did you mean…?'
+  const title = clarify && top ? `Did you mean: “${candidateLabel(top)}”?`
     : status === 'retry' ? 'Sorry, say that again.'
     : status === 'reprompt' ? 'Say that number again.'
     : 'Did you say…';
@@ -92,7 +105,7 @@ export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, 
     : plan.kind === 'selected' ? `Select ${plan.label}`
     : plan.kind === 'filled' ? `Fill the ${fieldLabel(plan.fields[0]?.type ?? '').toLowerCase()} on this screen (you still tap Verify / Continue yourself)`
     : plan.kind === 'blocked' ? plan.reason
-    : clarify ? 'Pick one, then confirm.'
+    : clarify ? 'Tap the right one. Destructive steps (sign, pay, mandate, upload) still ask you to confirm.'
     : status === 'retry' ? (serverText || 'Hold the mic and try one of these:')
     : status === 'reprompt' ? (fields[firstInvalid]?.error ?? 'I did not catch the whole number.')
     : 'I’m not sure what to do with that. Cancel and hold the mic to try again.';
@@ -117,9 +130,24 @@ export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, 
         </View>
         <ScrollView ref={kb.scrollRef} onScroll={kb.onScroll} scrollEventThrottle={32} style={{ flexShrink: 1 }} contentContainerStyle={{ gap: space.sm }} keyboardShouldPersistTaps="handled">
          <KeyboardRevealProvider value={kb.api}>
-          {!!command.transcript.trim() && (
-            <View style={{ alignSelf: 'flex-end', maxWidth: '92%', backgroundColor: colors.aiUser, paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.lg, borderBottomRightRadius: 4 }}>
-              <Text variant="body" color={colors.onPrimary}>“{safeTranscript(command)}”</Text>
+          {!!command.transcript.trim() && !fixing && (
+            <View style={{ alignSelf: 'flex-end', maxWidth: '92%', flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+              <View style={{ flexShrink: 1, backgroundColor: colors.aiUser, paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.lg, borderBottomRightRadius: 4 }}>
+                <Text variant="body" color={colors.onPrimary}>“{safeTranscript(command)}”</Text>
+              </View>
+              {canFix && (
+                <Pressable onPress={() => { setFixing(true); setFixed(command.transcript); }} accessibilityRole="button" accessibilityLabel="Correct what Zippy heard" hitSlop={8}
+                  style={{ minWidth: touch.min, minHeight: touch.min, alignItems: 'center', justifyContent: 'center' }}>
+                  <Icon name="pencil-outline" size={20} color={colors.primary} />
+                </Pressable>
+              )}
+            </View>
+          )}
+          {fixing && (
+            <View style={{ gap: space.xs }}>
+              <Field label="What you said" value={fixed} onChangeText={setFixed} autoFocus autoCapitalize="none" autoCorrect={false}
+                returnKeyType="go" onSubmitEditing={() => fixed.trim() && onEditTranscript?.(fixed)} hint="Fix the words and Zippy will match them again." />
+              <Button label="Use this" variant="secondary" icon="check" disabled={!fixed.trim()} onPress={() => onEditTranscript?.(fixed)} />
             </View>
           )}
           <View style={{ padding: space.sm, borderRadius: radius.lg, backgroundColor: actionable ? colors.aiThread : colors.surfaceMuted, gap: space.xxs }}>
@@ -138,10 +166,13 @@ export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, 
               <Text key={ex} variant="body" color={colors.textSecondary}>• “{ex}”</Text>
             ))}
           </View>
-          {clarify && (
+          {candidates.length > 0 && (
             <View style={{ gap: space.xs }}>
+              {status === 'retry' && <Text variant="caption" color={colors.textSecondary}>Or did you mean:</Text>}
               {candidates.map((c, i) => (
-                <Button key={`${c.intent}-${i}`} label={candidateLabel(c)} variant={i === 0 ? 'brand' : 'secondary'} onPress={() => onChoose?.(c)} />
+                <Button key={`${c.intent}-${i}`} label={clarify && i === 0 ? `Yes, ${candidateLabel(c).replace(/^./, (ch) => ch.toLowerCase())}` : candidateLabel(c)}
+                  variant={clarify && i === 0 ? 'brand' : 'secondary'} onPress={() => onChoose?.(c)}
+                  icon={isDestructiveCommand({ ...command, intent: c.intent, action: { type: 'none' } }) ? 'shield-check-outline' : undefined} />
               ))}
             </View>
           )}
@@ -209,7 +240,8 @@ export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, 
         </ScrollView>
         <View style={{ gap: space.xs }}>
           {actionable && <Button label={confirmLabel(plan)} onPress={onConfirm} icon="check" />}
-          <Button label="Cancel" variant={actionable ? 'ghost' : 'secondary'} onPress={onCancel} />
+          {!actionable && onSayAgain && <Button label="Say again" variant="secondary" icon="microphone" onPress={onSayAgain} />}
+          <Button label="Cancel" variant={actionable || onSayAgain ? 'ghost' : 'secondary'} onPress={onCancel} />
         </View>
       </View>
     </View>
