@@ -5,6 +5,7 @@
  * OTP SAFETY: `normalizedFields` holds the real OTP digits (needed to fill on Confirm). Nothing here
  * ever logs them, and every helper that produces display text masks OTP rows.
  */
+import { formatInr } from './amountParse';
 import type { CommandResponse, IntentCandidate, NormalizedField, VoiceExpect, VoiceSlots } from './types';
 
 /** Server intents that pick a chip on the current screen (never a navigation). */
@@ -84,7 +85,7 @@ export type PlanTarget =
   | { kind: 'assistant' }
   | { kind: 'fill'; fields: NormalizedField[] }
   /** Pick a chip on the CURRENT screen (vehicle model, tenure, …). Never navigates or presses Continue. */
-  | { kind: 'select'; optionKind: string; id: string; label: string; value?: string }
+  | { kind: 'select'; optionKind: string; id: string; label: string; value?: string; advance?: boolean; reasonId?: string }
   | { kind: 'none' };
 
 /** Is this a "select an on-screen option" command (by action or intent)? */
@@ -96,7 +97,12 @@ export const isSelectCommand = (cmd: CommandResponse): boolean => cmd.action.typ
  */
 export function selectTarget(cmd: CommandResponse): Extract<PlanTarget, { kind: 'select' }> | null {
   const a = cmd.action;
-  if (a.type === 'select') return { kind: 'select', optionKind: a.kind, id: a.id, label: a.label, ...(a.value !== undefined ? { value: a.value } : {}) };
+  if (a.type === 'select') {
+    return {
+      kind: 'select', optionKind: a.kind, id: a.id, label: a.label, ...(a.value !== undefined ? { value: a.value } : {}),
+      ...(a.advance ? { advance: true } : {}), ...(a.reason ? { reasonId: a.reason.value || a.reason.id } : {}),
+    };
+  }
   if (!SELECT_INTENTS.has(cmd.intent)) return null;
   const s = cmd.slots ?? {};
   if (s.assetId || s.vehicle) {
@@ -123,8 +129,47 @@ export function slotsForSelect(t: Extract<PlanTarget, { kind: 'select' }>, slots
     const n = Number(t.value ?? (t.label.match(/\d+/)?.[0] ?? slots?.tenureMonths));
     return Number.isFinite(n) && n > 0 ? { tenureMonths: Math.round(n) } : {};
   }
+  // v1.4.5 SET_LOAN_AMOUNT: the Asset screen moves its loan slider to this value.
+  if (t.optionKind === 'amount' && t.id === LOAN_FIELD) {
+    const n = Number(t.value ?? slots?.loanAmount);
+    return Number.isFinite(n) && n > 0 ? { loanAmount: Math.round(n) } : {};
+  }
+  if (t.optionKind === 'customer') return { customerLan: t.value || t.id };
+  // v1.4.5 S2.3 enhance sheet: new limit (+ the reason said with it; `advance` = go on to the reason step now).
+  if (t.optionKind === 'amount' && t.id === ENHANCE_FIELD) {
+    const n = Number(t.value ?? slots?.enhanceAmount);
+    if (!Number.isFinite(n) || n <= 0) return {};
+    return { enhanceAmount: Math.round(n), enhanceAdvance: true, ...(t.reasonId ? { enhanceReasonId: t.reasonId } : {}) };
+  }
+  if (t.optionKind === 'reason') return { enhanceReasonId: t.value || t.id };
+  // v1.4.5 S2.5 TA drawdown amount (+ go on to the confirm step now).
+  if (t.optionKind === 'amount' && t.id === DRAWDOWN_FIELD) {
+    const n = Number(t.value ?? slots?.drawdownAmount);
+    return Number.isFinite(n) && n > 0 ? { drawdownAmount: Math.round(n), drawdownAdvance: true } : {};
+  }
   return {};
 }
+
+/**
+ * Draft slots a navigate action carries for the sheet it opens on TaInf (action wins over slots):
+ * TA_REPAY amount / full → repayAmount / repayAll; ENHANCE_TA_LIMIT (filter enhance) amount / reason → enhanceAmount /
+ * enhanceReasonId (never a repay).
+ */
+export function sheetSlotsFor(cmd: CommandResponse): VoiceSlots {
+  const a = cmd.action.type === 'navigate' ? cmd.action : null;
+  if (!a) return {};
+  if (a.filter === 'enhance' || cmd.intent === 'ENHANCE_TA_LIMIT') {
+    return { ...(a.amount !== undefined ? { enhanceAmount: a.amount } : {}), ...(a.reason ? { enhanceReasonId: a.reason.value || a.reason.id } : {}) };
+  }
+  return { ...(a.amount !== undefined ? { repayAmount: a.amount } : {}), ...(a.full ? { repayAll: true } : {}) };
+}
+
+/** v1.4.5 S2 field ids (CONTRACT.md S2.0). */
+export const ENHANCE_FIELD = 'enhance-amount';
+export const DRAWDOWN_FIELD = 'drawdown-amount';
+
+/** The Asset screen's loan-amount field id (CONTRACT.md 2.1). */
+export const LOAN_FIELD = 'loan-amount';
 
 /** Model numbers ("Xtreme 125R", "Bullet 350") must never show up as an Amount on a select. */
 export const hideFieldForSelect = (cmd: CommandResponse, f: NormalizedField): boolean => isSelectCommand(cmd) && f.type === 'AMOUNT';
@@ -181,7 +226,8 @@ export function safeTranscript(cmd: CommandResponse): string {
 }
 
 const PHONE_RE = /^[6-9]\d{9}$/;
-const OTP_RE = /^\d{4,6}$/;
+/** v1.4.5: every OTP screen verifies exactly 6 digits (a 4-digit fill would never verify). */
+const OTP_RE = /^\d{6}$/;
 
 /** Draft slots from the VALID fields of a confirmed command. PHONE → mobileNumber, AMOUNT → downPayment, OTP → otp. */
 export function slotsFromFields(fields: NormalizedField[]): VoiceSlots {
@@ -197,6 +243,10 @@ export function slotsFromFields(fields: NormalizedField[]): VoiceSlots {
       if (Number.isFinite(n) && n > 0) out.downPayment = Math.round(n);
     } else if (f.type === 'OTP') {
       if (OTP_RE.test(digits)) out.otp = digits;
+    } else if (f.type === 'VEHICLE_REG') {
+      // v1.4.5 S2.4: storage form (MH12BC1260); the RC sheet fills its Registration number from it.
+      const reg = f.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (/^(?:[A-Z]{2}\d{1,2}[A-Z]{0,3}\d{4}|\d{2}BH\d{4}[A-Z]{1,2})$/.test(reg)) out.rcNumber = reg;
     }
   }
   return out;
@@ -205,18 +255,18 @@ export function slotsFromFields(fields: NormalizedField[]): VoiceSlots {
 /** Confirm label for a fill. */
 export function fillLabel(fields: NormalizedField[]): string {
   const t = fields[0]?.type;
-  return t === 'OTP' ? 'Use this OTP' : t === 'AMOUNT' ? 'Use this amount' : 'Use this number';
+  return t === 'OTP' ? 'Use this OTP' : t === 'AMOUNT' ? 'Use this amount' : t === 'VEHICLE_REG' ? 'Use this RC number' : 'Use this number';
 }
 
 /** Field type for a typed value when the server sent no row to edit. */
-export const FIELD_TYPE_FOR_EXPECT: Record<VoiceExpect, NormalizedField['type']> = { otp: 'OTP', phone: 'PHONE', amount: 'AMOUNT', digits: 'DIGITS' };
+export const FIELD_TYPE_FOR_EXPECT: Record<VoiceExpect, NormalizedField['type']> = { otp: 'OTP', phone: 'PHONE', amount: 'AMOUNT', digits: 'DIGITS', reg: 'VEHICLE_REG' };
 
 /** Validate a value the dealer typed instead of saying. Returns a field (valid or with an error). */
 export function typedField(type: NormalizedField['type'], text: string): NormalizedField {
   const digits = text.replace(/\D/g, '');
   if (type === 'OTP') {
     const ok = OTP_RE.test(digits);
-    return { type, value: digits, valid: ok, display: maskOtp(digits.length), raw: '[otp]', ...(ok ? {} : { error: 'Enter the 4 or 6 digit OTP.' }) };
+    return { type, value: digits, valid: ok, display: maskOtp(digits.length), raw: '[otp]', ...(ok ? {} : { error: 'Enter the 6-digit OTP.' }) };
   }
   if (type === 'PHONE') {
     const ok = PHONE_RE.test(digits);
@@ -255,6 +305,14 @@ const CLEAR_AUTO = { autoExecute: undefined, confidenceBand: undefined, autoReas
 
 /** Re-stage a clarify command with the candidate the dealer picked (Confirm still required). */
 export function withCandidate(cmd: CommandResponse, c: IntentCandidate): CommandResponse {
+  // v1.4.5: a candidate carrying its own navigate action (TA "Repay the full ₹4,50,000") stages exactly that.
+  if (c.action && c.action.type === 'navigate') {
+    return {
+      ...cmd, status: 'ok', intent: c.intent, score: c.score, matchedPhrase: c.phrase, candidates: undefined, ...CLEAR_AUTO,
+      action: c.action, ...(c.slots ? { slots: c.slots } : {}),
+      ...(c.intent === 'TA_REPAY' ? { responseText: `${c.phrase.replace(/[?.]$/, '')} on Trade Advance?`.replace(' on Trade Advance on Trade Advance', ' on Trade Advance') } : {}),
+    };
+  }
   if (c.option) {
     const o = c.option;
     const intent = SELECT_INTENTS.has(c.intent) ? c.intent : o.kind === 'vehicle_model' ? 'SELECT_VEHICLE_MODEL' : 'SELECT_OPTION';
@@ -312,7 +370,10 @@ export function candidateLabel(c: IntentCandidate): string {
  * SearchMobile mirrors its stage into route params so this stays cheap.
  */
 export function expectFor(route: string | undefined, params?: unknown): VoiceExpect | undefined {
-  if (route === 'DealerOtp') return 'otp';
+  // v1.4.5: the Esign screen IS its OTP step (the KFS part has no voice fields), like DealerOtp.
+  if (route === 'DealerOtp' || route === 'Esign') return 'otp';
+  // v1.4.5 S2.6: the dealer login mobile (a spoken number fills it, then the OTP is requested after the debounce).
+  if (route === 'DealerLogin') return 'phone';
   if (route === 'SearchMobile') {
     const stage = typeof params === 'object' && params !== null ? (params as { stage?: unknown }).stage : undefined;
     if (stage === 'otp') return 'otp';
@@ -353,16 +414,18 @@ export const KEYWORD_EXACT_THRESHOLD = 0.95;
  */
 export const DESTRUCTIVE_INTENTS: ReadonlySet<string> = new Set([
   'CONFIRM_OFFER', 'START_ESIGN', 'SETUP_UPI_MANDATE', 'OPEN_UPI_APP', 'UPLOAD_RC', 'TAKE_DELIVERY_PHOTO',
-  'VERIFY_OTP', 'SUBMIT_OTP', 'SUBMIT', 'SUBMIT_APPLICATION', 'CONFIRM', 'CONFIRM_DISBURSAL', 'ESIGN', 'PRESS_CONTINUE',
+  'VERIFY_OTP', 'SUBMIT_OTP', 'SUBMIT', 'SUBMIT_APPLICATION', 'CONFIRM', 'CONFIRM_DISBURSAL', 'ESIGN',
+  // v1.4.5: a TA repayment always shows "Repay ₹80,000 on Trade Advance?" first (commandCatalog destructive list).
+  'TA_REPAY',
 ]);
 /** Any other intent whose name says it verifies / submits / confirms / signs / pays. */
 const DESTRUCTIVE_INTENT_RE = /(^|_)(VERIFY|SUBMIT|CONFIRM|ESIGN|SIGN|PAY|PAYMENT|DISBURSE|DISBURSAL|MANDATE|UPLOAD|APPROVE|DELETE|CANCEL|REJECT)(_|$)/;
 /** Screens that start an irreversible step on open, and navigate filters that mean "press the CTA". */
 const DESTRUCTIVE_ROUTES: ReadonlySet<string> = new Set(['Esign', 'Mandate', 'Disbursal']);
-const DESTRUCTIVE_FILTERS: ReadonlySet<string> = new Set(['confirm', 'submit', 'verify', 'esign', 'rc', 'delivery_photo']);
+const DESTRUCTIVE_FILTERS: ReadonlySet<string> = new Set(['confirm', 'submit', 'verify', 'esign', 'rc', 'delivery_photo', 'repay']);
 
 /** Field types a validated spoken value may auto-fill. */
-const AUTO_FIELD_TYPES: ReadonlySet<string> = new Set(['PHONE', 'OTP', 'AMOUNT', 'PIN', 'PINCODE']);
+const AUTO_FIELD_TYPES: ReadonlySet<string> = new Set(['PHONE', 'OTP', 'AMOUNT', 'PIN', 'PINCODE', 'VEHICLE_REG']);
 
 /** Would this command verify / submit / confirm / sign / pay / upload (directly or via its target)? */
 export function isDestructiveCommand(cmd: CommandResponse): boolean {
@@ -402,17 +465,23 @@ export function shouldAutoExecute(cmd: CommandResponse, askBeforeActing: boolean
 }
 
 /** Draft slots a screen registers for Undo, per plan target. */
-export type UndoSlot = 'asset' | 'tenure' | 'mobile' | 'otp' | 'amount';
+export type UndoSlot = 'asset' | 'tenure' | 'mobile' | 'otp' | 'amount' | 'loan' | 'customer' | 'enhance' | 'reason' | 'drawdown' | 'reg';
 
 /** Which screen values an auto-act may change (snapshotted before it runs). */
 export function undoSlotsFor(t: PlanTarget): UndoSlot[] {
-  if (t.kind === 'select') return t.optionKind === 'vehicle_model' ? ['asset'] : t.optionKind === 'tenure' ? ['tenure'] : [];
+  if (t.kind === 'select') {
+    return t.optionKind === 'vehicle_model' ? ['asset'] : t.optionKind === 'tenure' ? ['tenure']
+      : t.optionKind === 'amount' && t.id === LOAN_FIELD ? ['loan'] : t.optionKind === 'customer' ? ['customer']
+      : t.optionKind === 'amount' && t.id === ENHANCE_FIELD ? ['enhance', 'reason'] : t.optionKind === 'reason' ? ['reason']
+      : t.optionKind === 'amount' && t.id === DRAWDOWN_FIELD ? ['drawdown'] : [];
+  }
   const fields = t.kind === 'fill' ? t.fields : [];
   const out = new Set<UndoSlot>();
   for (const f of fields) {
     if (f.type === 'PHONE') out.add('mobile');
     else if (f.type === 'OTP') out.add('otp');
     else if (f.type === 'AMOUNT') out.add('amount');
+    else if (f.type === 'VEHICLE_REG') out.add('reg');
   }
   return [...out];
 }
@@ -451,7 +520,14 @@ function shortLine(text: string | undefined): string | null {
  * `routeLabel` is the screen's human name ("Scan customer QR"), used when nothing better exists.
  */
 export function autoToastText(cmd: CommandResponse, t: PlanTarget, routeLabel?: string): string {
-  if (t.kind === 'select') return `Selected ${t.label}`;
+  if (t.kind === 'select') {
+    if (t.optionKind === 'amount' && t.id === LOAN_FIELD) return `Loan amount ${t.label}`;
+    if (t.optionKind === 'customer') return `Opened ${t.label}`;
+    if (t.optionKind === 'amount' && t.id === ENHANCE_FIELD) return `New limit ${t.label}`;
+    if (t.optionKind === 'amount' && t.id === DRAWDOWN_FIELD) return `Drawdown ${t.label}`;
+    if (t.optionKind === 'reason') return `Reason: ${t.label}`;
+    return `Selected ${t.label}`;
+  }
   if (t.kind === 'fill') {
     const f = t.fields[0];
     if (!f) return 'Filled';
@@ -463,6 +539,7 @@ export function autoToastText(cmd: CommandResponse, t: PlanTarget, routeLabel?: 
     if (f.type === 'PHONE') return `Mobile number ${shown}`;
     if (f.type === 'AMOUNT') return `Amount ${shown}`;
     if (f.type === 'PIN' || f.type === 'PINCODE') return `PIN code ${shown}`;
+    if (f.type === 'VEHICLE_REG') return `RC number ${shown}`;
     return `Filled ${shown}`;
   }
   if (t.kind === 'navigate') {
@@ -491,13 +568,18 @@ export const SLOT_LABELS: Partial<Record<keyof VoiceSlots, string>> = {
   brand: 'Brand',
   model: 'Model',
   otp: 'OTP',
+  loanAmount: 'Loan amount',
+  repayAmount: 'Repay',
+  enhanceAmount: 'New limit',
+  drawdownAmount: 'Drawdown',
+  rcNumber: 'RC number',
 };
 
 const CATEGORY_LABEL: Record<string, string> = { TWO_WHEELER: 'Two-wheeler', CAR: 'Car', CONSUMER_DURABLE: 'Consumer durable' };
 
 export function formatSlot(key: keyof VoiceSlots, v: VoiceSlots[keyof VoiceSlots]): string {
   if (v === undefined) return '';
-  if (key === 'downPayment' && typeof v === 'number') return `₹${v.toLocaleString('en-IN')}`;
+  if ((key === 'downPayment' || key === 'loanAmount' || key === 'repayAmount' || key === 'enhanceAmount' || key === 'drawdownAmount') && typeof v === 'number') return formatInr(v);
   if (key === 'tenureMonths' && typeof v === 'number') return `${v} months`;
   if (key === 'vehicleCategory' && typeof v === 'string') return CATEGORY_LABEL[v] ?? v;
   if (key === 'mobileNumber' && typeof v === 'string' && v.length >= 4) return `•••••${v.slice(-4)}`;

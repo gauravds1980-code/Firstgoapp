@@ -1,5 +1,193 @@
 # Zippy voice commands
 
+## v1.4.5 S2 — hands-off: ADVANCE, enhance limit, RC number, auto-advance, voice-confirm
+
+Source: `/workspace/handsoff-sweep/FINDINGS.md`, contract `/workspace/v145-notes/CONTRACT.md` "S2 changes".
+Pattern everywhere: the button stays visible and works; auto by default; a SPOKEN confirm (voice "yes", no tap) for
+payments, final submits and destructive actions; typed values auto-advance 900 ms after the last edit
+(`autoAdvance.ts`, AUTO_ADVANCE_MS), a complete valid voice value advances at once; an edit / drag / tap cancels the
+countdown; one `isAdvancing` guard per step (AutoAdvancer) so a tap during the countdown never double-navigates;
+invalid / below-min / over-cap values never auto-advance.
+
+**ADVANCE** (`voiceStep.ts`): proceed / continue / next / go ahead / move ahead / carry on / aage chaliye / aage
+chalie / aage chaliye ji / aage chalo / aage badho / आगे चलिए / आगे बढ़ो / आगे चलो (fillers please / ji / ok /
+haan / now) — same grammar as the server's `advance.py`, decided on the phone at once (offline too). Each screen /
+sheet registers what advance does with `useVoiceStep({route, sheet, step, cta: {id, label, destructive, enabled,
+hint, press, confirmPrompt}, alts, extra})`; it is sent as `context.sheet / step / cta` (+ extras). Plain step →
+the CTA's own press (toast "Continuing · Proceed"); destructive step → spoken confirm ("Send request?"; a voice yes,
+"submit" or the button presses the CTA that is registered NOW); `enabled:false` → its hint; nothing registered →
+"Nothing to continue here." Never Go home / Enhance / Change tenure ("go ahead" used to confirm Go home, "aage
+badho" opened Enhance). "don't proceed" / "mat aage badho" → "Okay, staying here." A longer sentence the command
+list matched to ADVANCE is "say again". Advance phrases never answer an open Confirm card. PRESS_CONTINUE removed
+from DESTRUCTIVE_INTENTS; ADVANCE is not destructive by itself. Catalogue unchanged (server HEAD 47edad8 already
+has ADVANCE / SET_RC_NUMBER / SET_DRAWDOWN_AMOUNT).
+
+**Enhance my limit** (TaInfForms `EnhanceSheet`, `fieldResolver.resolveEnhance` = server `enhance.py`): "enhance my
+limit" / "limit badhao" / "I need an enhancement of 15 lakhs" / "enhancement of 20 lakh" / "1.5 million" open the
+sheet (ENHANCE_TA_LIMIT navigate `filter=enhance` + `amount` / `reason`; the app reads both, `sheetSlotsFor`). Two
+steps: AMOUNT (slider + New limit field + a visible **Proceed**) → REASON (chips, docs, **Send request**, Change
+amount). While open the sheet registers `enhance-amount` {min = sanctioned + ₹50,000, max = enhanceCap = 2 ×
+sanctioned, step ₹50,000, value, current} — never `maxLoan()` — and the reason chips (`kind: 'reason'`). Explicit
+phrase → filled at once with Undo (amount + reason + back to the amount step) and advances; bare "20 lakh" → "Set new
+limit to ₹20,00,000?"; "15 lakh for more inventory" also picks the chip; "festive season" alone picks the chip;
+"15" alone → "Say the full amount, like 15 lakh."; below current → "Must be above your current ₹25,00,000. Set
+₹25,50,000?"; over cap → "₹25,00,000 is above the maximum of ₹20,00,000. Set ₹20,00,000?" (no fill, no advance).
+Typed: auto-advance 900 ms after the last keystroke only for a valid value ("15" then "1500000" advances once);
+a complete-looking invalid value is explained by voice. Voice "proceed" = Proceed (blocked with the reason when
+invalid); "send request" / "proceed" on the reason step → "Send the request for a new limit of ₹15,00,000?" — a
+spoken yes (or the button) sends it. A pending request → "An enhancement to ₹X is already pending."
+
+**RC number** (RcPendency; `rcParse.ts` = server `rc_reg.parse`, `rcResolve.ts`): the screen sends `context.tab` and
+`dealerState` (DealerProfile gains an optional `stateCode`; default MH). With a row's entry sheet open it sends sheet
+`rc-entry`, the customer {name, lan}, the `vehicle-reg` field (typed value), `expect: 'reg'` and the Submit CTA.
+Plates: "MH12BC1260", "RC number is M H 12 B C 1 2 6 0", "M H twelve B C one two six zero", "em ech twelve bee see
+1260", "M for Mumbai H for Hotel 12 B C 1260", "Mike Hotel 12 Bravo Charlie 1260", "double one", "22 BH 1234 AA",
+"एम एच 12 बी सी 1260" → shape = the typed `REG_REGEX` core, state code checked against the official list, STT
+confusions snapped toward the dealer's state (KH → MH). The field is filled at once (toast "RC number MH 12 BC 1260"
++ Undo) and the app asks "M H twelve B C one two six zero. Submit MH12BC1260 for Vikram Rao?" — a spoken yes
+submits; "submit" / "proceed" / "aage chaliye" after a number = the same spoken confirm; Submit stays a button. Bad
+code → "X Q is not an Indian state code. Say the RC number again, like M H 12 A B 1234."; digits alone → "Say the
+full RC number …" — spaced plate digits are never an OTP (an older server's NUMBER + OTP reading is replaced). A
+plate said elsewhere → "RC number M H twelve …?" (Confirm). "I want to update Vikram Rao's RC" / "update Vikram
+Rao's RC" open that row (never Start new loan); said on another screen → RcPendency opens the row by name.
+
+**Asset "Confirm & start KYC"** (also "… set up mandate" / "… go to e-sign"): registered as the screen's
+destructive CTA (enabled only under the UPI cap; the hint says which tenure fixes it). After a voice loan amount the
+app asks "Loan amount ₹1,00,000, EMI ₹4,700 a month. Confirm and start KYC?" — a spoken yes presses the same
+button (it stays); "proceed" / "confirm" / "start KYC" / "aage chaliye" ask the same question. Undo of the amount
+withdraws the question; leaving the screen withdraws it too.
+
+**TA drawdown** (DisburseSheet, `fieldResolver.resolveDrawdown` = server `drawdown.py`): the amount step registers
+`drawdown-amount` {min ₹50,000, max = available, step ₹10,000}. "2 lakh" / "disburse 2 lakh" / "draw 200000" fill it
+(toast "Drawdown ₹2,00,000" + Undo) and move on to the confirm step at once; typed / slider / chip values move on 900
+ms after the last change when valid; over available → "₹5,00,000 is above your available ₹4,50,000. Set
+₹4,50,000?"; a complete-looking invalid typed value is explained. Voice "continue" = Continue (guarded). The confirm
+step asks "Disburse ₹2,00,000? Say yes to disburse." — a spoken yes presses "Confirm · disburse ₹X" (stays; Change
+amount goes back). **TA repay Pay** (A1, verified): the voice plan asks "Pay ₹80,000 now? Say yes to pay."; the open
+repay sheet is now also the voice step (repay-pay, destructive), so "pay" / "haan" / "proceed" there ask the same.
+
+**Auto-send OTP** (SearchMobile "Send consent OTP", DealerLogin "Get OTP"): a valid 10-digit mobile — typed or
+spoken (server S2.6 fill + `sendOtp`, or the phone's PHONE fill; DealerLogin now expects 'phone') — sends the OTP 900
+ms after the last edit; any edit (or a voice Undo) cancels the countdown; a partial number or the dealer's own
+number never sends; one send per number (a tap during the countdown sends once; a failed send re-arms). The buttons
+stay; voice "proceed" / "send OTP" press them. Consent / login OTP stays fill-only.
+
+**Cases / Portfolio rows** (`components/CaseDetailSheet.tsx` `useCaseRows`): rows are tappable and open the loan
+in a detail sheet (product, amount, disbursed on, POS, DPD, status — there is no separate case screen). The rows
+on screen (Portfolio: the selected DPD bucket) are registered as `kind: 'customer'` options with the same matcher
+as RcPendency: "open Rahul Sharma" opens the row like a tap (toast + Undo closes it), two rows with one name →
+"Priya Kulkarni, Hero Splendor+ or Priya Kulkarni, TVS Jupiter?", unknown → "Sanjay Pawar is not on this list."
+Offline, a sure command ("open TA", "open payouts") is never turned into "… is not on this list."
+
+An advance phrase also answers an open spoken question as yes ("Confirm and start KYC?" → "aage chaliye"), like the
+server's voice-confirm; "don't proceed" answers no. Tests: `advance`, `enhance`, `rcNumber`, `handsoff` (+ the
+AutoAdvancer debounce / cancel / tap-during-countdown cases). Not tried on a device yet.
+
+## v1.4.5 — amounts, loan amount, TA repay, hands-off e-sign OTP, RC rows by name
+
+Server contract: `/workspace/v145-notes/CONTRACT.md` (server branch v145). The phone mirrors each server rule so the
+same answer comes back when the tunnel is down (`optionResolver.resolveOnPhone`, the offline reading), and
+`guardAnswer` runs on every delivered answer (server, Whisper check, phone).
+
+**Amounts** (`amountParse.ts`, mirror of the server's `amounts.find_amount`): 1 lakh / one lakh / ek lakh / एक लाख,
+1.2 lakh = ₹1,20,000, dedh / sava / dhai / saade / paune lakh, 95k, 80 hazaar, 2.5L, 1 lakh 20 thousand,
+1,10,000 (comma grouping is always money, never a PIN code). Tenures ("24 months"), model numbers ("Xtreme 125R")
+and 10-digit runs are not amounts. An amount phrase never navigates (no START_NEW_LOAN / "Want a loan" / any
+journey) unless a start verb was said ("start a new loan of 1 lakh"); "pay …" never suggests Auto pay.
+
+**Fields** (`voiceOptions.setVoiceFields`, sent as `fields`): Asset `loan-amount` {min = product minLoan, max =
+maxLoan(), step = loanStep, value, emi, tenure}; TaInf `ta-repay` {utilised}. Route-scoped, cleared on blur.
+
+**Loan amount** (SET_LOAN_AMOUNT, `fieldResolver.resolveLoanAmount`): "loan amount 1 lakh" / "loan 1 lakh" /
+"set loan amount to 80000" / "1 lakh ka loan" set the slider at once (toast "Loan amount ₹1,00,000" + Undo);
+a bare amount ("one lakh", "95 thousand", "1,10,000") asks "Set loan amount to ₹…?" first; rounded to the step;
+over / under the range: "₹2,00,000 is above the limit of ₹1,50,000. Set ₹1,50,000?" (one-tap). Off the vehicle
+screen: "You can set the loan amount on the vehicle screen." Never Continue, never a down payment.
+
+**TA repay** (TA_REPAY, `fieldResolver.resolveTaRepay`, `business.planRepay` / `applyRepayAmount`): "pay 80000",
+"repay 80k", "pay full", "80 hazaar jama karo", "poora chuka do" → ALWAYS the Confirm card "Repay ₹80,000 on Trade
+Advance?" → the repay sheet opens pre-filled with the plan (overdue / oldest first, the last tranche part-paid and
+shown) and asks by voice "Pay ₹80,000 now? Say yes to pay." A spoken yes runs the same code as the Pay button (still
+there); no / cancel closes. Over utilised → "Repay the full ₹4,50,000?"; nothing utilised → "Nothing to repay.";
+"pay" alone → "How much?" (the next turn on TaInf is sent with expect `amount`). "auto pay" is still the mandate.
+"enhance my limit" / "limit badhao" opens the Enhance sheet (submit stays a tap).
+
+**Spoken yes / no** (`voiceAsk.ts`, generic, reuse it for any final submit): a screen calls
+`askVoiceConfirm({ prompt, onYes, onNo })`; the hook shows + reads the prompt (Piper with spoken replies on, else
+the confirm cue) and reads the dealer's next turn first — yes / haan / ok / "yes pay" → onYes, no / nahi / cancel →
+onNo, anything else is a normal command. The same yes / no answers a voice Confirm card that was open at press.
+`voiceSay(text)` makes the session say a line (OTP retry).
+
+**E-sign OTP — fully hands-off** (requirement change, Gaurav; `otpParse.ts`): Esign is an OTP screen
+(`expectFor` = 'otp'): pill / sheet / transcript masked (••••••), no Whisper second check, no parallel stream, no
+/log, nothing in the offline queue in clear. Exactly 6 digits in one turn (digits, spaced, words, double / triple,
+Hinglish, Devanagari words + numerals, pairs "12 34 56" / "twelve thirty four fifty six"), from the server or the
+phone's own parse (offline works) → the boxes are filled and verified at once through the screen's own verify():
+no Confirm card, no "Did you mean", no tap; only "OTP entered, verifying" is shown / spoken. Verify fails → the boxes
+are cleared and "That OTP didn't work. Say the 6 digits again." Fewer / more digits → "Say all 6 digits or type
+them." and nothing is filled. DealerOtp / SearchMobile (OTP stage) keep fill-only (toast + Undo, the dealer taps
+Verify) with the same parser and exact-6 rule.
+
+**RC pendency rows** (`customerMatch.ts`, `optionResolver.resolveCustomer`): RcPendency registers its rows as
+`kind: 'customer'` options {name, loanNo, vehicle, status, regNo}. "update Vikram Rao", "Vikram Rao RC",
+"update Vikram Rau" (fuzzy surname within the same first name), "upload RC for Vikram Rao" open that row exactly like
+a tap ("Open Vikram Rao's RC?", Undo closes it; upload / submit stay taps). Two Vikrams → "Vikram Rao or Vikram
+Singh?"; "update Sanjay Pawar" → "Sanjay Pawar is not in pending RCs." (v1.4.5 S2: Cases / Portfolio rows are now
+tappable and registered too — see the S2 section.)
+
+Tests: `amountParse`, `loanAmount`, `taRepay`, `otpParse`, `rcPendency`, `v145Regression` (every RCA phrase through
+the server-answer and offline paths), `services/repayPlan`. The command catalogue is regenerated with
+`wt-v145-server/scripts/export_commands.py <app>` from the server's committed tree.
+
+## v1.4.5 — voice routes, retry, offline /log queue
+
+- **Routes** (`src/voice/voiceRoutes.ts`, pure; singleton `voiceRoutes` in `config.ts`). Baked: `EXPO_PUBLIC_STT_URL` (primary)
+  then the optional comma-separated `EXPO_PUBLIC_STT_URLS`. Fetched: `GET {route}/routes` →
+  `{"version":1,"routes":[url,…],"updatedAt":…}`, asked at app start and whenever a route recovers, from a working route. Validated
+  (https only, at most 5, no trailing slash / query), cached (secure storage `firstgo.voice.routes.v1`, used at the next start even
+  offline) and merged **fetched first, baked as fallback** — the baked routes are never removed. A changed tunnel URL therefore needs
+  no new APK as long as one route still answers. An older server without `/routes` (404 JSON) changes nothing.
+- **Every voice URL goes through the current route**: `/command`, `/text`, `/tts`, `/tts/done`, `/log`, `/stream/{id}/…`
+  (`commandUrl()` … in `config.ts`, `streamBaseUrl()`). Tutorial videos keep their own `EXPO_PUBLIC_TUTORIAL_BASE_URL` (bundled first,
+  not a voice route).
+- **Failure = route failure** only for: network error, timeout, HTTP 404 / 502 / 503 / 504, a non-JSON 5xx, or an HTML body (ngrok /
+  Cloudflare error page). A 4xx JSON from our server (400, 409 busy, 422, FastAPI's JSON 404) is the server's answer, not the route's.
+- **Retry**: small requests retry once on the same route, then the next route. `/text` retries once quickly (on the next route if there
+  is one, else the same) before the phone's own reading is used; timeouts are never retried. `/command` and `/stream` never resend the
+  audio a second time (the stream keeps its one `/command` fallback): a route failure marks the route down so the **next** turn uses the
+  next route. `/tts` network errors count towards switching.
+- **Health**: the last route that worked is remembered. A down route is probed with `GET {route}/health` after 1, 2, 4, 8, 16, 30, 30 … s;
+  when it answers it is up again and, if it comes earlier in the list (the primary), the app switches back to it.
+- **Offline /log queue** (`src/voice/voiceLogQueue.ts`, file `firstgo.voice.logQueue.v1.json` in the document directory). A `/log`
+  post that fails on the route is kept (max 200 entries / 1 day, oldest dropped) and resent in order — after the next successful
+  `/log`, when a route recovers, and at app start; queued bodies carry `queued: true` and `queuedAgeMs`. An entry the server refuses
+  (4xx JSON) is dropped. **Audio is never persisted**. OTP turns are still never posted; if an OTP-flagged body (otp flag, expect=otp,
+  Esign / DealerOtp / consent-OTP screen) ever reaches the queue only a masked transcript (••••••) is kept, and every text field has runs
+  of 4+ spaced digits or digit words (English / Hindi) masked before it is written. The file is re-sanitised on load.
+- **No connection**: when every route is down and the phone is not sure on its own (say again, clarify, a fuzzy "Did you mean"), the
+  pill says **"No connection — try again or tap it"** (`/log` reason `no_connection`) instead of a guess. Confident phone results
+  (keyword auto-act, an on-screen chip match, a sure money/sign command that needs Confirm anyway) still work as before.
+- **Diagnostics**: Profile → *Talking to Zippy* shows the current route and its state (ok / down / no connection, retry in N s,
+  route k of n, fetched list).
+
+## v1.4.5 — listening bubble = mic disc (one state)
+
+- **One source of truth** (`src/voice/micFlow.ts`): VoiceHost derives `micView(phase)` once and passes the same `live` flag and the
+  same elapsed timer to the mic disc (VoiceMic) and the "Listening…" bubble (`bubbleFor`, which now also shows the m:ss timer). VoiceMic
+  no longer has a local "pressed" flag, so a finger on the disc never paints a recording state the session isn't in.
+- **Recogniser sessions** (`src/voice/asrSession.ts`, used by `deviceAsr.ts`): one session is open from `start()` until its own `'end'`.
+  A new turn first awaits `prepareDeviceAsr()`: the still-open session is aborted (once) and its `'end'` awaited, bounded at 400 ms,
+  before the new listeners are registered and `start()` is called. If that `'end'` never came in time it is owed as stale debt: the new
+  session swallows an `'end'` / `'aborted'` error / `'audioend'` only until it sees an event of its own (nothing is gated on `'start'`,
+  so a permission / language error that preempts it is still delivered). A stale handle's `stop()` / `abort()` never touch a newer session.
+- **Self-end while held**: the recogniser ending (or reporting no-speech) while the finger is still down is restarted once, transparently
+  (listening and the timer stay on; heard words are finalised instead). A second self-end shows "Didn't catch that — hold and speak
+  again" (`/log` reason `asr_ended`). Hands-free end-of-speech with nothing heard is `no_speech`. The 15 s cap now behaves like letting go.
+- **Barge-in**: pressing while Zippy (Piper) reads out stops the read-out and listens (metric note `barge-in`); the old
+  "Wait until the read-out finishes" refusal is gone.
+- **Previous turn on a new press**: logged `cancelled` only when it was really still recording; `superseded` when it was waiting for its
+  final after release, `asr_ended` when its recogniser had already ended, nothing when it was already handled.
+
 ## v1.4.0 — fast, live, correctable
 
 **Two talk modes** (Profile → *Talking to Zippy* → Talk mode; `src/voice/voiceSettings.ts`):
@@ -197,8 +385,8 @@ draft; Cases / Offer don't apply them yet.
   (real values — fill-on-Confirm only, never shown or logged), `normalizedFieldsDisplay` (OTP masked — what the UI shows),
   `readBack`, `reference`, `offerKeyboard`, `repromptCount`, `hasOtpField`. Parsing lives in `sttClient.parseResponse`;
   pure helpers in `voiceLogic.ts` (tested by `npm run test:voice`).
-- **Read-back**: the preview plays the Piper WAV from the `/command` response (no second `/tts`). The mic ignores holds
-  while a Piper read-out is playing ("Wait until the read-out finishes, then hold the mic."); playback end or stop posts `/tts/done`. HTTP 409 shows
+- **Read-back**: the preview plays the Piper WAV from the `/command` response (no second `/tts`). Since v1.4.5 a hold
+  during a Piper read-out stops it and listens (barge-in); playback end or stop posts `/tts/done`. HTTP 409 shows
   "Still speaking. Wait until the read-out finishes…".
 - **Preview**: `clarify` → "Did you mean…?" with two candidate buttons; `retry` → "Sorry, say that again." with examples;
   `reprompt` → field error + "Type it instead" (prominent when `offerKeyboard` or `repromptCount >= 2`); a digit-only

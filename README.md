@@ -2,27 +2,31 @@
 
 Dealer first go app.
 
-**Current version: v1.4.4** (versionCode 21). [Release](https://github.com/gauravds1980-code/Firstgoapp/releases/tag/v1.4.4) · [APK](https://github.com/gauravds1980-code/Firstgoapp/releases/download/v1.4.4/FIRSTgo-v1.4.4.apk).
+**Current version: v1.4.5** (versionCode 22). [Release](https://github.com/gauravds1980-code/Firstgoapp/releases/tag/v1.4.5) · [APK](https://github.com/gauravds1980-code/Firstgoapp/releases/download/v1.4.5/FIRSTgo-v1.4.5.apk).
 
-FIRSTgo v1.4.4 is the IDFC FIRST Bank dealer-side vehicle loan origination prototype for the bank's wheels business (two-wheeler, car and commercial vehicle). Dealers log in, pull a pre-qualified offer (scan the customer’s QR or search by mobile), and walk a new-vehicle journey through KYC, mandate, agreement, and disbursal. All data is mock. There are no real bank APIs — the integrations in `src/services/` are typed stubs.
+FIRSTgo v1.4.5 is the IDFC FIRST Bank dealer-side vehicle loan origination prototype for the bank's wheels business (two-wheeler, car and commercial vehicle). Dealers log in, pull a pre-qualified offer (scan the customer’s QR or search by mobile), and walk a new-vehicle journey through KYC, mandate, agreement, and disbursal. All data is mock. There are no real bank APIs — the integrations in `src/services/` are typed stubs.
 
 ## Download the Android APK
 
-[FIRSTgo v1.4.4 release](https://github.com/gauravds1980-code/Firstgoapp/releases/tag/v1.4.4) · [FIRSTgo-v1.4.4.apk](https://github.com/gauravds1980-code/Firstgoapp/releases/download/v1.4.4/FIRSTgo-v1.4.4.apk) (arm64, v1.4.4, versionCode 21).
+[FIRSTgo v1.4.5 release](https://github.com/gauravds1980-code/Firstgoapp/releases/tag/v1.4.5) · [FIRSTgo-v1.4.5.apk](https://github.com/gauravds1980-code/Firstgoapp/releases/download/v1.4.5/FIRSTgo-v1.4.5.apk) (arm64, v1.4.5, versionCode 22).
 
-Direct link: https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.4.4.apk
+Direct link: https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.4.5.apk
 
-What's new in v1.4.4:
+What's new in v1.4.5:
 
-Offline vehicle chip selection and clearer voice details
+Hands-off voice and the five voice fixes
 
-- The phone now selects the vehicle or tenure chip itself when the server is slow or unreachable. A full name like "extreme 125 r" selects with Undo, partial names confirm first, and a mismatched number like "pulsar ns 200" asks "Did you mean…?".
-- The server asks to clarify when a spoken number conflicts with the chip, and matches "XUV 700" to XUV700.
-- The internal id no longer shows as a duplicate "Model" row.
+- Loan amount by voice on the vehicle screen ("loan amount 1 lakh", "1 lakh ka loan", "dedh lakh"), with Undo; a bare amount confirms first; above or below the limit offers the allowed value; an amount never jumps to another screen. "1.2 lakh" and "1,10,000" now read correctly.
+- E-sign OTP is hands-off: say the 6 digits and the app fills and verifies by itself, saying only "OTP entered, verifying". The OTP is never shown, logged or stored in clear. A failed OTP clears and asks again.
+- Trade Advance repay by voice ("pay 80000", "repay 80k", "pay full"): a confirm, then a pre-filled repay sheet, and a spoken yes pays. "Pay <amount>" never offers Auto pay. "Enhance my limit" opens the Enhance sheet and can fill the new limit ("I need an enhancement of 15 lakhs").
+- RC pendency: say a customer's name to open their row ("update Vikram Rao"), with fuzzy names, "which Vikram?" and "not in pending RCs". RC numbers can be spoken letter by letter (incl. BH series), are checked against state codes, read back and voice-confirmed before submit.
+- The "Listening…" bubble now always matches the mic button; quick re-presses no longer lose the turn; pressing during a read-out stops it and listens.
+- "Proceed / continue / next / aage chaliye / आगे चलिए" advance the current step everywhere; payments and final submits ask for a spoken yes. Drawdown Continue and "send OTP" after a valid 10-digit number happen by themselves (buttons stay). Cases and Portfolio rows open a detail sheet, by tap or by name.
+- Steadier voice connection: the app retries once, can switch between voice routes and reads an updated route list from the server, keeps failed voice logs and resends them later (OTP never kept in clear), and shows "No connection — try again or tap it" instead of a wrong guess.
 
-versionCode 21. ios.buildNumber stays "1" (no 1.4.x iOS binary has shipped yet). No new native iOS plugins.
+versionCode 22. ios.buildNumber stays "1". No new native iOS plugins.
 
-Previous builds: [FIRSTgo-v1.4.3.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.4.3.apk), [FIRSTgo-v1.4.2.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.4.2.apk), [FIRSTgo-v1.4.1.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.4.1.apk), [FIRSTgo-v1.4.0.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.4.0.apk), [FIRSTgo-v1.3.1-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.3.1-arm64.apk), [FIRSTgo-v1.3.0-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.3.0-arm64.apk), [FIRSTgo-v1.2.9-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.9-arm64.apk), [FIRSTgo-v1.2.8-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.8-arm64.apk), [FIRSTgo-v1.2.7-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.7-arm64.apk), [FIRSTgo-v1.2.6-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.6-arm64.apk), [FIRSTgo-v1.2.5-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.5-arm64.apk), [FIRSTgo-v1.2.4-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.4-arm64.apk), [FIRSTgo-v1.2.2-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.2-arm64.apk), [FIRSTgo-v1.2.1-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.1-arm64.apk), and [FIRSTgo-v1.2.0-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.0-arm64.apk).
+Previous builds: [FIRSTgo-v1.4.4.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.4.4.apk), [FIRSTgo-v1.4.3.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.4.3.apk), [FIRSTgo-v1.4.2.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.4.2.apk), [FIRSTgo-v1.4.1.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.4.1.apk), [FIRSTgo-v1.4.0.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.4.0.apk), [FIRSTgo-v1.3.1-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.3.1-arm64.apk), [FIRSTgo-v1.3.0-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.3.0-arm64.apk), [FIRSTgo-v1.2.9-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.9-arm64.apk), [FIRSTgo-v1.2.8-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.8-arm64.apk), [FIRSTgo-v1.2.7-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.7-arm64.apk), [FIRSTgo-v1.2.6-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.6-arm64.apk), [FIRSTgo-v1.2.5-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.5-arm64.apk), [FIRSTgo-v1.2.4-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.4-arm64.apk), [FIRSTgo-v1.2.2-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.2-arm64.apk), [FIRSTgo-v1.2.1-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.1-arm64.apk), and [FIRSTgo-v1.2.0-arm64.apk](https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.2.0-arm64.apk).
 
 ## Features in v1.2
 
@@ -92,7 +96,7 @@ npx expo prebuild -p android
 cd android && ./gradlew assembleRelease
 ```
 
-The published arm64 build for this version is checked in at `releases/FIRSTgo-v1.4.4.apk`. `android/` and `ios/` are generated and gitignored.
+The published arm64 build for this version is checked in at `releases/FIRSTgo-v1.4.5.apk`. `android/` and `ios/` are generated and gitignored.
 
 ## iOS
 

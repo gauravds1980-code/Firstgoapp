@@ -2,7 +2,7 @@ import { navRef } from '../navigation/navRef';
 import type { RootStackParamList } from '../navigation/types';
 import { voiceDraft } from './voiceDraft';
 import type { AssistantActionName, CommandResponse, NormalizedField, VoiceSlots } from './types';
-import { maskOtp, planTarget, safeTranscript, slotsForSelect, slotsFromFields, validFields } from './voiceLogic';
+import { maskOtp, planTarget, safeTranscript, sheetSlotsFor, slotsForSelect, slotsFromFields, validFields } from './voiceLogic';
 
 /** Routes the proxy may send that take no required params (safe to navigate to by name). */
 const NAVIGABLE = new Set<keyof RootStackParamList>([
@@ -59,8 +59,10 @@ export function applyCommand(cmd: CommandResponse, opts: { navDelayMs?: number }
   // Spoken numbers (PHONE / AMOUNT / OTP) go into the draft on Confirm; screens fill their inputs from it.
   const filled = slotsFromFields(validFields(cmd));
   const transcript = safeTranscript(cmd);
+  // v1.4.5 TA_REPAY / ENHANCE_TA_LIMIT: the TaInf sheet reads the amount / full flag / reason from the draft.
+  const sheet = sheetSlotsFor(cmd);
   if (plan.kind === 'navigated' && (hasSlots(cmd.slots) || filter || hasSlots(filled))) {
-    voiceDraft.set({ intent: cmd.intent, transcript, route, filter, slots: { ...cmd.slots, ...filled } });
+    voiceDraft.set({ intent: cmd.intent, transcript, route, filter, slots: { ...cmd.slots, ...filled, ...sheet } });
   } else if (plan.kind === 'filled' && hasSlots(filled)) {
     voiceDraft.merge({ transcript, slots: filled });
   } else if (target.kind === 'select') {

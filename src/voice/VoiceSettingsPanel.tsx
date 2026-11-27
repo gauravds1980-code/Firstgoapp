@@ -1,10 +1,12 @@
-import React, { useReducer, useState } from 'react';
+import React, { useEffect, useReducer, useState } from 'react';
 import { Platform, Switch, View } from 'react-native';
 import { ZippyAvoid } from '../components/assistant/zippyAvoid';
 import { Icon, PressableScale, Text } from '../components/ui';
 import { SHOW_DEV_UI } from '../config/devFlags';
 import { colors, radius, space, touch } from '../theme/tokens';
+import { voiceRoutes } from './config';
 import { deviceAsrSupport } from './deviceAsr';
+import { routeStatusText } from './voiceRoutes';
 import { METRIC_NAMES, voiceMetrics, type MetricName } from './voiceMetrics';
 import { recognizerLang, type TalkMode, type VoiceLocale } from './voiceMode';
 import { setVoiceSetting, useVoiceSettings } from './voiceSettings';
@@ -44,6 +46,23 @@ function Segmented<T extends string>({ value, options, onChange, label }: { valu
  * Voice settings (v1.4.0) in Profile: talk mode (default hold-to-talk), recognizer language, the phone's own
  * speech recognizer (feature flag `voice.onDeviceAsr`), spoken replies vs cue sounds (`voice.spokenReplies`), and "Voice speed stats" (p50 / p95 of the last 50 turns).
  */
+/** v1.4.5 diagnostics: the current voice route and its state, live (re-renders on route changes; ticks while down). */
+function VoiceRouteLine() {
+  const [, bump] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => voiceRoutes.onChange(bump), []);
+  const snap = voiceRoutes.snapshot();
+  useEffect(() => {
+    if (!snap.allDown) return;
+    const t = setInterval(bump, 1000);
+    return () => clearInterval(t);
+  }, [snap.allDown]);
+  return (
+    <Text variant="caption" color={snap.allDown ? colors.danger : colors.textMuted} numberOfLines={2} accessibilityLabel="Voice server route">
+      {routeStatusText(snap)}
+    </Text>
+  );
+}
+
 export function VoiceSettingsPanel() {
   const s = useVoiceSettings();
   const [showStats, setShowStats] = useState(false);
@@ -64,6 +83,7 @@ export function VoiceSettingsPanel() {
         <Icon name="microphone-settings" size={22} color={colors.primary} />
         <Text variant="bodyStrong" style={{ flex: 1 }}>Talking to Zippy</Text>
       </View>
+      <VoiceRouteLine />
       <View style={{ gap: space.xs }}>
         <Text variant="caption" color={colors.textSecondary}>Talk mode</Text>
         <Segmented label="Talk mode" value={s.mode} options={MODES} onChange={(v) => setVoiceSetting('mode', v)} />

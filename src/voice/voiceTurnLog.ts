@@ -13,6 +13,9 @@
  * VOICE_LOG setting is the only on/off switch.
  */
 
+import type { LogQueue } from './voiceLogQueue';
+import { classifyHttp, type RouteOutcome } from './voiceRoutes';
+
 export type TurnLogPath = 'device' | 'server' | 'device+check' | 'device+text' | 'stream';
 
 /**
@@ -21,7 +24,7 @@ export type TurnLogPath = 'device' | 'server' | 'device+check' | 'device+text' |
  * - executed: auto, confirmed
  * - confirm: clarify, preview, did_you_mean
  * - unmatched: retry, below_floor, no_candidates, nothing
- * - dropped: too_short, cancelled, permission, prompted, dismissed, double_tap
+ * - dropped: too_short, cancelled, superseded, permission, prompted, dismissed, double_tap
  * - error: no_speech, network, timeout, http, asr_<kind>, error (any other failure code is kept as the reason)
  */
 export type TurnOutcome = 'executed' | 'confirm' | 'unmatched' | 'dropped' | 'error';
@@ -32,7 +35,7 @@ const LEGACY_OUTCOME: Record<string, TurnOutcome> = {
   auto: 'executed', confirmed: 'executed',
   preview: 'confirm', clarify: 'confirm', did_you_mean: 'confirm',
   retry: 'unmatched', nothing: 'unmatched', below_floor: 'unmatched', no_candidates: 'unmatched',
-  too_short: 'dropped', cancelled: 'dropped', permission: 'dropped', permission_denied: 'dropped', prompted: 'dropped', dismissed: 'dropped', double_tap: 'dropped',
+  too_short: 'dropped', cancelled: 'dropped', superseded: 'dropped', permission: 'dropped', permission_denied: 'dropped', prompted: 'dropped', dismissed: 'dropped', double_tap: 'dropped',
   no_speech: 'error', network: 'error', timeout: 'error', http: 'error', error: 'error',
 };
 
@@ -114,7 +117,7 @@ export type TurnEndInput = {
 
 /** /log record for a dropped / error turn, or null for OTP turns. Transcript = final device text, else the partial. */
 export function turnEndRecord(i: TurnEndInput): DeviceTurnRecord | null {
-  if (i.otp || isOtpTurn({ expect: i.expect })) return null;
+  if (i.otp || isOtpTurn({ expect: i.expect, screen: i.screen, route: i.route })) return null;
   const heard = (i.deviceText ?? '').trim() || (i.partial ?? '').trim();
   return {
     turnId: i.turnId,
@@ -173,12 +176,26 @@ export type FetchLike = (url: string, init: { method: string; headers: Record<st
 export type TurnLogDeps = {
   fetch: FetchLike;
   storage: KeyValueStorage;
-  /** `${STT_BASE_URL}` or '' when voice is not configured (then nothing is posted). */
+  /** The current voice route (voiceRoutes.ts) or '' when voice is not configured (then nothing is posted). */
   baseUrl: () => string;
   platform: string;
   appVersion: string;
   random?: () => number;
+  /** v1.4.5: offline queue (voiceLogQueue.ts). A /log post that fails on the route is kept and resent later. */
+  queue?: LogQueue;
+  /** v1.4.5: tell the route manager how the route answered ('route' = tunnel down / network error). */
+  report?: (base: string, outcome: RouteOutcome) => void;
 };
+
+/** A fetch result → ok / route failure / app error. Anything without a numeric status (old test doubles) is ok. */
+async function sendOutcome(res: unknown): Promise<RouteOutcome> {
+  if (typeof res !== 'object' || res === null) return 'ok';
+  const r = res as { status?: unknown; headers?: { get?(n: string): string | null } | null; text?: () => Promise<string> };
+  if (typeof r.status !== 'number') return 'ok';
+  let start: string | null = null;
+  if (r.status >= 300 && typeof r.text === 'function') { try { start = (await r.text()).slice(0, 64); } catch { /* no body */ } }
+  return classifyHttp(r.status, typeof r.headers?.get === 'function' ? r.headers.get('content-type') : null, start);
+}
 
 export const INSTALL_ID_KEY = 'firstgo.voice.installId';
 
@@ -252,13 +269,17 @@ export function newTurnId(nowMs: number = Date.now(), random: () => number = Mat
 
 // ---- OTP --------------------------------------------------------------------------
 
-export function isOtpTurn(r: { expect?: string; otp?: boolean; hasOtpField?: boolean }): boolean {
-  return r.otp === true || r.hasOtpField === true || (r.expect ?? '').trim().toLowerCase() === 'otp';
+/** v1.4.5: screens that only ever take an OTP by voice: a turn there is an OTP turn even without `expect`. */
+const OTP_ONLY_SCREENS: ReadonlySet<string> = new Set(['Esign', 'DealerOtp']);
+
+export function isOtpTurn(r: { expect?: string; otp?: boolean; hasOtpField?: boolean; screen?: string; route?: string }): boolean {
+  return r.otp === true || r.hasOtpField === true || (r.expect ?? '').trim().toLowerCase() === 'otp'
+    || OTP_ONLY_SCREENS.has(r.screen ?? '') || OTP_ONLY_SCREENS.has(r.route ?? '');
 }
 
 /** JSON body for POST /log, or null for OTP turns (never posted). Drops empty keys. */
 export function buildLogBody(rec: DeviceTurnRecord): Record<string, unknown> | null {
-  if (isOtpTurn(rec)) return null;
+  if (isOtpTurn({ ...rec, route: rec.context?.route })) return null;
   const { otp: _otp, hasOtpField: _h, audioBase64, mimeType, candidates, ...rest } = rec;
   const body: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(rest)) if (v !== undefined && v !== null && v !== '') body[k] = v;
@@ -319,23 +340,48 @@ export function createVoiceTurnLog(deps: TurnLogDeps) {
    * error. Never rejects, so callers can `void postDeviceTurn(...)` on the UI path.
    */
   async function postDeviceTurn(rec: DeviceTurnRecord): Promise<boolean> {
+    let body: Record<string, unknown> | null = null;
     try {
       const base = deps.baseUrl();
       if (!base) return false;
-      const body = buildLogBody({ ...meta({}), ...rec, deviceIdHash: rec.deviceIdHash ?? (await deviceIdHash()) });
+      body = buildLogBody({ ...meta({}), ...rec, deviceIdHash: rec.deviceIdHash ?? (await deviceIdHash()) });
       if (!body) return false;
-      await deps.fetch(`${base}/log`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify(body),
-      });
-      return true;
+      const outcome = await send(base, body);
+      if (outcome === 'route') { await deps.queue?.enqueue(body); return false; }
+      if (outcome === 'ok' && deps.queue?.size()) void flushQueue();
+      return outcome === 'ok';
     } catch {
       return false;
     }
   }
 
-  return { deviceIdHash, deviceIdHashSync, meta, postDeviceTurn };
+  /** One POST {base}/log → outcome (reported to the route manager). Never rejects. */
+  async function send(base: string, body: Record<string, unknown>): Promise<RouteOutcome> {
+    let outcome: RouteOutcome;
+    try {
+      const res = await deps.fetch(`${base}/log`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify(body),
+      });
+      outcome = await sendOutcome(res);
+    } catch {
+      outcome = 'route';
+    }
+    try { deps.report?.(base, outcome); } catch { /* listener */ }
+    return outcome;
+  }
+
+  /** Resend queued /log posts in order on the current route (after a success, on route recovery, at app start). */
+  async function flushQueue(): Promise<{ sent: number; dropped: number; left: number }> {
+    const q = deps.queue;
+    if (!q) return { sent: 0, dropped: 0, left: 0 };
+    await q.load();
+    if (!q.size()) return { sent: 0, dropped: 0, left: 0 };
+    return q.flush((b) => { const base = deps.baseUrl(); return base ? send(base, b) : Promise.resolve('route' as const); });
+  }
+
+  return { deviceIdHash, deviceIdHashSync, meta, postDeviceTurn, flushQueue };
 }
 
 export type VoiceTurnLog = ReturnType<typeof createVoiceTurnLog>;

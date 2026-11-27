@@ -14,6 +14,7 @@
  */
 import { Platform } from 'react-native';
 import type { ExpoSpeechRecognitionErrorEvent, ExpoSpeechRecognitionOptions, ExpoSpeechRecognitionResultEvent } from 'expo-speech-recognition';
+import { createAsrSessionGate, type PrepareResult } from './asrSession';
 import { androidLocaleExtras, hasInstalledLocale, normLocale, pickRecognitionService, recognizerLang, type VoiceLocale } from './voiceMode';
 
 type Module = typeof import('expo-speech-recognition').ExpoSpeechRecognitionModule;
@@ -130,6 +131,25 @@ export interface DeviceAsrStartInfo {
 
 export interface DeviceAsrHandle { stop(): void; abort(): void; info: DeviceAsrStartInfo }
 
+/** v1.4.5: module-level open-session tracking (asrSession.ts) — one recogniser session at a time. */
+const gate = createAsrSessionGate({ now: () => Date.now(), setTimer: (cb, ms) => setTimeout(cb, ms), clearTimer: (h) => clearTimeout(h as ReturnType<typeof setTimeout>) });
+
+/**
+ * Call (and await) before startDeviceAsr(): when the previous recogniser session has not emitted its 'end' yet,
+ * abort it and wait for that 'end' (≤ ASR_END_WAIT_MS) so it can never end the new session.
+ */
+export function prepareDeviceAsr(): Promise<PrepareResult> {
+  const m = load();
+  if (!m) return Promise.resolve({ waitedMs: 0, timedOut: false, hadOpen: false, superseded: false });
+  return gate.prepare({
+    abort: () => m.abort(),
+    onceEnd: (cb) => { const sub = m.addListener('end', () => cb()); return () => sub.remove(); },
+  });
+}
+
+/** A recogniser session is still waiting for its 'end' (diagnostics / tests). */
+export const isDeviceAsrOpen = (): boolean => gate.isOpen();
+
 /**
  * Start one recognition turn. `continuous: false`: the recognizer ends the turn at end-of-speech (hands-free)
  * or when `stop()` is called (push-to-talk release), emitting a final result first.
@@ -150,8 +170,13 @@ export function startDeviceAsr(o: {
   const service = sup.service ?? 'default';
   const info: DeviceAsrStartInfo = { service, onDeviceRequested, persistRequested, gotResult: false };
   const cleanup = () => { while (subs.length) { try { subs.pop()?.remove(); } catch { /* gone */ } } };
-  subs.push(m.addListener('start', () => o.onStart?.()));
+  // Registered with the gate BEFORE any listener: a still-open older session becomes stale debt (its late
+  // 'end' / 'aborted' error is swallowed until this session sees an event of its own).
+  const sid = gate.begin(cleanup);
+  const ok = (k: Parameters<typeof gate.accept>[1]) => gate.accept(sid, k);
+  subs.push(m.addListener('start', () => { if (ok('start')) o.onStart?.(); }));
   subs.push(m.addListener('result', (e: ExpoSpeechRecognitionResultEvent) => {
+    if (!ok('result')) return;
     const best = e.results?.[0];
     const text = (best?.transcript ?? '').trim();
     if (text) info.gotResult = true;
@@ -162,15 +187,18 @@ export function startDeviceAsr(o: {
     // (confidenceGate.normalizeAsrConfidence). Partial-fallback finals below pass 0.5 = known-shaky.
     o.onFinal?.(text || lastPartial, typeof best?.confidence === 'number' && Number.isFinite(best.confidence) ? best.confidence : -1);
   }));
-  subs.push(m.addListener('speechend', () => o.onSpeechEnd?.()));
-  subs.push(m.addListener('nomatch', () => { if (!gotFinal) { gotFinal = true; if (lastPartial) o.onFinal?.(lastPartial, 0.5); else o.onError?.('no-speech', 'nomatch', info); } }));
+  subs.push(m.addListener('speechstart', () => { ok('speech'); }));
+  subs.push(m.addListener('speechend', () => { if (ok('speech')) o.onSpeechEnd?.(); }));
+  subs.push(m.addListener('nomatch', () => { if (!ok('result')) return; if (!gotFinal) { gotFinal = true; if (lastPartial) o.onFinal?.(lastPartial, 0.5); else o.onError?.('no-speech', 'nomatch', info); } }));
   subs.push(m.addListener('error', (e: ExpoSpeechRecognitionErrorEvent) => {
+    if (!ok(e.error === 'aborted' ? 'aborted' : 'error')) return;
     // A partial already on screen is better than an error ("no-speech" after the dealer spoke).
     if (!gotFinal && lastPartial && e.error !== 'aborted') { gotFinal = true; o.onFinal?.(lastPartial, 0.5); return; }
     o.onError?.(e.error, e.message, info);
   }));
-  subs.push(m.addListener('audioend', (e: { uri?: string | null }) => { if (e?.uri) o.onAudio?.(e.uri); }));
+  subs.push(m.addListener('audioend', (e: { uri?: string | null }) => { if (ok('audioend') && e?.uri) o.onAudio?.(e.uri); }));
   subs.push(m.addListener('end', () => {
+    if (!ok('end')) return; // a late 'end' of an older, aborted session
     if (ended) return;
     ended = true;
     if (!gotFinal && lastPartial) { gotFinal = true; o.onFinal?.(lastPartial, 0.5); }
@@ -197,13 +225,15 @@ export function startDeviceAsr(o: {
     m.start(opts);
   } catch (e) {
     cleanup();
+    gate.failed(sid);
     o.onError?.('client', e instanceof Error ? e.message : 'start failed', info);
     o.onEnd?.();
     return null;
   }
   return {
     info,
-    stop: () => { try { m.stop(); } catch { /* already stopped */ } },
-    abort: () => { try { m.abort(); } catch { /* already stopped */ } },
+    // Only this session's own recogniser: a stale handle never stops / aborts a newer session.
+    stop: () => { if (gate.openId() === sid) { try { m.stop(); } catch { /* already stopped */ } } },
+    abort: () => gate.abortOpen(sid, () => m.abort()),
   };
 }

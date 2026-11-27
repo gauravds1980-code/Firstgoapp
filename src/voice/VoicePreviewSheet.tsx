@@ -16,11 +16,16 @@ const ASSISTANT_LABEL: Record<string, string> = {
   open: 'Stay here with Zippy',
 };
 
-const FIELD_LABEL: Record<string, string> = { PHONE: 'Mobile', AMOUNT: 'Amount', OTP: 'OTP', DIGITS: 'Number' };
+const FIELD_LABEL: Record<string, string> = { VEHICLE_REG: 'RC number', PHONE: 'Mobile', AMOUNT: 'Amount', OTP: 'OTP', DIGITS: 'Number' };
 const fieldLabel = (t: string) => FIELD_LABEL[t] ?? 'Number';
 const MAX_LEN: Record<string, number> = { PHONE: 10, OTP: 6, AMOUNT: 9 };
 
-function confirmLabel(plan: ApplyOutcome): string {
+function confirmLabel(plan: ApplyOutcome, command?: CommandResponse): string {
+  // v1.4.5: the repay sheet / Enhance sheet / loan slider / a customer row, in their own words.
+  if (command?.intent === 'TA_REPAY' && plan.kind === 'navigated') return 'Confirm';
+  if (command?.intent === 'ENHANCE_TA_LIMIT' && plan.kind === 'navigated') return 'Open the enhance form';
+  if (plan.kind === 'selected' && plan.optionKind === 'amount') return `Set ${plan.label}`;
+  if (plan.kind === 'selected' && plan.optionKind === 'customer') return `Open ${plan.label}`;
   if (plan.kind === 'navigated') return `Open ${ROUTE_LABEL[plan.route] ?? plan.route}`;
   if (plan.kind === 'assistant') return plan.action === 'open' ? 'OK' : 'Read it out';
   if (plan.kind === 'filled') return fillLabel(plan.fields);
@@ -109,7 +114,7 @@ export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, 
   const what = plan.kind === 'navigated' ? `Go to ${ROUTE_LABEL[plan.route] ?? plan.route}${filter ? ` (${filter.replace(/_/g, ' ')})` : ''}`
     : plan.kind === 'assistant' ? ASSISTANT_LABEL[plan.action] ?? 'Zippy help'
     : plan.kind === 'selected' ? `Select ${plan.label}`
-    : plan.kind === 'filled' ? `Fill the ${fieldLabel(plan.fields[0]?.type ?? '').toLowerCase()} on this screen (you still tap Verify / Continue yourself)`
+    : plan.kind === 'filled' ? `Fill the ${fieldLabel(plan.fields[0]?.type ?? '').toLowerCase()} on this screen (payments and final submits still ask you first)`
     : plan.kind === 'blocked' ? plan.reason
     : clarify ? 'Tap the right one. Destructive steps (sign, pay, mandate, upload) still ask you to confirm.'
     : status === 'retry' ? (serverText || 'Hold the mic and try one of these:')
@@ -157,7 +162,7 @@ export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, 
               </>
             )}
             {plan.kind === 'selected' && (
-              <Text variant="caption" color={colors.textSecondary}>Selects this option on the current screen. You still tap Continue yourself.</Text>
+              <Text variant="caption" color={colors.textSecondary}>Selects this option on the current screen. Payments and final submits still ask you first.</Text>
             )}
             {status === 'retry' && !serverText && VOICE_EXAMPLES.map((ex) => (
               <Text key={ex} variant="body" color={colors.textSecondary}>• “{ex}”</Text>
@@ -246,7 +251,8 @@ export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, 
   );
   const buttons = (
     <View style={{ gap: space.xs }}>
-      {actionable && <Button label={confirmLabel(plan)} onPress={onConfirm} icon="check" />}
+      {actionable && <Button label={confirmLabel(plan, command)} onPress={onConfirm} icon="check" />}
+      {actionable && <Text variant="caption" color={colors.textSecondary} style={{ textAlign: 'center' }}>Or hold the mic and say “yes”.</Text>}
       {!actionable && onSayAgain && <Button label="Say again" variant="secondary" icon="microphone" onPress={onSayAgain} />}
       <Button label={embedded ? 'Not this' : 'Cancel'} variant={actionable || onSayAgain ? 'ghost' : 'secondary'} onPress={onCancel} />
     </View>

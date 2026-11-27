@@ -18,6 +18,7 @@ import { VoiceTranscriptSheet } from './VoiceTranscriptSheet';
 import { maskSpoken, voiceTranscript } from './voiceTranscript';
 import { asrDiagLine, getAsrDiag, subscribeAsrDiag } from './asrDiag';
 import { useVoiceCommand } from './useVoiceCommand';
+import { bubbleFor, micView, nextLiveSince } from './micFlow';
 import { installVoiceDemo } from './voiceDemo';
 import { preloadCueSounds } from './playVoiceCue';
 import { VoicePreviewSheet } from './VoicePreviewSheet';
@@ -77,6 +78,18 @@ export function VoiceHost({ route }: { route?: string }) {
 
   const voice = useVoiceCommand({ readOut });
   const { mode, debugAsr } = useVoiceSettings();
+  // v1.4.5: ONE recording state + ONE timer for both the mic disc and the "Listening…" bubble (micFlow.ts).
+  const view = micView(voice.phase);
+  const sinceRef = useRef<number | null>(null);
+  sinceRef.current = nextLiveSince(sinceRef.current, view.live, Date.now());
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!view.live) { setElapsed(0); return; }
+    const tick = () => setElapsed(sinceRef.current == null ? 0 : Date.now() - sinceRef.current);
+    tick();
+    const h = setInterval(tick, 250);
+    return () => clearInterval(h);
+  }, [view.live]);
   // v1.4.2: optional debug line (Settings → Voice speed stats → Show voice debug line). Never a transcript.
   const diag = useSyncExternalStore(subscribeAsrDiag, getAsrDiag, getAsrDiag);
   const debugLine = debugAsr ? asrDiagLine(diag) : null;
@@ -168,14 +181,12 @@ export function VoiceHost({ route }: { route?: string }) {
 
   // v1.4.0: live words while listening; the final / draft text right after release with a small "checking"
   // dot while Whisper double-checks. Never a blocking spinner that hides what was heard.
-  const listeningNow = voice.phase === 'listening';
   // OTP digits are dots here too, even when the OTP was said outside the OTP screen (maskSpoken).
   const heard = maskSpoken(voice.live?.text?.trim() ?? '').text;
-  const status = listeningNow
-    ? (heard || (mode === 'handsfree' ? 'Listening… tap to cancel' : 'Listening… let go to send'))
-    : voice.live?.final ? (heard ? `“${heard}”` : 'Got it — checking…')
-    : voice.phase === 'thinking' ? 'Got it — checking…' : null;
-  const checking = !listeningNow && (voice.phase === 'thinking' || !!voice.live?.checking);
+  const bubble = bubbleFor({ phase: voice.phase, mode, heard, final: !!voice.live?.final, checkingLive: !!voice.live?.checking, elapsedMs: elapsed });
+  const listeningNow = !!bubble?.listening;
+  const status = bubble?.text ?? null;
+  const checking = !!bubble?.checking;
   const top = insets.top + HEADER_H;
   const debugCaption = debugLine ? (
     <View testID="voice-asr-debug" accessibilityLabel={`Voice debug: ${debugLine}`}
@@ -184,8 +195,8 @@ export function VoiceHost({ route }: { route?: string }) {
     </View>
   ) : null;
   // Interim words: grey + caret; final words: solid ink. Hints ("Listening… let go to send") stay grey.
-  const interim = listeningNow && !!heard;
-  const solid = !listeningNow && !!voice.live?.final && !!heard;
+  const interim = !!bubble?.interim;
+  const solid = !!bubble?.solid;
   const pillW = Math.min(PILL_MAX_W, winW - 2 * gutter.screen);
   const debugUp = !!debugCaption && !showPreview && !!banner;
   const overlay = (
@@ -199,6 +210,7 @@ export function VoiceHost({ route }: { route?: string }) {
             <Text variant="label" numberOfLines={2} style={{ flexShrink: 1 }} color={solid ? colors.text : colors.textSecondary}>
               {status}{interim && <Text variant="label" color={colors.primary}>|</Text>}
             </Text>
+            {bubble?.timer && <Text variant="caption" color={colors.textSecondary} maxFontSizeMultiplier={1} accessibilityLabel={`${Math.floor(elapsed / 1000)} seconds`}>{bubble.timer}</Text>}
             {checking && <View accessibilityLabel="Checking" style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.cta }} />}
           </View>
         </View>
@@ -254,7 +266,7 @@ export function VoiceHost({ route }: { route?: string }) {
               onSayAgain={voice.sayAgain} onEditTranscript={voice.editTranscript} />
           ) : null} />
       )}
-      {showMic && placement && <VoiceMic placement={placement} />}
+      {showMic && placement && <VoiceMic placement={placement} view={view} elapsed={elapsed} />}
     </>
   );
   if (!sheetOpen) return <>{overlay}{dock}</>;

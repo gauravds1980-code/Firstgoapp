@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { JourneyScreen } from '../components/Screen';
 import { useZippyMood } from '../components/assistant/zippyStore';
 import { useSectionTracker, useZippyPending } from '../components/assistant/zippySection';
@@ -13,6 +13,10 @@ import { colors, radius, space, touch } from '../theme/tokens';
 import { maskMobile } from '../utils/finance';
 import { haptic, hapticMoment } from '../utils/haptics';
 import { reportValidationError } from '../tutorial/tutorialStore';
+import { ESIGN_RETRY_TEXT, otpFromDraft } from '../voice/otpParse';
+import { voiceSay } from '../voice/voiceAsk';
+import { useVoiceDraft, voiceDraft } from '../voice/voiceDraft';
+import { useUndoSource } from '../voice/voiceUndo';
 
 /**
  * v1.2.2: there is no dealer KFS screen. The KFS + agreement go to the customer's registered mobile
@@ -46,6 +50,7 @@ export default function EsignScreen() {
 
   const send = async () => {
     setSession(null); setResendIn(30);
+    voiceDraft.take('otp'); voiceDraft.take('otpSubmit'); // a code spoken before this OTP was sent is stale
     const r = await esign.sendAgreementAndOtp(journey.offer.registeredMobile, journey.offer.loanApplicationNumber);
     if (r.ok) { setSession(r.data); hapticMoment.offerSent(); }
   };
@@ -62,14 +67,37 @@ export default function EsignScreen() {
     return () => clearTimeout(t);
   }, [resendIn]);
 
-  const verify = async (code = otp) => {
+  const verify = async (code = otp, byVoice = false) => {
     if (!session) return;
     setLoading(true); setErr('');
     const r = await esign.verifyEsignOtp(session.txnId, code);
     setLoading(false);
-    if (!r.ok) { haptic.error(); reportValidationError('Esign'); setErr(r.message); return; }
+    if (!r.ok) {
+      haptic.error(); reportValidationError('Esign'); setErr(r.message);
+      // v1.4.5 hands-off: a spoken code that failed is cleared and the dealer is asked again by voice.
+      if (byVoice) { setOtp(''); voiceSay(ESIGN_RETRY_TEXT, 'error'); }
+      return;
+    }
     haptic.success(); update({ esignDone: true }); nav.navigate('Docs');
   };
+
+  // v1.4.5 REQUIREMENT CHANGE (Gaurav): the e-sign OTP step is fully hands-off by voice. Exactly 6 spoken digits
+  // (voice draft otp + otpSubmit, set by useVoiceCommand only on this screen) fill the boxes and verify at once —
+  // the same verify() the 6th typed digit runs. No Confirm card, no tap. A failure clears the boxes and re-prompts.
+  // Kept in the draft until the OTP session exists.
+  const draft = useVoiceDraft();
+  const focused = useIsFocused();
+  const signed = journey.esignDone;
+  useEffect(() => {
+    if (!focused || !draft?.slots.otp || !session || loading || signed) return;
+    const submit = voiceDraft.take('otpSubmit') === true;
+    const code = otpFromDraft(voiceDraft.take('otp'), false); // exactly 6 digits, else dropped
+    if (!code) return;
+    setOtp(code); setErr('');
+    if (submit) void verify(code, true);
+  }, [draft, focused, session, loading, signed]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Voice Undo (an OTP fill elsewhere in the app uses it; the hands-off fill here has no Undo).
+  useUndoSource('otp', () => otp, (v) => { setOtp(v); setErr(''); }, focused);
 
   // v1.3.0: it signs by itself at the 6th digit, so there is no disabled button while the OTP is incomplete —
   // just a status line. The button shows while signing, once signed, and to retry a full OTP after an error.

@@ -12,7 +12,7 @@
  */
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer, type AudioStatus } from 'expo-audio';
 import { File, Paths } from 'expo-file-system';
-import { STT_TIMEOUT_MS, isVoiceConfigured, ttsDoneUrl, ttsUrl } from './config';
+import { STT_TIMEOUT_MS, isVoiceConfigured, ttsDoneUrl, ttsUrl, voiceBase, voiceRoutes } from './config';
 import { VOICE_SESSION_ID } from './voiceContext';
 import { REPLY_CLIPS, REPLY_CLIP_SECONDS } from './replyClips.generated';
 import { clipKey } from './voiceMode';
@@ -108,13 +108,20 @@ async function fetchPiperWav(text: string): Promise<string> {
   if (!isVoiceConfigured()) throw new Error('voice not configured');
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), STT_TIMEOUT_MS);
+  const base = voiceBase();
   try {
-    const res = await fetch(ttsUrl(), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify({ text, sessionId: VOICE_SESSION_ID }),
-      signal: ctrl.signal,
-    });
+    let res: Response;
+    try {
+      res = await fetch(ttsUrl(base), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ text, sessionId: VOICE_SESSION_ID }),
+        signal: ctrl.signal,
+      });
+    } catch (e) {
+      if (!ctrl.signal.aborted) voiceRoutes.markFail(base); // network error: counts towards switching route
+      throw e;
+    }
     const body = await res.json().catch(() => null) as TtsResponse | null;
     if (!res.ok || !body?.audioBase64) throw new Error(`Piper /tts failed (${res.status})`);
     return body.audioBase64;

@@ -157,8 +157,11 @@ export interface RcCase { lan: string; customer: string; vehicle: string; disbur
 /** Indian registration format, e.g. MH12AB1234, DL3CAB1234, KA01M1234; also BH series 22BH1234AA. */
 export const REG_REGEX = /^(?:[A-Z]{2}\d{1,2}[A-Z]{0,3}\d{4}|\d{2}BH\d{4}[A-Z]{1,2})$/;
 export const normaliseReg = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
+/** The two REG_REGEX shapes with their groups (state, RTO, series, number) / (year, BH, number, letters). */
+export const NORMAL_REG_RE = /^([A-Z]{2})(\d{1,2})([A-Z]{0,3})(\d{4})$/;
+export const BH_REG_RE = /^(\d{2})(BH)(\d{4})([A-Z]{1,2})$/;
 export const prettyReg = (s: string) => {
-  const r = normaliseReg(s); const m = r.match(/^([A-Z]{2})(\d{1,2})([A-Z]{0,3})(\d{4})$/);
+  const r = normaliseReg(s); const m = r.match(NORMAL_REG_RE) ?? r.match(BH_REG_RE);
   return m ? [m[1], m[2], m[3], m[4]].filter(Boolean).join(' ') : r;
 };
 
@@ -223,6 +226,19 @@ export interface WcApplication { ref: string; facility: FacilityType; name: stri
 /** Illustrative caps for the mock forms (not bank policy). */
 export const ENHANCE_STEP = 50000;
 export const enhanceCap = (sanctioned: number) => sanctioned * 2;
+const rupees = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
+/**
+ * v1.4.5 S2.3: why a requested new limit cannot be used (typed `text` / voice value), or undefined when it is fine:
+ * above the current limit, up to the cap, on the ENHANCE_STEP grid. Invalid values never auto-advance.
+ */
+export function enhanceAmountError(amount: number, text: string, sanctioned: number): string | undefined {
+  const cap = enhanceCap(sanctioned);
+  if (!text) return 'Enter the new limit';
+  if (amount <= sanctioned) return `Must be above your current ${rupees(sanctioned)}`;
+  if (amount > cap) return `Up to ${rupees(cap)} in this example`;
+  if (amount % ENHANCE_STEP !== 0) return `Use steps of ${rupees(ENHANCE_STEP)}`;
+  return undefined;
+}
 export const APPLY_MIN = 100000;
 export const APPLY_MAX = 50000000;
 
@@ -287,6 +303,41 @@ export function applyRepay(l: Limit, ids: string[]): { limit: Limit; total: numb
   const paid = l.tranches.filter((t) => pick.has(t.id) && t.status !== 'paid');
   const total = sumOf(paid);
   return { total, limit: { ...l, utilised: Math.max(0, l.utilised - total), tranches: l.tranches.map((t) => (pick.has(t.id) && t.status !== 'paid' ? { ...t, status: 'paid' as const, paidOn: new Date(TODAY) } : t)) } };
+}
+/**
+ * v1.4.5 amount-based repayment ("pay 80000" by voice): oldest / overdue tranches first, the last one part-paid.
+ * `amount` 'full' (or anything ≥ the unpaid total) = every unpaid tranche in full.
+ */
+export interface RepayLine { id: string; label: string; due: Date; status: TrancheStatus; owed: number; pay: number; part: boolean }
+export interface RepayPlan { amount: number; full: boolean; over: boolean; requested: number | 'full'; lines: RepayLine[] }
+export function planRepay(tranches: Tranche[], amount: number | 'full'): RepayPlan {
+  const unpaid = tranches.filter((t) => t.status !== 'paid' && t.amount > 0)
+    .sort((a, b) => Number(trancheStatus(b) === 'overdue') - Number(trancheStatus(a) === 'overdue') || a.due.getTime() - b.due.getTime());
+  const owed = sumOf(unpaid);
+  const want = amount === 'full' ? owed : Math.max(0, Math.round(amount));
+  const pay = Math.min(want, owed);
+  const lines: RepayLine[] = [];
+  let left = pay;
+  for (const t of unpaid) {
+    if (left <= 0) break;
+    const p = Math.min(t.amount, left);
+    lines.push({ id: t.id, label: t.label, due: t.due, status: trancheStatus(t), owed: t.amount, pay: p, part: p < t.amount });
+    left -= p;
+  }
+  return { amount: pay, full: owed > 0 && pay === owed, over: amount !== 'full' && want > owed, requested: amount, lines };
+}
+/** Apply a planned repayment: fully paid tranches are marked paid, a part-paid one keeps its remainder. */
+export function applyRepayAmount(l: Limit, plan: RepayPlan): { limit: Limit; total: number } {
+  const byId = new Map(plan.lines.map((x) => [x.id, x]));
+  let total = 0;
+  const tranches = l.tranches.map((t) => {
+    const x = byId.get(t.id);
+    if (!x || t.status === 'paid') return t;
+    const p = Math.min(x.pay, t.amount);
+    total += p;
+    return p >= t.amount ? { ...t, status: 'paid' as const, paidOn: new Date(TODAY) } : { ...t, amount: t.amount - p };
+  });
+  return { total, limit: { ...l, utilised: Math.max(0, l.utilised - total), tranches } };
 }
 /** Mock bank calls (real: LMS drawdown / repayment APIs). */
 export async function requestDrawdown(_amount: number): Promise<{ utr: string }> { await delay(900); return { utr: mockUtr() }; }

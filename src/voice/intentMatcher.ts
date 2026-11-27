@@ -10,6 +10,7 @@
  * Destructive intents (submit / sign / pay / mandate / upload) are never auto, whatever the score.
  * Pure: no React Native imports.
  */
+import { hasScaledAmount } from './amountParse';
 import { COMMAND_CATALOG } from './commandCatalog.generated';
 import { parseResponse } from './sttClient';
 import type { CommandResponse, IntentCandidate, VoiceSlots } from './types';
@@ -290,10 +291,52 @@ function rank(text: string): { normalized: string; ranked: { p: Prepared; score:
   return { normalized, ranked: [...byAction.values()].sort((a, b) => b.score - a.score || b.p.tokens.length - a.p.tokens.length) };
 }
 
+// ---- v1.4.5 amount / pay guards (server: loan_amount.guard_navigation, ta_repay.mandate_guard) ----------------
+/** Only an explicit start verb keeps "a loan of 1 lakh" on a journey (server loan_amount.START_RE). */
+const START_VERB_RE = /\b(?:start|new|begin|apply|journey|qr|shuru|chalu)\b|नया|नई|शुरू|चालू/i;
+const DOWN_PAYMENT_RE = /\bdown\s*-?\s*payment\b|\bdp\b|डाउन\s*पेमेंट/i;
+const PAY_WORD_RE = /\b(?:re-?pay|pay|paying|payment|jama|chuka|chukao|bharo|bhar)\b|चुका|जमा|भुगतान/i;
+const MANDATE_CUE_RE = /\b(?:auto|autopay|mandate|emandate|upi|nach|e mandate)\b|ऑटो|मैंडेट/i;
+/** Intents an amount phrase may still reach (they act on the current screen's field / sheet, Confirm-guarded). */
+const AMOUNT_OK_INTENTS: ReadonlySet<string> = new Set(['SET_LOAN_AMOUNT', 'TA_REPAY', 'CHANGE_DOWN_PAYMENT']);
+const MANDATE_INTENTS: ReadonlySet<string> = new Set(['SETUP_UPI_MANDATE', 'OPEN_UPI_APP']);
+
+/**
+ * v1.4.5: a spoken amount ("loan amount 1 lakh", "one lakh", "pay 80000") never maps to a navigation
+ * (START_NEW_LOAN "want a loan", START_MOBILE_JOURNEY, …) unless an explicit start verb was said, and "pay …"
+ * without a mandate word never suggests Auto pay (SETUP_UPI_MANDATE). Down payment phrases keep their route.
+ */
+export function amountBlocksNavigation(text: string): boolean {
+  const t = text ?? '';
+  return hasScaledAmount(t) && !START_VERB_RE.test(t) && !DOWN_PAYMENT_RE.test(t);
+}
+export const payIsNotMandate = (text: string): boolean => PAY_WORD_RE.test(text ?? '') && !MANDATE_CUE_RE.test(normalizeText(text ?? '')) && !MANDATE_CUE_RE.test(text ?? '');
+
+const AMOUNT_WORD_RE = /\b(?:amount|amt|rashi|raashi|rakam)\b|अमाउंट|राशि|रकम/i;
+
+function guardRanked(text: string, ranked: { p: Prepared; score: number }[]): { p: Prepared; score: number }[] {
+  const noNav = amountBlocksNavigation(text);
+  const noMandate = payIsNotMandate(text);
+  // The v1.4.5 field intents only compete when their words are there: a repay needs a pay word, a loan amount
+  // needs an amount (or the word "amount"). Otherwise a phonetic cue ("bhai" ~ "bhar") steals the margin.
+  const noRepay = !PAY_WORD_RE.test(text);
+  const noLoanAmount = !hasScaledAmount(text) && !AMOUNT_WORD_RE.test(text);
+  if (!noNav && !noMandate && !noRepay && !noLoanAmount) return ranked;
+  return ranked.filter(({ p }) => {
+    if (noRepay && p.intent === 'TA_REPAY') return false;
+    if (noLoanAmount && p.intent === LOAN_AMOUNT_INTENT) return false;
+    if (noMandate && MANDATE_INTENTS.has(p.intent)) return false;
+    if (noNav && actionFor(p.intent).type === 'navigate' && !AMOUNT_OK_INTENTS.has(p.intent)) return false;
+    return true;
+  });
+}
+
 /** Match one utterance against the fixed command list (+ cues, guards, vehicle entity). */
 export function matchCommand(text: string): LocalMatch {
   const plan = clausePlan(text ?? '');
-  const { normalized, ranked } = rank(plan.positive);
+  const ranked0 = rank(plan.positive);
+  const normalized = ranked0.normalized;
+  const ranked = guardRanked(text ?? '', ranked0.ranked);
   const none: LocalMatch = { intent: 'UNKNOWN', phrase: null, score: 0, method: 'none', band: 'retry', candidates: [], margin: 0, normalized };
   const top = ranked[0];
   if (!top) return none;
@@ -377,13 +420,18 @@ export async function serverOverConfirm(
   }
 }
 
+export const LOAN_AMOUNT_INTENT = 'SET_LOAN_AMOUNT';
+/** Server loan_amount.NO_FIELD_TEXT: a loan amount said off the vehicle screen never navigates. */
+export const LOAN_AMOUNT_NO_FIELD = 'You can set the loan amount on the vehicle screen.';
+
 /** Words that carry slots / numbers the server must parse (names, amounts, tenure, phone, OTP). */
-const SLOT_RE = /\d|\b(?:for|down payment|months?|tenure|rupees|rs|lakh|lakhs|thousand|mahine|saal|years?|number|otp)\b/;
-/** Should this device transcript go to the server's text path (slots, numbers, on-screen options)? */
-export function needsServerText(text: string, ctx: { expect?: string; options?: unknown[] } = {}): boolean {
+const SLOT_RE = /\d|\b(?:for|down payment|months?|tenure|rupees|rs|lakh|lakhs|lac|lacs|thousand|hazaar|hazar|hajaar|crore|mahine|saal|years?|number|otp)\b/;
+/** Should this device transcript go to the server's text path (slots, numbers, on-screen options / fields)? */
+export function needsServerText(text: string, ctx: { expect?: string; options?: unknown[]; fields?: unknown[] } = {}): boolean {
   if (ctx.expect) return true;
   if (ctx.options && ctx.options.length) return true;
-  return SLOT_RE.test(normalizeText(text));
+  if (ctx.fields && ctx.fields.length) return true;
+  return SLOT_RE.test(normalizeText(text)) || hasScaledAmount(text);
 }
 
 /**
@@ -393,6 +441,14 @@ export function needsServerText(text: string, ctx: { expect?: string; options?: 
  */
 export function localCommand(text: string, m: LocalMatch, asrConfidence = 1): CommandResponse {
   const base = { transcript: text, confidence: asrConfidence, engine: 'device', method: 'keyword', matcher: m.method, normalizedTranscript: m.normalized };
+  // v1.4.5: the command list knows "loan amount …" but not the screen's field: never a select / navigation from
+  // here. The phone's field resolver (optionResolver.resolveOnPhone) sets it on the Asset screen.
+  if (m.intent === LOAN_AMOUNT_INTENT && m.band !== 'retry') {
+    return parseResponse({
+      ...base, intent: LOAN_AMOUNT_INTENT, score: m.score, matchedPhrase: m.phrase, action: { type: 'none' }, status: 'ok',
+      responseText: LOAN_AMOUNT_NO_FIELD, confidenceBand: 'confirm', autoExecute: false, autoReason: 'loan_amount_no_field',
+    });
+  }
   // A guard-set confirm (negation / question / vehicle "Did you mean") is never promoted to auto.
   if (m.band === 'auto' || (!m.guard && m.band === 'confirm' && m.candidates.length <= 1 && m.score >= LOCAL_AUTO)) {
     const cmd = parseResponse({

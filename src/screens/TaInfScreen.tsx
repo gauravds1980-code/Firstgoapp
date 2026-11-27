@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { JourneyScreen } from '../components/Screen';
 import { ZippyAvoid } from '../components/assistant/zippyAvoid';
@@ -9,15 +10,21 @@ import { copyUtr, useToast } from '../components/Toast';
 import { Chip, ExampleTag, inrShort } from '../components/business';
 import { Button, Card, Field, Icon, Pill, PressableScale, ReadOnlyRow, Segmented, Skeleton, Text } from '../components/ui';
 import {
-  applyDisburse, applyRepay, availableOf, canDisburse, FacilityType, daysFromToday, dueAfter, drawdownInterest, DRAWDOWN_STEP, dueIn30, fmtDate, Limit, MIN_DRAWDOWN,
+  applyDisburse, applyRepay, applyRepayAmount, availableOf, planRepay, RepayPlan, canDisburse, FacilityType, daysFromToday, dueAfter, drawdownInterest, DRAWDOWN_STEP, dueIn30, fmtDate, Limit, MIN_DRAWDOWN,
   payTranches, requestDrawdown, sumOf, taInfFor, Tranche, TrancheStatus,
 } from '../services/business';
 import { useApp } from '../state/AppState';
 import { saveWcApplication, updateTaInf, useTaInf, useWcApplication } from '../state/stores';
-import { ApplySheet, AvailLimit, EnhanceChip, EnhanceSheet } from '../components/TaInfForms';
+import { ApplySheet, AvailLimit, EnhanceChip, EnhanceSheet, type EnhanceVoice } from '../components/TaInfForms';
 import { colors, radius, space, touch } from '../theme/tokens';
 import { haptic } from '../utils/haptics';
 import { inr } from '../utils/finance';
+import { AUTO_ADVANCE_MS } from '../voice/autoAdvance';
+import { useAutoAdvance, useVoiceStep } from '../voice/useAutoAdvance';
+import { askVoiceConfirm, voiceSay } from '../voice/voiceAsk';
+import { useUndoSource } from '../voice/voiceUndo';
+import { useVoiceDraft, voiceDraft } from '../voice/voiceDraft';
+import { clearVoiceFields, setVoiceFields } from '../voice/voiceOptions';
 
 /** Floating Zippy sits bottom-right: keep the last rows (and their Pay buttons) scrollable clear of it. */
 const ZIPPY_CLEARANCE = 96;
@@ -40,6 +47,42 @@ export default function TaInfScreen() {
   const [done, setDone] = useState<Done | null>(null);
 
   const [enhanceOpen, setEnhanceOpen] = useState(false);
+  /** v1.4.5 S2.3: the new limit / reason spoken with "I need an enhancement of 15 lakhs" (filled when the sheet opens). */
+  const [enhanceVoice, setEnhanceVoice] = useState<EnhanceVoice>(null);
+  /** v1.4.5 voice repay ("pay 80000" → Confirm): the amount-based plan the repay sheet shows (null = tranche picks). */
+  const [voicePlan, setVoicePlan] = useState<RepayPlan | null>(null);
+
+  // v1.4.5 voice: utilised / outstanding as the repay field (CONTRACT.md 2.1) so "pay 5 lakh" can offer the full amount.
+  const utilised = limit ? limit.utilised : null;
+  useFocusEffect(useCallback(() => {
+    if (utilised === null) return undefined;
+    const token = setVoiceFields([{ id: 'ta-repay', kind: 'amount', label: 'Repay amount', utilised }], 'TaInf');
+    return () => clearVoiceFields(token);
+  }, [utilised]));
+
+  // v1.4.5 voice: a CONFIRMED TA_REPAY opens the repay sheet pre-filled with the plan (oldest / overdue first,
+  // part-payment shown); ENHANCE_TA_LIMIT opens the Enhance sheet. Paying stays a Pay tap or a spoken "yes".
+  const draft = useVoiceDraft();
+  const focused = useIsFocused();
+  useEffect(() => {
+    if (!draft || !focused || !limit || (draft.filter !== 'repay' && draft.filter !== 'enhance')) return;
+    const d = voiceDraft.consume();
+    if (!d) return;
+    if (d.filter === 'enhance') {
+      if (limit.enhancement) { voiceSay(`An enhancement to ${inr(limit.enhancement.requested)} is already pending.`); return; }
+      const v = { ...(d.slots.enhanceAmount !== undefined ? { amount: d.slots.enhanceAmount } : {}), ...(d.slots.enhanceReasonId ? { reasonId: d.slots.enhanceReasonId } : {}) };
+      setEnhanceVoice(Object.keys(v).length ? v : null);
+      setEnhanceOpen(true);
+      return;
+    }
+    const want = d.slots.repayAll ? 'full' : d.slots.repayAmount;
+    if (want === undefined) return;
+    const plan = planRepay(limit.tranches, want);
+    if (plan.amount <= 0) { voiceSay('Nothing to repay.'); return; }
+    setSelected([]);
+    setVoicePlan(plan);
+    setRepayOpen(true);
+  }, [draft, focused, limit]);
 
   if (limit === null) return <AvailScreen dealerId={dealerId} dealerName={session?.name ?? ''} />;
   const title = limit?.name ?? (profile?.facilityType === 'INF' ? 'Inventory Funding' : 'Trade Advance');
@@ -60,7 +103,7 @@ export default function TaInfScreen() {
   const selTranches = limit.tranches.filter((t) => sel.includes(t.id));
   const selTotal = sumOf(selTranches);
   const toggle = (id: string) => { haptic.select(); setSelected((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id])); };
-  const payOne = (id: string) => { setSelected([id]); setRepayOpen(true); };
+  const payOne = (id: string) => { setVoicePlan(null); setSelected([id]); setRepayOpen(true); };
 
   const footer = sel.length > 0 ? (
     <View style={{ gap: space.xs }}>
@@ -70,7 +113,7 @@ export default function TaInfScreen() {
           <Text variant="label" color={colors.primary}>Clear</Text>
         </PressableScale>
       </View>
-      <Button label={`Repay ${plural(sel.length)} · ${inr(selTotal)}`} icon="cash-check" onPress={() => setRepayOpen(true)} />
+      <Button label={`Repay ${plural(sel.length)} · ${inr(selTotal)}`} icon="cash-check" onPress={() => { setVoicePlan(null); setRepayOpen(true); }} />
     </View>
   ) : isTA ? (
     <View style={{ gap: space.xs }}>
@@ -103,7 +146,7 @@ export default function TaInfScreen() {
           <UtrRow utr={done.utr} onCopy={() => copyUtr(done.utr, show)} />
         </Card>
       )}
-      <LimitCard l={limit} onEnhance={() => setEnhanceOpen(true)} />
+      <LimitCard l={limit} onEnhance={() => { setEnhanceVoice(null); setEnhanceOpen(true); }} />
       <TrancheList l={limit} selected={sel} onToggle={toggle} onPay={payOne}
         onSelectDue={() => { haptic.select(); setSelected(dueIn30(limit).map((t) => t.id)); }} />
       <View style={{ height: ZIPPY_CLEARANCE }} />
@@ -116,10 +159,22 @@ export default function TaInfScreen() {
           setDone({ kind: 'disburse', amount, utr });
           return utr;
         }} />}
-      <EnhanceSheet visible={enhanceOpen} l={limit} onClose={() => setEnhanceOpen(false)}
+      <EnhanceSheet visible={enhanceOpen} l={limit} voice={enhanceVoice} onClose={() => { setEnhanceOpen(false); setEnhanceVoice(null); }}
         onSubmitted={(r) => updateTaInf(dealerId, (l) => (l.enhancement ? l : { ...l, enhancement: r }))} />
-      <RepaySheet visible={repayOpen} tranches={selTranches} onClose={() => setRepayOpen(false)}
+      <RepaySheet visible={repayOpen} tranches={selTranches} plan={voicePlan} onClose={() => { setRepayOpen(false); setVoicePlan(null); }}
         onConfirm={async (method) => {
+          if (voicePlan) {
+            // Voice amount plan: same payment call, then the part-payment aware update.
+            const ids = voicePlan.lines.map((x) => x.id);
+            const { utr } = await payTranches(ids, method);
+            let total = 0;
+            updateTaInf(dealerId, (l) => { const r = applyRepayAmount(l, voicePlan); total = r.total; return r.limit; });
+            haptic.success();
+            setVoicePlan(null);
+            setRepayOpen(false);
+            setDone({ kind: 'repay', amount: total, utr, count: ids.length });
+            return;
+          }
           const ids = selTranches.map((t) => t.id);
           const { utr } = await payTranches(ids, method);
           let total = 0;
@@ -269,7 +324,14 @@ function Metric({ label, value, tone = colors.text }: { label: string; value: st
 
 const CHIPS = [50000, 100000, 200000];
 
-/** TA drawdown: amount (slider, field, chips) → confirm → success with UTR. */
+/**
+ * TA drawdown: amount (slider, field, chips) → confirm → success with UTR.
+ * v1.4.5 S2.5 hands-off: the amount step registers the `drawdown-amount` field; a valid amount moves on to the
+ * confirm step by itself (900 ms after the last edit, at once for a voice amount; edit / drag cancels; one advance per
+ * step, so a Continue tap or voice "continue" during the countdown never double-moves). Invalid amounts never move on
+ * and the reason is said. The confirm step asks "Disburse ₹2,00,000? Say yes to disburse." — a spoken yes presses the
+ * same "Confirm · disburse ₹X" button (which stays).
+ */
 function DisburseSheet({ visible, l, account, onClose, onDone }: {
   visible: boolean; l: Limit; account: string; onClose: () => void; onDone: (amount: number) => Promise<string>;
 }) {
@@ -280,18 +342,73 @@ function DisburseSheet({ visible, l, account, onClose, onDone }: {
   const [amount, setAmount] = useState(MIN_DRAWDOWN);
   const [text, setText] = useState(String(MIN_DRAWDOWN));
   const [utr, setUtr] = useState<string | null>(null);
-  useEffect(() => { if (visible) { setStep('amount'); setAmount(Math.min(100000, avail)); setText(String(Math.min(100000, avail))); setUtr(null); setCopied(null); } }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
+  const advancer = useAutoAdvance(() => setStep('confirm'));
+  const focused = useIsFocused();
+  useEffect(() => { if (visible) { setStep('amount'); setAmount(Math.min(100000, avail)); setText(String(Math.min(100000, avail))); setUtr(null); setCopied(null); advancer.reset(); } }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
   const set = (v: number) => { setAmount(v); setText(String(v)); };
-  const valid = Number.isInteger(amount) && amount >= MIN_DRAWDOWN && amount <= avail;
-  const error = !text ? 'Enter an amount' : amount < MIN_DRAWDOWN ? `Minimum drawdown is ${inr(MIN_DRAWDOWN)}` : amount > avail ? `Only ${inr(avail)} is available` : undefined;
+  const errorFor = (v: number, t: string) => (!t ? 'Enter an amount' : v < MIN_DRAWDOWN ? `Minimum drawdown is ${inr(MIN_DRAWDOWN)}` : v > avail ? `Only ${inr(avail)} is available` : !Number.isInteger(v) ? 'Enter whole rupees' : undefined);
+  const error = errorFor(amount, text);
+  const valid = !error;
+  const typed = (v: number, t: string = String(v)) => { setAmount(v); setText(t); advancer.typed(!errorFor(v, t)); };
   const interest = drawdownInterest(l, amount);
-  const close = () => { setStep('amount'); onClose(); };
+  const close = () => { setStep('amount'); advancer.reset(); onClose(); };
+  const goConfirm = () => { if (valid) advancer.press(); };
+  const changeAmount = () => { setStep('amount'); advancer.reset(); };
+  const disbursing = useRef(false);
+  const confirm = async () => {
+    if (disbursing.current || step !== 'confirm') return;
+    disbursing.current = true;
+    try { const u = await onDone(amount); setUtr(u); setStep('done'); } finally { disbursing.current = false; }
+  };
+  const confirmRef = useRef(confirm);
+  confirmRef.current = confirm;
 
-  const footer = step === 'amount' ? <Button label="Continue" iconRight="arrow-right" disabled={!valid} onPress={() => setStep('confirm')} />
+  // A complete-looking invalid typed amount is explained once the dealer stops typing ("Only ₹4,50,000 is available").
+  useEffect(() => {
+    if (!visible || step !== 'amount' || !error || !text || amount < MIN_DRAWDOWN / 10) return undefined;
+    const h = setTimeout(() => voiceSay(`${error}.`, 'error'), AUTO_ADVANCE_MS);
+    return () => clearTimeout(h);
+  }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Voice: the amount field while the amount step is open; a voice amount fills and moves on at once.
+  const amountOpen = visible && step === 'amount' && focused;
+  useEffect(() => {
+    if (!amountOpen) return undefined;
+    const token = setVoiceFields([{ id: 'drawdown-amount', kind: 'amount', label: 'Drawdown amount', min: MIN_DRAWDOWN, max: avail, step: DRAWDOWN_STEP, value: amount }], 'TaInf');
+    return () => clearVoiceFields(token);
+  }, [amountOpen, avail, amount]);
+  const draft = useVoiceDraft();
+  useEffect(() => {
+    if (!amountOpen || draft?.slots.drawdownAmount === undefined) return;
+    const v = voiceDraft.take('drawdownAmount');
+    voiceDraft.take('drawdownAdvance');
+    if (v === undefined || !Number.isFinite(v)) return;
+    const n = Math.round(v);
+    set(n);
+    haptic.select();
+    const err = errorFor(n, String(n));
+    if (err) { advancer.cancel(); voiceSay(`${err}.`, 'error'); } else advancer.voice(true);
+  }, [draft, amountOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  useUndoSource('drawdown', () => ({ amount, step }), (p: { amount: number; step: 'amount' | 'confirm' | 'done' }) => {
+    if (step === 'done') return; set(p.amount); setStep(p.step === 'done' ? 'amount' : p.step); advancer.reset();
+  }, visible && focused);
+  // What voice ADVANCE presses: Continue (plain) on the amount step, the voice-confirmed disburse on the confirm step.
+  const confirmPrompt = `Disburse ${inr(amount)}?`;
+  useVoiceStep(visible && focused && step !== 'done' ? (step === 'amount'
+    ? { route: 'TaInf', sheet: 'disburse', step: 'amount', extra: { drawdownAmount: amount },
+      cta: { id: 'disburse-continue', label: 'Continue', destructive: false, enabled: valid, hint: error ? `${error}.` : undefined, press: goConfirm } }
+    : { route: 'TaInf', sheet: 'disburse', step: 'confirm', extra: { drawdownAmount: amount },
+      cta: { id: 'disburse-confirm', label: `Confirm · disburse ${inr(amount)}`, destructive: true, enabled: true, confirmPrompt, press: () => { void confirmRef.current(); } } }) : null);
+  // Reaching the confirm step asks by voice at once (hands-off): "Disburse ₹2,00,000? Say yes to disburse."
+  useEffect(() => {
+    if (!visible || step !== 'confirm' || !focused) return undefined;
+    return askVoiceConfirm({ prompt: `Disburse ${inr(amount)}? Say yes to disburse.`, yesWords: ['disburse', 'confirm', 'send'], onYes: () => { void confirmRef.current(); } });
+  }, [visible, step, focused]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const footer = step === 'amount' ? <Button label="Continue" iconRight="arrow-right" disabled={!valid} onPress={goConfirm} accessibilityHint="Moves on by itself once the amount is valid" />
     : step === 'confirm' ? (
       <View style={{ gap: space.xs }}>
-        <Button label={`Confirm · disburse ${inr(amount)}`} icon="check" onPress={async () => { const u = await onDone(amount); setUtr(u); setStep('done'); }} />
-        <Button label="Change amount" variant="ghost" onPress={() => setStep('amount')} />
+        <Button label={`Confirm · disburse ${inr(amount)}`} icon="check" onPress={() => { void confirm(); }} />
+        <Button label="Change amount" variant="ghost" onPress={changeAmount} />
       </View>
     ) : <Button label="Done" onPress={close} />;
 
@@ -301,16 +418,16 @@ function DisburseSheet({ visible, l, account, onClose, onDone }: {
         <>
           <Text variant="display" accessibilityLiveRegion="polite">{inr(amount)}</Text>
           <Slider label="Drawdown amount" value={Math.min(Math.max(amount, MIN_DRAWDOWN), avail)} min={MIN_DRAWDOWN} max={avail} step={DRAWDOWN_STEP}
-            onChange={(v) => set(v >= avail - DRAWDOWN_STEP / 2 ? avail : v)} />
+            onChange={(v) => typed(v >= avail - DRAWDOWN_STEP / 2 ? avail : v)} />
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
             <Text variant="caption" color={colors.textSecondary}>Min {inrShort(MIN_DRAWDOWN)}</Text>
             <Text variant="caption" color={colors.textSecondary}>Max {inrShort(avail)}</Text>
           </View>
           <Field label="Amount" prefix="₹" keyboardType="number-pad" value={text} maxLength={9} error={error}
-            onChangeText={(v) => { const d = v.replace(/\D/g, ''); setText(d); setAmount(d ? Number(d) : 0); }} />
+            onChangeText={(v) => { const d = v.replace(/\D/g, ''); typed(d ? Number(d) : 0, d); }} />
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
-            {CHIPS.filter((c) => c <= avail).map((c) => <Chip key={c} label={inrShort(c)} on={amount === c} onPress={() => { haptic.select(); set(c); }} />)}
-            <Chip label={`Max ${inrShort(avail)}`} on={amount === avail} onPress={() => { haptic.select(); set(avail); }} />
+            {CHIPS.filter((c) => c <= avail).map((c) => <Chip key={c} label={inrShort(c)} on={amount === c} onPress={() => { haptic.select(); typed(c); }} />)}
+            <Chip label={`Max ${inrShort(avail)}`} on={amount === avail} onPress={() => { haptic.select(); typed(avail); }} />
           </View>
         </>
       )}
@@ -339,23 +456,55 @@ function DisburseSheet({ visible, l, account, onClose, onDone }: {
   );
 }
 
-/** Confirm full repayment of the selected tranches (line items, total, mock UPI / net banking). */
-function RepaySheet({ visible, tranches, onClose, onConfirm }: {
-  visible: boolean; tranches: Tranche[]; onClose: () => void; onConfirm: (method: 'upi' | 'netbanking') => Promise<void>;
+/**
+ * Confirm full repayment of the selected tranches (line items, total, mock UPI / net banking). v1.4.5: or a voice
+ * amount plan (oldest / overdue first, the last tranche part-paid), which also asks a SPOKEN confirm: "Pay ₹80,000
+ * now? Say yes to pay." A voice "yes" runs the same onConfirm as the Pay button; "no" closes the sheet.
+ */
+function RepaySheet({ visible, tranches, plan, onClose, onConfirm }: {
+  visible: boolean; tranches: Tranche[]; plan?: RepayPlan | null; onClose: () => void; onConfirm: (method: 'upi' | 'netbanking') => Promise<void>;
 }) {
   const [method, setMethod] = useState<'upi' | 'netbanking'>('upi');
-  const total = sumOf(tranches);
+  const [paying, setPaying] = useState(false);
+  const total = plan ? plan.amount : sumOf(tranches);
+  const open = visible && (plan ? plan.amount > 0 : tranches.length > 0);
+  const payingRef = useRef(false);
+  const pay = async (m: 'upi' | 'netbanking') => {
+    if (payingRef.current) return;
+    payingRef.current = true; setPaying(true);
+    try { await onConfirm(m); } finally { payingRef.current = false; setPaying(false); }
+  };
+  const latest = useRef({ pay, method, onClose });
+  latest.current = { pay, method, onClose };
+  useEffect(() => {
+    if (!open || !plan) return undefined;
+    return askVoiceConfirm({
+      prompt: `Pay ${inr(plan.amount)} now? Say yes to pay.`,
+      yesWords: ['pay', 'repay', 'chuka', 'jama'],
+      onYes: () => { void latest.current.pay(latest.current.method); },
+      onNo: () => latest.current.onClose(),
+    });
+  }, [open, plan]);
+  // v1.4.5 S2.5: "pay" / "yes" / "proceed" on the open repay sheet = the voice-confirmed Pay (the button stays).
+  const focusedSheet = useIsFocused();
+  useVoiceStep(open && focusedSheet ? { route: 'TaInf', sheet: 'repay', extra: { repayAmount: total },
+    cta: { id: 'repay-pay', label: `Pay ${inr(total)}`, destructive: true, enabled: !paying, confirmPrompt: `Pay ${inr(total)} now?`, press: () => { void latest.current.pay(latest.current.method); } } } : null);
+  const rows = plan
+    ? plan.lines.map((x) => ({ id: x.id, label: x.label, t: { due: x.due, status: x.status } as Tranche, amount: x.pay, note: x.part ? `Part payment of ${inr(x.pay)} · ${inr(x.owed - x.pay)} left` : undefined }))
+    : tranches.map((t) => ({ id: t.id, label: t.label, t, amount: t.amount, note: undefined as string | undefined }));
   return (
-    <Sheet visible={visible && tranches.length > 0} onClose={onClose} title={`Repay ${plural(tranches.length)}`} subtitle="Full repayment of each tranche"
-      footer={<Button label={`Pay ${inr(total)}`} icon="lock-outline" disabled={!tranches.length} onPress={() => onConfirm(method)} />}>
+    <Sheet visible={open} onClose={onClose} title={plan ? `Repay ${inr(plan.amount)}` : `Repay ${plural(tranches.length)}`}
+      subtitle={plan ? (plan.full ? 'Full repayment of every unpaid tranche' : 'Oldest and overdue tranches first') : 'Full repayment of each tranche'}
+      footer={<Button label={`Pay ${inr(total)}`} icon="lock-outline" disabled={!rows.length || paying} loading={paying} onPress={() => { void pay(method); }} />}>
       <View style={{ gap: space.xs }}>
-        {tranches.map((t) => (
-          <View key={t.id} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.sm, borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: space.xs }}>
+        {rows.map((r) => (
+          <View key={r.id} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.sm, borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: space.xs }}>
             <View style={{ flex: 1 }}>
-              <Text variant="label">{t.label}</Text>
-              <Text variant="caption" color={t.status === 'overdue' ? colors.danger : t.status === 'dueSoon' ? colors.warning : colors.textSecondary}>{dueText(t)}</Text>
+              <Text variant="label">{r.label}</Text>
+              <Text variant="caption" color={r.t.status === 'overdue' ? colors.danger : r.t.status === 'dueSoon' ? colors.warning : colors.textSecondary}>{dueText(r.t)}</Text>
+              {r.note && <Text variant="caption" color={colors.primary}>{r.note}</Text>}
             </View>
-            <Text variant="label">{inr(t.amount)}</Text>
+            <Text variant="label">{inr(r.amount)}</Text>
           </View>
         ))}
         <ReadOnlyRow label="Total" value={inr(total)} strong />
@@ -364,6 +513,7 @@ function RepaySheet({ visible, tranches, onClose, onConfirm }: {
         <Text variant="label">Pay with</Text>
         <Segmented value={method} onChange={setMethod} options={[{ value: 'upi', label: 'UPI', icon: 'qrcode' }, { value: 'netbanking', label: 'Net banking', icon: 'bank-outline' }]} />
         <Text variant="caption" color={colors.textSecondary}>{method === 'upi' ? 'Example: approve the collect request in your UPI app.' : 'Example: pay from your IDFC FIRST current account ••4321.'}</Text>
+        {plan && <Text variant="caption" color={colors.textSecondary}>Say “yes” to pay, or tap Pay.</Text>}
       </View>
     </Sheet>
   );

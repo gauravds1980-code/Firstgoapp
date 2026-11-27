@@ -1,7 +1,8 @@
-import { commandUrl, isVoiceConfigured, textUrl, STT_PROVIDER, STT_TIMEOUT_MS, type SttProviderName } from './config';
+import { commandUrl, isVoiceConfigured, textUrl, voiceRoutes, STT_PROVIDER, STT_TIMEOUT_MS, type SttProviderName } from './config';
+import { classifyHttp, type FailureKind } from './voiceRoutes';
 import {
   VoiceError, type CommandContext, type CommandResponse, type CommandStatus, type ConfidenceBand, type IntentCandidate, type NormalizedField,
-  type VoiceAction, type VoiceReference,
+  type ReasonRef, type VoiceAction, type VoiceReference,
 } from './types';
 
 /**
@@ -53,9 +54,13 @@ function parseCandidates(v: unknown): IntentCandidate[] | undefined {
   if (!Array.isArray(v)) return undefined;
   const out = v.filter(isObj).filter((c) => typeof c.intent === 'string').map((c): IntentCandidate => {
     const option = parseOption(c.option);
+    const action = isObj(c.action) ? parseAction(c.action) : undefined;
+    const slots = isObj(c.slots) ? parseResponse({ slots: c.slots }).slots : undefined;
     return {
       intent: String(c.intent), phrase: str(c.phrase) ?? '', score: typeof c.score === 'number' ? c.score : 0,
       ...(option ? { option } : {}),
+      ...(action && action.type !== 'none' ? { action } : {}),
+      ...(slots && Object.keys(slots).length ? { slots } : {}),
     };
   });
   return out.length ? out : undefined;
@@ -85,10 +90,48 @@ function parseReference(v: unknown): VoiceReference | undefined {
   };
 }
 
+function parseReason(v: unknown): ReasonRef | undefined {
+  if (!isObj(v)) return undefined;
+  const id = strOrNum(v.id); const label = str(v.label);
+  if (!id || !label) return undefined;
+  return { id, kind: str(v.kind) ?? 'reason', label, ...(strOrNum(v.value) ? { value: strOrNum(v.value) } : {}) };
+}
+
 function parseAction(v: unknown): VoiceAction {
   if (!isObj(v)) return { type: 'none' };
   if (v.type === 'navigate' && typeof v.route === 'string') {
-    return { type: 'navigate', route: v.route, ...(typeof v.filter === 'string' ? { filter: v.filter } : {}) };
+    return {
+      type: 'navigate', route: v.route, ...(typeof v.filter === 'string' ? { filter: v.filter } : {}),
+      // v1.4.5 TA_REPAY / ENHANCE_TA_LIMIT: which sheet to open on TaInf and the repay amount / full flag.
+      ...(typeof v.sheet === 'string' ? { sheet: v.sheet } : {}),
+      ...(typeof v.amount === 'number' && Number.isFinite(v.amount) ? { amount: v.amount } : {}),
+      ...(v.full === true ? { full: true } : {}),
+      ...(parseReason(v.reason) ? { reason: parseReason(v.reason) } : {}),
+      ...(typeof v.customerName === 'string' ? { customerName: v.customerName } : {}),
+    };
+  }
+  if (v.type === 'advance') {
+    return {
+      type: 'advance',
+      ...(typeof v.route === 'string' ? { route: v.route } : {}),
+      ...(typeof v.sheet === 'string' ? { sheet: v.sheet } : {}),
+      ...(typeof v.step === 'string' ? { step: v.step } : {}),
+      ...(typeof v.cta === 'string' ? { cta: v.cta } : {}),
+      ...(v.destructive === true ? { destructive: true } : {}),
+      ...(v.confirmed === true ? { confirmed: true } : {}),
+      ...(typeof v.reg === 'string' ? { reg: v.reg } : {}),
+      ...(strOrNum(v.customerLan) ? { customerLan: strOrNum(v.customerLan) } : {}),
+    };
+  }
+  if (v.type === 'fill' && typeof v.field === 'string') {
+    return {
+      type: 'fill', field: v.field,
+      ...(strOrNum(v.value) ? { value: strOrNum(v.value) } : {}),
+      ...(typeof v.display === 'string' ? { display: v.display } : {}),
+      ...(strOrNum(v.customerLan) ? { customerLan: strOrNum(v.customerLan) } : {}),
+      ...(v.sendOtp === true ? { sendOtp: true } : {}),
+      ...(v.submit === true ? { submit: true } : {}),
+    };
   }
   if (v.type === 'assistant' && typeof v.action === 'string') {
     const a = v.action;
@@ -96,7 +139,14 @@ function parseAction(v: unknown): VoiceAction {
   }
   if (v.type === 'select') {
     const o = parseOption(v);
-    if (o) return { type: 'select', ...o };
+    if (o) {
+      return {
+        type: 'select', ...o,
+        ...(strOrNum(v.previous) ? { previous: strOrNum(v.previous) } : {}),
+        ...(v.advance === true ? { advance: true } : {}),
+        ...(parseReason(v.reason) ? { reason: parseReason(v.reason) } : {}),
+      };
+    }
   }
   return { type: 'none' };
 }
@@ -130,6 +180,14 @@ export function parseResponse(body: unknown): CommandResponse {
         ...(strOrNum(slots.assetId) ? { assetId: strOrNum(slots.assetId) } : {}),
         ...(typeof slots.brand === 'string' ? { brand: slots.brand } : {}),
         ...(typeof slots.model === 'string' ? { model: slots.model } : {}),
+        ...(typeof slots.loanAmount === 'number' ? { loanAmount: slots.loanAmount } : {}),
+        ...(typeof slots.repayAmount === 'number' ? { repayAmount: slots.repayAmount } : {}),
+        ...(slots.repayAll === true ? { repayAll: true } : {}),
+        ...(strOrNum(slots.customerLan) ? { customerLan: strOrNum(slots.customerLan) } : {}),
+        ...(typeof slots.enhanceAmount === 'number' ? { enhanceAmount: slots.enhanceAmount } : {}),
+        ...(typeof slots.enhanceReasonId === 'string' ? { enhanceReasonId: slots.enhanceReasonId } : {}),
+        ...(typeof slots.drawdownAmount === 'number' ? { drawdownAmount: slots.drawdownAmount } : {}),
+        ...(typeof slots.rcNumber === 'string' ? { rcNumber: slots.rcNumber } : {}),
         // slots.otp is deliberately NOT read: OTP only reaches the draft through a confirmed field fill.
       },
     } : {}),
@@ -148,6 +206,10 @@ export function parseResponse(body: unknown): CommandResponse {
     ...(BANDS.includes(b.confidenceBand as ConfidenceBand) ? { confidenceBand: b.confidenceBand as ConfidenceBand } : {}),
     ...(typeof b.autoReason === 'string' ? { autoReason: b.autoReason } : {}),
     ...(typeof b.matcher === 'string' ? { matcher: b.matcher } : {}),
+    ...(b.expectNext === 'amount' || b.expectNext === 'otp' || b.expectNext === 'phone' || b.expectNext === 'digits' ? { expectNext: b.expectNext } : {}),
+    ...(b.otp === true ? { otp: true } : {}),
+    ...(b.voiceConfirm === true ? { voiceConfirm: true } : {}),
+    ...(b.sendOtp === true ? { sendOtp: true } : {}),
   };
 }
 
@@ -196,25 +258,59 @@ export async function postToCommand(audioBase64: string, mimeType = 'audio/mp4',
  * handler, logged as /text); a server without /text (404 / 405) gets the same body on /command.
  */
 export async function postText(transcript: string, ctx?: CommandContext, extras?: CommandExtras): Promise<CommandResponse> {
-  return postCommandBody({ transcript, ...ctx, ...extras }, textUrl());
+  return postCommandBody({ transcript, ...ctx, ...extras }, 'text');
 }
 
-async function postCommandBody(body: Record<string, unknown>, url: string = commandUrl()): Promise<CommandResponse> {
-  if (!isVoiceConfigured()) throw new VoiceError('not_configured');
+/**
+ * v1.4.5: the route was at fault (network error, tunnel 404 / 502 / 503 / 504, HTML error page), not the server.
+ * Still a VoiceError('network'), so the dealer-facing copy and the /log reason are unchanged.
+ */
+export class RouteFailureError extends VoiceError {
+  readonly route = true;
+}
+
+/** How the route manager treats an error from a voice request: timeout = 'slow' (no retry), network / route = 'route'. */
+export function routeFailureKind(e: unknown): FailureKind {
+  if (e instanceof VoiceError) {
+    if (e.code === 'timeout') return 'slow';
+    if (e.code === 'network' || e instanceof RouteFailureError) return 'route';
+    return 'app';
+  }
+  return 'route';
+}
+
+/** One POST of `body` on route `base`. HTML / tunnel statuses throw RouteFailureError; our own JSON errors are 'http' / 'busy'. */
+async function postOnce(base: string, body: Record<string, unknown>, kind: 'text' | 'command'): Promise<CommandResponse> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), STT_TIMEOUT_MS);
   try {
     let res: Response;
+    let text = '';
     try {
-      res = await postJson(url, body, ctrl);
-      if ((res.status === 404 || res.status === 405) && url !== commandUrl()) res = await postJson(commandUrl(), body, ctrl);
+      res = await postJson(kind === 'text' ? textUrl(base) : commandUrl(base), body, ctrl);
+      text = await res.text().catch(() => '');
+      // A server without /text answers 404 / 405 in JSON: same body on /command (a tunnel's HTML 404 is a route failure).
+      if (kind === 'text' && (res.status === 404 || res.status === 405) && classifyHttp(res.status, res.headers?.get('content-type'), text.slice(0, 64)) === 'app') {
+        res = await postJson(commandUrl(base), body, ctrl);
+        text = await res.text().catch(() => '');
+      }
     } catch (e) {
-      throw new VoiceError(ctrl.signal.aborted ? 'timeout' : 'network', e instanceof Error ? e.message : undefined);
+      throw ctrl.signal.aborted ? new VoiceError('timeout', e instanceof Error ? e.message : undefined) : new RouteFailureError('network', e instanceof Error ? e.message : undefined);
     }
-    return await readCommand(res);
+    if (classifyHttp(res.status, res.headers?.get('content-type'), text.slice(0, 64)) === 'route') throw new RouteFailureError('network', `route: HTTP ${res.status}`);
+    return await readCommand({ ok: res.ok, status: res.status, json: async () => JSON.parse(text) });
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * /text: retried once quickly on a route failure (on the next route when there is one) before the caller falls back
+ * to the phone's own reading. /command: never resent (large audio); a route failure switches route for the next turn.
+ */
+async function postCommandBody(body: Record<string, unknown>, kind: 'text' | 'command' = 'command'): Promise<CommandResponse> {
+  if (!isVoiceConfigured()) throw new VoiceError('not_configured');
+  return voiceRoutes.run((base) => postOnce(base, body, kind), routeFailureKind, kind === 'text' ? 'next' : 'none');
 }
 
 /** Whole-clip /command. Live streaming (server path) lives in serverStream.ts and falls back to this. */

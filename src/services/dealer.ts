@@ -15,6 +15,11 @@ export interface DealerProfile {
   oem?: string; // e.g. 'Hero MotoCorp' — must match catalogue brand names
   products: DealerProduct[];
   branch: string;
+  /**
+   * v1.4.5: RTO state code of the dealership ("MH"), optional — the dealer master does not send it yet. Voice RC entry
+   * snaps misheard state codes toward it (default MH: every mock branch is in Maharashtra).
+   */
+  stateCode?: string;
   /** Has a Trade Advance or Inventory Funding facility with IDFC FIRST. Always `facilityType != null`. */
   hasTaInf: boolean;
   /** The ONE facility the dealer has: TA (dealer draws down) or INF (OEM draws on invoice), never both. */

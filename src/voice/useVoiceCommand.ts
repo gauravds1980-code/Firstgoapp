@@ -3,17 +3,18 @@ import { AppState, Platform } from 'react-native';
 import { File } from 'expo-file-system';
 import { haptic } from '../utils/haptics';
 import { applyCommand, planCommand, ROUTE_LABEL, stopSpeaking, type ApplyOutcome } from './applyCommand';
-import { PTT_MAX_HOLD_MS, PTT_MIN_HOLD_MS } from './config';
+import { PTT_MAX_HOLD_MS, PTT_MIN_HOLD_MS, voiceRoutes } from './config';
 import { assessDeviceResult, downgradeCommand, gateDiagText, MAX_PARTIALS, normalizeAsrConfidence, runGate, WHISPER_DISAGREE_MIN } from './confidenceGate';
 import { countAsrPartial, markAsrStarted, resetAsrTurn, updateAsrDiag } from './asrDiag';
 import { getEarlyWhisper } from './earlyWhisper';
-import { deviceAsrPermission, deviceAsrSupport, markOnDeviceBroken, markPersistBroken, startDeviceAsr, warmDeviceAsr, type DeviceAsrHandle } from './deviceAsr';
+import { deviceAsrPermission, deviceAsrSupport, markOnDeviceBroken, markPersistBroken, prepareDeviceAsr, startDeviceAsr, warmDeviceAsr, type DeviceAsrHandle } from './deviceAsr';
+import { DIDNT_CATCH, pressAction, prevTurnEndReason, selfEndAction } from './micFlow';
 import { chooseCandidate, localCommand, matchCommand, needsServerText, serverOverConfirm, shouldAskServerOnConfirm } from './intentMatcher';
 import { isParallelBroken, isParallelClash, markParallelBroken, parallelDiagText, registerTurnStreams, settleParallel, TurnCheck, TurnStreams, wantParallelStream, type ParallelOffReason } from './parallelWhisper';
 import { isReadingOut, playReply } from './piper';
 import { playVoiceCue } from './playVoiceCue';
 import { liveTextFromPartial } from './serverStream';
-import { getSttProvider } from './sttClient';
+import { getSttProvider, parseResponse, routeFailureKind } from './sttClient';
 import {
   VoiceError, voiceErrorMessage, type AssistantActionName, type CommandContext, type CommandResponse, type IntentCandidate, type NormalizedField,
   type VoiceExpect, type VoiceLive, type VoiceUiPhase,
@@ -27,7 +28,12 @@ import {
   classifyAsrError, explainAsrPath, contextualStrings, didYouMeanFrom, oneTapActs, reconcile, recognizerLang, type AsrPath, type TalkMode, type TurnStage,
 } from './voiceMode';
 import { getVoiceOptions } from './voiceOptions';
-import { offlineReading, optionAsConfirm, resolveScreenOption, serverOrOption } from './optionResolver';
+import { guardAnswer, NO_CONNECTION, offlineReading, offlineVerdict, optionAsConfirm, resolveOnPhone, serverOrOption } from './optionResolver';
+import { isFieldAnswer } from './fieldResolver';
+import { answerPending, askVoiceConfirm, parseYesNo, subscribeVoiceAsk } from './voiceAsk';
+import { advanceMatcherGuard, decideAdvance, getVoiceStep, isAdvancePhrase, isAdvanceReply, resolveAdvance } from './voiceStep';
+import { decideOtpTurn, ESIGN_VERIFY_TEXT, otpMaskFor, otpOfflineCommand, planOtpTurn } from './otpParse';
+import { voiceDraft } from './voiceDraft';
 import { getVoiceSettings, subscribeVoiceSettings } from './voiceSettings';
 import { captureUndo, runUndo, type UndoRecord } from './voiceUndo';
 import { cueKindFor, replyMode, type VoiceCueKind } from './voiceCues';
@@ -66,9 +72,6 @@ const MAX_DEVICE_FAILURES = 2;
 
 const isActed = (k: ApplyOutcome['kind']): k is 'navigated' | 'selected' | 'filled' => k === 'navigated' || k === 'selected' || k === 'filled';
 
-/** Holding the mic while a Piper read-out is still playing is refused (never cut the reply off). */
-export const WAIT_FOR_ZIPPY = 'Wait until the read-out finishes, then hold the mic.';
-
 const now = (): number => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
 
 /** One voice turn (press → result). Everything async checks `id` so a newer turn always wins. */
@@ -106,6 +109,12 @@ type Turn = {
   par?: { startedAt: number; released: boolean };
   /** One Whisper second check per turn: the streamed /end or the WAV upload, whichever answers first (parallelWhisper.ts). */
   check?: TurnCheck;
+  /** v1.4.5: transparent recogniser restarts after it ended by itself while the finger was still down (micFlow.ts). */
+  restarts?: number;
+  /** v1.4.5: the current recogniser session emitted its 'end'. */
+  asrEnded?: boolean;
+  /** v1.4.5: the voice Confirm card that was open when this turn started (a spoken "yes" / "no" answers it). */
+  prevPreview?: VoicePreview | null;
 };
 
 /**
@@ -143,6 +152,8 @@ export function useVoiceCommand({ readOut }: {
   const turnRef = useRef<Turn | null>(null);
   const previewRef = useRef<VoicePreview | null>(null);
   const previewTurn = useRef<number | null>(null);
+  /** v1.4.5: the last answer asked for a value ("How much?" → expect 'amount' on the next turn). */
+  const expectNextRef = useRef<{ expect: VoiceExpect; screen?: string; at: number } | null>(null);
   const toastRef = useRef<VoiceToast | null>(null);
   const undoRef = useRef<{ id: number; record: UndoRecord } | null>(null);
   const altRef = useRef<CommandResponse | null>(null);
@@ -151,6 +162,8 @@ export function useVoiceCommand({ readOut }: {
   const deviceOffBy = useRef<'permission' | 'error'>('error');
   const readOutRef = useRef(readOut);
   readOutRef.current = readOut;
+  /** endInput is defined after beginTurn; the 15 s cap calls it through this ref. */
+  const endInputRef = useRef<(at?: number) => void>(() => {});
 
   const setPreview = useCallback((p: VoicePreview | null, turnId: number | null = null) => {
     previewRef.current = p;
@@ -160,6 +173,16 @@ export function useVoiceCommand({ readOut }: {
   const setToast = useCallback((t: VoiceToast | null) => { toastRef.current = t; setToastState(t); }, []);
 
   useEffect(() => { void warmDeviceAsr(); }, []);
+
+  // v1.4.5 voiceAsk: a screen's spoken question ("Pay ₹80,000 now? Say yes to pay.") or line ("That OTP didn't work…")
+  // is shown as the info banner and read out (Piper with spoken replies on, else the confirm cue).
+  useEffect(() => subscribeVoiceAsk((e) => {
+    if (e.kind === 'ask') { setInfo(e.q.prompt); void stopSpeaking().then(() => voiceRespond({ text: e.q.prompt, cue: 'confirm' })).catch(() => {}); return; }
+    if (e.kind === 'clear') { setInfo(null); return; }
+    setInfo(e.text);
+    void stopSpeaking().then(() => voiceRespond({ text: e.text, cue: e.cue === 'error' ? 'notUnderstood' : 'confirm' })).catch(() => {});
+    if (e.cue === 'error') haptic.error();
+  }), []);
   useEffect(() => registerTurnStreams(streams), [streams]);
   // v1.4.2: the phone recognizer gets another chance when the dealer toggles it in Settings, or on the next
   // app foreground after it was paused for a non-permission reason (no app restart needed).
@@ -256,7 +279,88 @@ export function useVoiceCommand({ readOut }: {
   const deliver = useCallback((id: number, command: CommandResponse, how: { path: TurnPath; matcher: TurnMatcher }) => {
     const t = turnRef.current;
     if (!t || t.id !== id) return;
+    // v1.4.5: every answer (server, Whisper check, phone) — an amount never navigates, "pay …" is never the mandate.
+    if (!t.otp) command = guardAnswer(command, command.transcript, t.ctx);
+    // v1.4.5 OTP turn: a wrong-length code is never filled, a transcript with digits is never shown.
+    const otpDecision = t.otp ? decideOtpTurn(command, t.ctx.screen) : null;
+    if (otpDecision) command = otpDecision.command;
+    // v1.4.5 REQUIREMENT CHANGE (Gaurav): the e-sign OTP step is fully hands-off. Exactly 6 digits in this turn
+    // (server or phone) → fill the boxes AND verify at once: no Confirm card, no "Did you mean", no tap. Only the
+    // masked "OTP entered, verifying" is shown / spoken. The Esign screen takes slots.otp + otpSubmit and verifies.
+    const esignCode = otpDecision?.kind === 'esign_auto' ? otpDecision.code : null;
+    if (esignCode) {
+      t.result = command;
+      t.stage = 'acted';
+      setThinking(false);
+      setLive({ text: maskOtp(6), final: true, checking: false, source: how.path === 'server' ? 'server' : 'device', turn: id });
+      voiceMetrics.tag(t.metric, { path: how.path, matcher: how.matcher, note: 'otp:esign-auto' });
+      voiceDraft.merge({ intent: 'UNKNOWN', transcript: '[otp utterance]', slots: { otp: esignCode, otpSubmit: true } });
+      undoRef.current = null; altRef.current = null;
+      setPreview(null);
+      const tid = Date.now();
+      t.toastId = tid;
+      setToast({ id: tid, text: ESIGN_VERIFY_TEXT, icon: 'fill' });
+      haptic.success();
+      voiceRespond({ text: ESIGN_VERIFY_TEXT, cue: cueKindFor({ didAct: true, status: 'ok', hasCandidates: false, kind: 'acted' }), metric: t.metric, haptic: false });
+      voiceMetrics.end(t.metric, { outcome: 'auto' }); logDelivered(t, command, how.path, true); // OTP turn: logDelivered posts nothing
+      return;
+    }
+    // v1.4.5 S2.2 ADVANCE: the phone's command list picked it from a longer sentence → say again; a real advance
+    // presses what THIS screen / sheet registered (voiceStep.ts), never Go home / Enhance / Change tenure.
+    if (!t.otp) command = advanceMatcherGuard(command.transcript, command);
+    if (!t.otp && isAdvanceReply(command)) {
+      t.result = command;
+      expectNextRef.current = null;
+      setThinking(false);
+      setPreview(null);
+      voiceMetrics.tag(t.metric, { path: how.path, matcher: how.matcher, note: 'advance' });
+      const route = t.ctx.screen;
+      // "submit MH12BC1260": the plate said with the submit word fills the RC field first.
+      const advReg = command.action.type === 'advance' ? command.action.reg : undefined;
+      if (advReg) voiceDraft.merge({ intent: 'SET_RC_NUMBER', transcript: command.transcript, slots: { rcNumber: advReg } });
+      const d = decideAdvance(command, getVoiceStep(route));
+      voiceMetrics.mark(t.metric, 'action');
+      if (d.kind === 'press') {
+        t.stage = 'acted';
+        // A plate filled in this same turn reaches the sheet's state on its next render: press right after it.
+        if (advReg) { const c = d.control; setTimeout(() => c.press(), 60); } else d.control.press();
+        haptic.success();
+        const tid = Date.now();
+        t.toastId = tid; undoRef.current = null; altRef.current = null;
+        setToast({ id: tid, text: d.control.destructive ? `${d.control.label}` : `Continuing · ${d.control.label}`, icon: 'navigate' });
+        voiceRespond({ text: d.text, cue: cueKindFor({ didAct: true, status: 'ok', hasCandidates: false, kind: 'acted' }), metric: t.metric, haptic: false });
+        voiceMetrics.end(t.metric, { outcome: 'auto' });
+        logDelivered(t, command, how.path, true);
+        return;
+      }
+      if (d.kind === 'confirm') {
+        // Spoken confirm: a voice "yes" (or the on-screen button) presses it — the CURRENT registration of that CTA,
+        // so a closed sheet / changed step is never pressed by a late yes.
+        t.stage = 'preview';
+        const id0 = d.control.id;
+        askVoiceConfirm({
+          prompt: d.prompt,
+          ttlMs: 60_000,
+          yesWords: ['submit', 'send', 'pay', 'disburse', 'confirm', 'proceed', 'continue', 'next'],
+          onYes: () => {
+            const st = getVoiceStep(route);
+            const c = [st?.cta, ...(st?.alts ?? [])].find((x) => x?.id === id0);
+            if (c && c.enabled !== false) { c.press(); haptic.success(); } else voiceRespond({ text: 'That step has changed. Tap the button instead.', cue: 'notUnderstood' });
+          },
+        });
+        voiceMetrics.end(t.metric, { outcome: 'preview' });
+        logDelivered(t, command, how.path, false);
+        return;
+      }
+      t.stage = 'nothing';
+      setInfo(d.text);
+      voiceRespond({ text: d.text, cue: cueKindFor({ kind: 'nothing' }), metric: t.metric });
+      voiceMetrics.end(t.metric, { outcome: 'retry' });
+      logDelivered(t, command, how.path, false);
+      return;
+    }
     t.result = command;
+    expectNextRef.current = command.expectNext ? { expect: command.expectNext, screen: t.ctx.screen, at: Date.now() } : null;
     setThinking(false);
     voiceMetrics.tag(t.metric, { path: how.path, matcher: how.matcher });
     // v1.4.2: a server / Whisper reading replaces the phone's words in the pill and the live transcript.
@@ -304,8 +408,19 @@ export function useVoiceCommand({ readOut }: {
     const t = turnRef.current;
     haptic.error();
     setThinking(false); setListening(false); setLive(null);
-    setError(voiceErrorMessage(e));
+    // v1.4.5: every voice route is down → one clear message instead of the generic "Could not reach…".
+    setError(voiceRoutes.allDown() && routeFailureKind(e) !== 'app' ? NO_CONNECTION : voiceErrorMessage(e));
     if (t) { voiceMetrics.end(t.metric, { outcome: e instanceof VoiceError ? e.code : 'error' }); logTurnEnd(t, e); }
+  }, []);
+
+  /** v1.4.5: no route answers and the phone is not sure on its own: "No connection — try again or tap it" (no fuzzy guess). */
+  const noConnection = useCallback((id: number) => {
+    if (!current(id)) return;
+    const t = turnRef.current;
+    haptic.error();
+    setThinking(false); setListening(false); setLive(null);
+    setError(NO_CONNECTION);
+    if (t) { voiceMetrics.tag(t.metric, { note: 'no-connection' }); voiceMetrics.end(t.metric, { outcome: 'no_connection' }); logTurnEnd(t, 'no_connection'); }
   }, []);
 
   /** Whisper's second check came back: keep, use it, re-stage "Did you mean", or offer Undo. Never a silent flip. */
@@ -368,6 +483,40 @@ export function useVoiceCommand({ readOut }: {
   }, [onCheck]);
 
   /**
+   * v1.4.5 spoken yes / no: answers the screen's open voice question (voiceAsk: "Pay ₹80,000 now? Say yes to pay.")
+   * or the Confirm card that was open when the dealer pressed the mic. A "yes" runs the same code path as the button.
+   * Never on an OTP turn. Returns true when the turn was an answer (nothing else to do).
+   */
+  const answerTurn = useCallback((id: number, text: string): boolean => {
+    const t = turnRef.current;
+    if (!t || t.id !== id || t.otp) return false;
+    const done = (note: string) => {
+      t.stage = 'confirmed';
+      setThinking(false); setListening(false); setInfo(null);
+      const said = parseResponse({ transcript: text, confidence: 1, intent: note.endsWith('yes') ? 'VOICE_YES' : 'VOICE_NO', score: 1, status: 'ok', engine: 'device', method: 'yes_no' });
+      voiceMetrics.tag(t.metric, { note }); voiceMetrics.end(t.metric, { outcome: 'answered' }); logDelivered(t, said, 'device', true);
+    };
+    const a = answerPending(text, undefined, isAdvancePhrase);
+    if (a) {
+      done(`voice-${a}`);
+      haptic.select();
+      if (a === 'no') voiceRespond({ text: 'Okay, cancelled.', cue: cueKindFor({ kind: 'cancelled' }) });
+      return true;
+    }
+    const p = t.prevPreview;
+    if (!p || p.plan.kind === 'none' || p.plan.kind === 'blocked' || (p.command.status ?? 'ok') !== 'ok') return false;
+    // v1.4.5 S2.2: "go ahead" / "proceed" press the current step; they never confirm an open card (Go home…).
+    if (isAdvancePhrase(text)) return false;
+    const yn = parseYesNo(text);
+    if (!yn) return false;
+    t.prevPreview = null;
+    done(`card-${yn}`);
+    if (yn === 'yes') runConfirmed(p.command);
+    else voiceRespond({ text: 'Okay, cancelled.', cue: cueKindFor({ kind: 'cancelled' }) });
+    return true;
+  }, [runConfirmed]);
+
+  /**
    * Device / typed text → server text path (slots, numbers, OTP, options) or the local matcher.
    * `local`: the already computed local reading. `guard` (confidence gate, shaky phone text and no usable
    * Whisper): the server's text reading may act on its own only when it is itself sure (status ok and
@@ -377,6 +526,24 @@ export function useVoiceCommand({ readOut }: {
     const t = turnRef.current;
     if (!t || t.id !== id) return;
     const ctx = t.ctx;
+    if (via === 'typed' && answerTurn(id, text)) return;
+    // v1.4.5 OTP turn, local first: a digit-only utterance is read on the phone (works offline, the code never
+    // leaves the phone). Exactly 6 digits → fill (Esign: fill + verify, see deliver); any other count → masked
+    // "Say all 6 digits or type them.". A sentence (not digits) still asks the server as before.
+    if (t.otp) {
+      const plan = planOtpTurn(text);
+      if (plan.kind === 'local') {
+        voiceMetrics.tag(t.metric, { note: 'otp:local' });
+        deliver(id, plan.command, { path: via === 'typed' ? 'device+text' : 'device', matcher: 'keyword' });
+        return;
+      }
+    }
+    // v1.4.5 S2.2: "proceed" / "aage chaliye" / "submit" on a destructive step is decided on the phone at once
+    // (exact grammar, same as the server's advance.py): voice advances immediately, offline too.
+    if (!t.otp) {
+      const adv = resolveAdvance(text, getVoiceStep(ctx.screen));
+      if (adv) { voiceMetrics.tag(t.metric, { note: 'advance:local' }); deliver(id, adv, { path: via === 'typed' ? 'device+text' : 'device', matcher: 'keyword' }); return; }
+    }
     const local = opts.local ?? localCommand(text, matchCommand(text), confidence);
     const matcher = (local.matcher === 'keyword' ? 'keyword' : local.matcher === 'fuzzy' ? 'fuzzy' : 'none') as TurnMatcher;
     const serverText = needsServerText(text, ctx) || local.status === 'retry';
@@ -396,6 +563,7 @@ export function useVoiceCommand({ readOut }: {
           return;
         }
       }
+      if (offlineVerdict(local, voiceRoutes.allDown()) === 'no_connection') { noConnection(id); return; }
       deliver(id, local, { path: via === 'typed' ? 'device+text' : 'device', matcher });
       return;
     }
@@ -403,7 +571,8 @@ export function useVoiceCommand({ readOut }: {
     // fix-xtreme-select: the phone's own reading of the on-screen chips (never for an expected field / OTP).
     // The server stays first; a FULL chip match only stops a dead tunnel from holding the turn (serverOrOption),
     // and any chip answer is the offline fallback below. Shaky text (guard) never auto-acts on it.
-    const option = ctx.expect ? null : resolveScreenOption(text, ctx.options, confidence);
+    // v1.4.5: also the screen's numeric fields (loan amount on Asset, TA repay) and customer rows (resolveOnPhone).
+    const option = ctx.expect && ctx.expect !== 'amount' && ctx.expect !== 'reg' ? null : resolveOnPhone(text, ctx, confidence);
     const ask = () => getSttProvider().text(text, ctx, turnExtras(t, 'server', { skipTts: true }));
     try {
       const got = await serverOrOption(ask, opts.guard ? null : option);
@@ -415,8 +584,10 @@ export function useVoiceCommand({ readOut }: {
       }
       const cmd = got.cmd;
       // A weak server guess on a phrase the phone matched better: keep the local reading.
-      const useLocal = local.status !== 'retry' && (cmd.status ?? 'ok') !== 'ok' && !(cmd.normalizedFields?.length);
-      const chosen = useLocal ? local : cmd;
+      // Never over a field answer (a loan amount clamp / repay "How much?" is a clarify / retry on purpose).
+      const useLocal = local.status !== 'retry' && (cmd.status ?? 'ok') !== 'ok' && !(cmd.normalizedFields?.length) && !isFieldAnswer(cmd);
+      // v1.4.5: an amount never navigates and "pay …" is never the mandate, whatever an older server says.
+      const chosen = guardAnswer(useLocal ? local : cmd, text, ctx);
       const sure = (chosen.status ?? 'ok') === 'ok' && chosen.score >= WHISPER_DISAGREE_MIN;
       deliver(id, opts.guard && !sure ? downgradeCommand(chosen) : chosen, { path: 'device+text', matcher: useLocal ? matcher : cmd.matcher === 'labse' || cmd.method === 'semantic' ? 'labse' : 'server' });
     } catch (e) {
@@ -424,13 +595,19 @@ export function useVoiceCommand({ readOut }: {
       // Server unreachable: the on-device reading still works for plain commands (never for numbers / OTP).
       // On a screen with chips the phone resolves them itself ("extreme 125 r" → Xtreme 125R) instead of
       // "Sorry, say that again" (fix-xtreme-select).
-      if (!ctx.expect) {
+      if (!ctx.expect || ctx.expect === 'amount' || ctx.expect === 'reg') {
         const off = offlineReading(local, option);
         if (off === option) voiceMetrics.tag(t.metric, { note: 'option:offline' });
+        // v1.4.5: no route at all and nothing sure on the phone → "No connection" instead of a fuzzy guess.
+        if (offlineVerdict(off, voiceRoutes.allDown() && routeFailureKind(e) !== 'app') === 'no_connection') { noConnection(id); return; }
         deliver(id, off === option && opts.guard ? optionAsConfirm(off) : off, { path: 'device', matcher: off === option ? 'keyword' : matcher });
+      } else if (t.otp) {
+        // OTP turn, server unreachable: masked "Say all 6 digits or type them." (a digit-free plain command still works).
+        voiceMetrics.tag(t.metric, { note: 'otp:offline' });
+        deliver(id, otpOfflineCommand(text, local), { path: 'device', matcher });
       } else fail(id, e);
     }
-  }, [deliver, fail]);
+  }, [deliver, fail, noConnection, answerTurn]);
 
   /**
    * The recognizer's final text for turn `id`. `rawConfidence` is the recogniser's own value (-1 / 0 =
@@ -450,11 +627,12 @@ export function useVoiceCommand({ readOut }: {
     if (!text) { fail(id, new VoiceError('no_speech')); return; }
     deviceFails.current = 0;
     voiceMetrics.mark(t.metric, 'finalText');
-    setLive({ text: t.otp ? maskOtp(text.replace(/\D/g, '').length) : text, final: true, checking: t.wantCheck, source: 'device', turn: id });
+    setLive({ text: t.otp ? otpMaskFor(text) : text, final: true, checking: t.wantCheck, source: 'device', turn: id });
     // The second check is best-effort: never leave "checking" up if the audio or Whisper never answers.
     if (t.wantCheck) t.timers.push(setTimeout(() => setLive((l) => (l && current(id) ? { ...l, checking: false } : l)), 8000));
     const conf = normalizeAsrConfidence(rawConfidence, Platform.OS);
     noteDeviceText(t, text, conf);
+    if (answerTurn(id, text)) return;
     // The matcher saw 0.8 for "unknown" before v1.4.2; keep that so its behaviour is unchanged.
     const matcherConf = conf ?? 0.8;
     if (needsServerText(text, t.ctx)) {
@@ -503,9 +681,10 @@ export function useVoiceCommand({ readOut }: {
         return;
       }
       if (retryText) { void handleText(id, text, matcherConf, 'device', { local, guard: true }); return; }
+      if (offlineVerdict(g.command, voiceRoutes.allDown()) === 'no_connection') { noConnection(id); return; }
       deliver(id, g.command, { path: 'device', matcher });
     });
-  }, [fail, handleText, startCheck, deliver]);
+  }, [fail, noConnection, handleText, startCheck, deliver, answerTurn]);
 
   /** Server path: record → POST /command (skipTts) → deliver. */
   const sendRecording = useCallback(async (id: number) => {
@@ -527,6 +706,7 @@ export function useVoiceCommand({ readOut }: {
         command = await p;
       } else command = await getSttProvider().command(r.base64, r.mimeType, t.ctx, turnExtras(t, 'server', { skipTts: true }));
       if (!current(id)) return;
+      if (!isOtpCommand(command) && command.transcript.trim() && answerTurn(id, command.transcript)) { setLive(null); return; }
       voiceMetrics.mark(t.metric, 'finalText');
       setLive(command.transcript.trim() ? { text: isOtpCommand(command) || t.otp ? maskOtp(6) : command.transcript, final: true, checking: false, source: 'server', turn: id } : null);
       deliver(id, command, { path: 'server', matcher: command.matcher === 'labse' || command.method === 'semantic' ? 'labse' : 'server' });
@@ -535,27 +715,38 @@ export function useVoiceCommand({ readOut }: {
     } finally {
       if (current(id)) setThinking(false);
     }
-  }, [ptt.pressOut, pcm.stop, deliver, fail]);
+  }, [ptt.pressOut, pcm.stop, deliver, fail, answerTurn]);
 
   /** Start a turn (press-in, or a hands-free tap). Visual state flips synchronously — before permissions resolve. */
   const beginTurn = useCallback((pressedAt: number = now()) => {
-    if (isReadingOut()) { setError(WAIT_FOR_ZIPPY); haptic.error(); return; }
-    void stopSpeaking(); // barge-in on a short bundled clip
+    // v1.4.5: pressing while Zippy reads out stops the read-out and listens (barge-in), never a recording disc
+    // that isn't listening. Short bundled clips / cues were always interruptible.
+    const bargeIn = pressAction({ readingOut: isReadingOut() }) === 'stop_readout_then_listen';
+    void stopSpeaking();
     const prev = turnRef.current;
-    if (prev) { clearTurnTimers(prev); prev.asr?.abort(); dropParallel(prev); logTurnEnd(prev, 'cancelled'); }
+    if (prev) {
+      clearTurnTimers(prev); prev.asr?.abort(); dropParallel(prev);
+      const why = prevTurnEndReason({ handled: prev.handled, released: prev.released, asrEnded: !!prev.asrEnded });
+      if (why) logTurnEnd(prev, why);
+    }
     const id = ++req.current;
     const s = getVoiceSettings();
-    const ctx = currentCommandContext();
+    let ctx = currentCommandContext();
+    // v1.4.5 TA "How much?": the next turn on the same screen is sent as expect 'amount' (≤ 60 s).
+    const ask = expectNextRef.current;
+    expectNextRef.current = null;
+    if (ask && !ctx.expect && ask.screen === ctx.screen && Date.now() - ask.at < 60_000) ctx = { ...ctx, expect: ask.expect };
     const lang = recognizerLang(s.locale);
     const sup = deviceAsrSupport(lang);
     const why = explainAsrPath({ platform: Platform.OS, flagOn: s.onDeviceAsr, moduleLoaded: sup.moduleLoaded, recognitionAvailable: sup.available, disabledThisSession: deviceOff.current, disabledBy: deviceOffBy.current });
     const path = why.path; resetAsrTurn(path, why.reason);
     const otp = ctx.expect === 'otp';
     const metric = voiceMetrics.start({ mode: s.mode, path: path === 'device' ? 'device' : 'server' }, pressedAt);
+    if (bargeIn) voiceMetrics.tag(metric, { note: 'barge-in' });
     const t: Turn = {
       id, metric, mode: s.mode, path, ctx, otp, pressedAt, released: false, asr: null, partial: '', handled: false, result: null, stage: 'nothing',
       toastId: null, audioUri: null, checkStarted: false, wantCheck: path === 'device' && !otp && sup.canRecord, timers: [],
-      partials: [], gate: 'none', gateResolve: null,
+      partials: [], gate: 'none', gateResolve: null, prevPreview: previewRef.current,
     };
     if (path === 'device') t.check = new TurnCheck((r) => onCheck(id, r));
     turnRef.current = t;
@@ -616,6 +807,11 @@ export function useVoiceCommand({ readOut }: {
           return;
         }
       }
+      // v1.4.5: the previous recogniser session must emit its 'end' first (≤ 400 ms), so its late 'end' can
+      // never end this one (asrSession.ts). Listeners are registered only after this wait.
+      const prep = await prepareDeviceAsr();
+      if (!current(id)) return;
+      if (prep.hadOpen) voiceMetrics.tag(metric, { note: prep.timedOut ? 'asr:prev-end-timeout' : `asr:prev-end-${Math.round(prep.waitedMs)}ms` });
       if (t.mode === 'ptt' && t.released) {
         // Let go before the recognizer started.
         setListening(false); setLive(null);
@@ -626,7 +822,8 @@ export function useVoiceCommand({ readOut }: {
       }
       const names = getVoiceOptions(ctx.screen).map((o) => o.label);
       const startedAt = now();
-      t.asr = startDeviceAsr({
+      /** One recogniser session (called again for a transparent restart: same turn, partial text kept). */
+      const launch = (): DeviceAsrHandle | null => startDeviceAsr({
         locale: s.locale,
         contextualStrings: contextualStrings(names),
         persistAudio: t.wantCheck,
@@ -636,12 +833,13 @@ export function useVoiceCommand({ readOut }: {
           t.partial = text;
           if (t.partials[t.partials.length - 1] !== text) { t.partials.push(text); if (t.partials.length > MAX_PARTIALS) t.partials.shift(); }
           countAsrPartial(now());
-          setLive({ text: t.otp ? maskOtp(text.replace(/\D/g, '').length) : text, final: false, checking: false, source: 'device', turn: id });
+          setLive({ text: t.otp ? otpMaskFor(text) : text, final: false, checking: false, source: 'device', turn: id });
         },
         onSpeechEnd: () => { if (current(id) && t.mode === 'handsfree' && !t.released) { t.released = true; voiceMetrics.mark(metric, 'release'); releaseParallel(t); } },
         onFinal: (text, conf) => onDeviceFinal(id, text, conf),
         onAudio: (uri) => {
           if (turnRef.current?.id !== id) { try { new File(uri).delete(); } catch { /* ignore */ } return; }
+          if (t.audioUri && t.audioUri !== uri && !t.checkStarted) { try { new File(t.audioUri).delete(); } catch { /* ignore */ } } // restarted session: keep the newest copy
           t.audioUri = uri;
           if (t.handled) startCheck(id);
         },
@@ -658,8 +856,11 @@ export function useVoiceCommand({ readOut }: {
             logTurnEnd(t, 'asr_parallel');
             return;
           }
-          dropParallel(t);
           const kind = classifyAsrError(code, info);
+          // v1.4.5: finger still down — the recogniser's "no speech" is a self-end: onEnd restarts it once,
+          // transparently (parallel capture, timers and the listening state stay as they are).
+          if (kind === 'no_speech' && selfEndAction({ mode: t.mode, released: t.released, handled: false, restarts: t.restarts ?? 0, partial: t.partial }) === 'restart') return;
+          dropParallel(t);
           if (kind === 'cancelled') return;
           t.handled = true;
           clearTurnTimers(t);
@@ -681,8 +882,31 @@ export function useVoiceCommand({ readOut }: {
           voiceMetrics.end(metric, { outcome: `asr_${kind}` });
           logTurnEnd(t, `asr_${kind}`);
         },
-        onEnd: () => { if (current(id) && !t.handled) setListening(false); },
+        onStart: () => { t.asrEnded = false; },
+        onEnd: () => {
+          t.asrEnded = true;
+          if (!current(id) || t.handled) return;
+          const act = selfEndAction({ mode: t.mode, released: t.released, handled: t.handled, restarts: t.restarts ?? 0, partial: t.partial });
+          if (act === 'ignore') return; // released: the final / FINAL_GRACE_MS timer decides
+          if (act === 'finalize') { onDeviceFinal(id, t.partial, 0.5); return; }
+          if (act === 'restart') {
+            // v1.4.5: ended by itself while the finger is still down → start again, transparently (listening stays on).
+            t.restarts = (t.restarts ?? 0) + 1;
+            voiceMetrics.tag(metric, { note: 'asr:restart' });
+            const h = launch();
+            if (h) { t.asr = h; t.asrEnded = false; return; }
+            if (t.handled || !current(id)) return; // start() failed: onError already told the dealer
+          }
+          // Gave up: a clear message, never a silent recording disc.
+          t.handled = true;
+          clearTurnTimers(t);
+          dropParallel(t);
+          setListening(false); setLive(null);
+          if (t.mode === 'ptt') { setInfo(DIDNT_CATCH); haptic.error(); voiceMetrics.end(metric, { outcome: 'asr_ended' }); logTurnEnd(t, 'asr_ended'); return; }
+          setError(voiceErrorMessage(new VoiceError('no_speech'))); voiceMetrics.end(metric, { outcome: 'no_speech' }); logTurnEnd(t, 'no_speech');
+        },
       });
+      t.asr = launch();
       // start() threw: onError already classified it (e.g. drop_persist). Only a missing module disables here.
       if (!t.asr) { if (!t.handled) { deviceOff.current = true; deviceOffBy.current = 'error'; } return; }
       markAsrStarted({ service: t.asr.info.service, onDevice: t.asr.info.onDeviceRequested, persist: t.asr.info.persistRequested }, startedAt);
@@ -697,8 +921,9 @@ export function useVoiceCommand({ readOut }: {
           onCaptureFailed: () => { markParallelBroken('capture_failed'); parallelOff('capture_failed'); },
         });
       } else if (s.parallelStream && !otp && isParallelBroken()) updateAsrDiag({ parallel: parallelDiagText('paused') });
-      // Cap: 15 s. Hands-free otherwise ends at the recognizer's end-of-speech.
-      t.timers.push(setTimeout(() => { if (current(id) && !t.handled) t.asr?.stop(); }, PTT_MAX_HOLD_MS));
+      // Cap: 15 s, same as letting go (so the cap is never mistaken for a self-end). Hands-free otherwise ends
+      // at the recognizer's end-of-speech.
+      t.timers.push(setTimeout(() => { if (current(id) && !t.handled) endInputRef.current(); }, PTT_MAX_HOLD_MS));
     })();
   }, [ptt.pressIn, ptt.cancel, pcm.begin, pcm.cancel, pcm.available, sendRecording, onDeviceFinal, startCheck, onCheck, setPreview]);
 
@@ -723,12 +948,14 @@ export function useVoiceCommand({ readOut }: {
     }
     // Show what was heard right away; the recognizer's final result replaces it in a moment.
     setListening(false);
-    if (t.partial) { voiceMetrics.mark(t.metric, 'finalText'); setLive({ text: t.otp ? maskOtp(t.partial.replace(/\D/g, '').length) : t.partial, final: true, checking: true, source: 'device', turn: t.id }); }
+    if (t.partial) { voiceMetrics.mark(t.metric, 'finalText'); setLive({ text: t.otp ? otpMaskFor(t.partial) : t.partial, final: true, checking: true, source: 'device', turn: t.id }); }
     releaseParallel(t); // finish() now, so Whisper's answer is ready by the time the gate asks
     t.asr.stop();
     const id = t.id;
     t.timers.push(setTimeout(() => { if (current(id) && !t.handled) onDeviceFinal(id, t.partial, 0.5); }, FINAL_GRACE_MS));
   }, [sendRecording, onDeviceFinal]);
+
+  endInputRef.current = endInput;
 
   /** Cancel any recording / request in flight, drop the preview and stop speech. */
   const abort = useCallback((outcome: string = 'cancelled') => {
@@ -839,14 +1066,16 @@ export function useVoiceCommand({ readOut }: {
     setPreview(null);
     const id = ++req.current;
     const metric = voiceMetrics.start({ mode: getVoiceSettings().mode, path: 'device+text', note: 'typed' });
+    const ctx = currentCommandContext();
+    const otp = ctx.expect === 'otp';
     turnRef.current = {
-      id, metric, mode: getVoiceSettings().mode, path: 'device', ctx: currentCommandContext(), otp: false, pressedAt: now(), released: true, asr: null, partial: '',
+      id, metric, mode: getVoiceSettings().mode, path: 'device', ctx, otp, pressedAt: now(), released: true, asr: null, partial: '',
       handled: true, result: null, stage: 'nothing', toastId: null, audioUri: null, checkStarted: false, wantCheck: false, timers: [],
       partials: [], gate: 'none', gateResolve: null,
     };
     voiceMetrics.mark(metric, 'release');
     voiceMetrics.mark(metric, 'finalText');
-    setLive({ text: clean, final: true, checking: false, source: 'typed', turn: id });
+    setLive({ text: otp ? otpMaskFor(clean) : clean, final: true, checking: false, source: 'typed', turn: id });
     void handleText(id, clean, 1, 'typed');
   }, [handleText, setPreview]);
 

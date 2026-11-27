@@ -14,8 +14,10 @@ import { haptic, hapticMoment } from '../utils/haptics';
 import { reportValidationError } from '../tutorial/tutorialStore';
 import { maskMobile } from '../utils/finance';
 import { SHOW_DEV_UI } from '../config/devFlags';
+import { otpFromDraft } from '../voice/otpParse';
 import { useVoiceDraft, voiceDraft } from '../voice/voiceDraft';
 import { useUndoSource } from '../voice/voiceUndo';
+import { useAutoAdvance, useVoiceStep } from '../voice/useAutoAdvance';
 
 type Stage = 'enter' | 'otp' | 'none';
 
@@ -59,16 +61,19 @@ export default function SearchMobileScreen() {
     if (!draft || loading) return;
     if (stage === 'enter' && draft.slots.mobileNumber && /^[6-9]\d{9}$/.test(draft.slots.mobileNumber)) {
       const m = voiceDraft.take('mobileNumber');
-      if (m) { setMobile(m); setTouched(true); }
-    } else if (stage === 'otp' && draft.slots.otp && /^\d{4,6}$/.test(draft.slots.otp)) {
-      const code = voiceDraft.take('otp');
-      if (code) { setOtp(code.slice(0, 6)); setErr(null); }
+      voiceDraft.take('sendOtp');
+      // v1.4.5 S2.6: a valid spoken number sends the consent OTP after the same debounce as typing (Undo cancels it).
+      if (m) { setMobile(m); setTouched(true); autoSend.typed(validMobile(m)); }
+    } else if (stage === 'otp' && draft.slots.otp) {
+      voiceDraft.take('otpSubmit'); // never auto-verified here: the dealer taps Verify
+      const code = otpFromDraft(voiceDraft.take('otp'), false); // exactly 6 digits (v1.4.5), else dropped
+      if (code) { setOtp(code); setErr(null); }
     }
   }, [draft, stage, loading]);
 
   // Voice Undo (auto-filled mobile / OTP): put the previous value back. Never verifies.
   const focused = useIsFocused();
-  useUndoSource('mobile', () => mobile, (v) => { setMobile(v); setTouched(v !== ''); }, focused && stage === 'enter');
+  useUndoSource('mobile', () => mobile, (v) => { autoSend.cancel(); setMobile(v); setTouched(v !== ''); }, focused && stage === 'enter');
   useUndoSource('otp', () => otp, (v) => { setOtp(v); setErr(null); }, focused && stage === 'otp');
 
   const sec = useSectionTracker<'mobile' | 'otp'>('mobile');
@@ -82,11 +87,22 @@ export default function SearchMobileScreen() {
     setLoading(true); setNetErr(null);
     const r = await offers.sendConsentOtp(mobile);
     setLoading(false);
-    if (!r.ok) { haptic.error(); setNetErr(r.message); return; }
+    if (!r.ok) { haptic.error(); setNetErr(r.message); autoSend.reset(); return; }
     hapticMoment.offerSent(); // consent OTP is on its way to the customer
     voiceDraft.take('otp'); // a spoken code from before this OTP was sent is stale
     setOtp(''); setTouched(false); setResendIn(30); setStage('otp');
   };
+
+  // v1.4.5 S2.6 hands-off: a valid 10-digit number (typed or voice) sends the consent OTP 900 ms after the last edit;
+  // an edit cancels the countdown; one send per number (a tap during the countdown sends once). The button stays.
+  const autoSend = useAutoAdvance(() => { void sendRef.current(); });
+  const sendRef = React.useRef(sendOtp);
+  sendRef.current = sendOtp;
+  const validMobile = (m: string) => /^[6-9]\d{9}$/.test(m) && !(session && m === session.mobile);
+  const sendTap = () => { if (valid && !loading) autoSend.press(); else void sendOtp(); };
+  useEffect(() => { if (stage === 'enter') autoSend.reset(); }, [stage]); // eslint-disable-line react-hooks/exhaustive-deps
+  useVoiceStep(focused && stage === 'enter' ? { route: 'SearchMobile',
+    cta: { id: 'send-otp', label: 'Send consent OTP', destructive: false, enabled: valid && !loading, hint: mobileErr ?? "Say the customer's 10-digit mobile number first.", press: sendTap } } : null);
 
   const verify = async (code = otp) => {
     setLoading(true); setErr(null);
@@ -158,7 +174,7 @@ export default function SearchMobileScreen() {
   return (
     <JourneyScreen assistant="search" footer={
       <View style={{ gap: space.xs }}>
-        <Button label="Send consent OTP" iconRight="arrow-right" onPress={sendOtp} loading={loading} disabled={isDealerOwn} />
+        <Button label="Send consent OTP" iconRight="arrow-right" onPress={sendTap} loading={loading} disabled={isDealerOwn} accessibilityHint="Sends by itself once the 10-digit number is complete" />
         <PressableScale onPress={() => nav.navigate('ScanQr')} accessibilityRole="button" accessibilityLabel="Scan customer QR instead"
           style={{ minHeight: touch.min, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs }}>
           <Icon name="qrcode-scan" size={20} color={colors.primary} />
@@ -172,7 +188,7 @@ export default function SearchMobileScreen() {
       </View>
       <Field
         label="Customer's Mobile Number" prefix="+91" placeholder="Enter 10-digit mobile number" keyboardType="number-pad" maxLength={10}
-        value={mobile} onChangeText={(t) => setMobile(t.replace(/\D/g, ''))} onBlur={() => setTouched(true)} error={mobileErr}
+        value={mobile} onChangeText={(t) => { const d = t.replace(/\D/g, ''); setMobile(d); autoSend.typed(validMobile(d)); }} onBlur={() => setTouched(true)} error={mobileErr}
         hint={`${mobile.length}/10 digits${SHOW_DEV_UI ? ' · Demo: ends 0000 → no offer · 9999 → network error · ETB on file: 5555 KYC, 6666 mandate, 7777 both' : ''}`}
         right={valid ? <Icon name="check-circle" size={22} color={colors.successBright} style={{ marginRight: space.md }} /> : undefined}
       />

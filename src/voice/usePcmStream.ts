@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import { requireOptionalNativeModule } from 'expo';
 import { setAudioModeAsync, useAudioStream, type AudioStreamBuffer } from 'expo-audio';
-import { PTT_MAX_HOLD_MS, PTT_MIN_HOLD_MS, STREAM_FAST_FINAL, STREAM_FLUSH_MS, STREAM_MAX_MS, STT_BASE_URL, STT_TIMEOUT_MS } from './config';
+import { PTT_MAX_HOLD_MS, PTT_MIN_HOLD_MS, STREAM_FAST_FINAL, STREAM_FLUSH_MS, STREAM_MAX_MS, STT_TIMEOUT_MS, streamBaseUrl, voiceRoutes } from './config';
+import { classifyHttp } from './voiceRoutes';
 import { hasMicPermission, requestMicPermission } from './permissions';
 import { rmsDb, StreamSession, toMonoInt16, type FetchLike, type StreamPartial } from './serverStream';
 import type { CommandExtras } from './sttClient';
@@ -54,7 +55,22 @@ export type PcmResult =
 
 type StartResult = 'recording' | 'prompted' | 'failed' | 'capture_failed';
 
-const fetchLike: FetchLike = (url, init) => fetch(url, init as RequestInit);
+/**
+ * v1.4.5: fetch for one stream session on route `base`. A network error or a tunnel answer (404 / 5xx / HTML page)
+ * marks the route down so the NEXT turn uses the next route; this turn keeps its own fallback (one /command with
+ * the same audio). Requests the session aborted itself are not counted.
+ */
+const routedFetch = (base: string): FetchLike => async (url, init) => {
+  try {
+    const res = await fetch(url, init as RequestInit);
+    const kind = classifyHttp(res.status, res.headers?.get('content-type'), null);
+    if (kind === 'route') voiceRoutes.markFail(base, { down: true }); else voiceRoutes.markOk(base);
+    return res;
+  } catch (e) {
+    if (!(init as { signal?: AbortSignal }).signal?.aborted) voiceRoutes.markFail(base, { down: true });
+    throw e;
+  }
+};
 
 export function usePcmStream() {
   const session = useRef<StreamSession | null>(null);
@@ -127,8 +143,9 @@ export function usePcmStream() {
       return 'failed';
     }
     if (!held.current) return 'failed';
+    const base = streamBaseUrl();
     const s = new StreamSession({
-      fetch: fetchLike, baseUrl: STT_BASE_URL, flushMs: STREAM_FLUSH_MS, maxMs: STREAM_MAX_MS, timeoutMs: STT_TIMEOUT_MS, longPoll: !o.parallel, fastFinal: STREAM_FAST_FINAL,
+      fetch: routedFetch(base), baseUrl: base, flushMs: STREAM_FLUSH_MS, maxMs: STREAM_MAX_MS, timeoutMs: STT_TIMEOUT_MS, longPoll: !o.parallel, fastFinal: STREAM_FAST_FINAL,
       onPartial: o.onPartial, onBusy: o.onBusy,
     });
     keepMode.current = !!o.parallel;

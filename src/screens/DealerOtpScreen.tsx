@@ -11,6 +11,7 @@ import { colors, space, touch } from '../theme/tokens';
 import { haptic } from '../utils/haptics';
 import { reportValidationError } from '../tutorial/tutorialStore';
 import { maskMobile } from '../utils/finance';
+import { otpFromDraft } from '../voice/otpParse';
 import { useVoiceDraft, voiceDraft } from '../voice/voiceDraft';
 import { useUndoSource } from '../voice/voiceUndo';
 
@@ -52,9 +53,10 @@ function DealerOtpForm() {
   useEffect(() => { voiceDraft.take('otp'); }, []);
   const draft = useVoiceDraft();
   useEffect(() => {
-    if (!draft?.slots.otp || locked || loading || !/^\d{4,6}$/.test(draft.slots.otp)) return;
-    const code = voiceDraft.take('otp');
-    if (code) { setOtp(code.slice(0, 6)); setErr(null); }
+    if (!draft?.slots.otp || locked || loading) return;
+    voiceDraft.take('otpSubmit'); // never auto-verified here: the dealer taps Verify
+    const code = otpFromDraft(voiceDraft.take('otp'), false); // exactly 6 digits (v1.4.5), else dropped
+    if (code) { setOtp(code); setErr(null); }
   }, [draft, locked, loading]);
 
   // Voice Undo (auto-filled OTP): put the previous boxes back. Never verifies.

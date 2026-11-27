@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { Alert, Image, Linking, Platform, View } from 'react-native';
 import Animated, { FadeInDown, FadeOut, LinearTransition } from 'react-native-reanimated';
 import * as ImagePicker from 'expo-image-picker';
@@ -15,6 +16,14 @@ import { colors, radius, space, touch } from '../theme/tokens';
 import { NB_HYPHEN } from '../navigation/types';
 import { haptic, hapticMoment } from '../utils/haptics';
 import { reportValidationError } from '../tutorial/tutorialStore';
+import { customerOptions, customerPhrases, matchCustomer } from '../voice/customerMatch';
+import { isValidReg, readBackReg } from '../voice/rcParse';
+import { RC_FIELD_ID, RC_SHEET, RC_SUBMIT } from '../voice/rcResolve';
+import { useVoiceStep } from '../voice/useAutoAdvance';
+import { askVoiceConfirm, voiceSay } from '../voice/voiceAsk';
+import { useVoiceDraft, voiceDraft } from '../voice/voiceDraft';
+import { clearVoiceFields, clearVoiceOptions, setVoiceFields, setVoiceOptions } from '../voice/voiceOptions';
+import { useUndoSource } from '../voice/voiceUndo';
 
 const ageTone = (d: number) => (d > 30 ? colors.danger : d > 15 ? colors.cta : colors.successBright);
 const ageLabel = (d: number) => (d > 30 ? 'Overdue' : d > 15 ? 'Due soon' : 'On time');
@@ -40,6 +49,38 @@ export default function RcPendencyScreen() {
 
   useSectionTracker('list');
   useZippyPending(pending.length ? [{ id: 'rc', label: `${pending.length} RC${pending.length === 1 ? '' : 's'} still to share`, detail: `Oldest is ${pending[0]!.daysPending} days — over 30 days counts as overdue.`, actionLabel: 'Share oldest RC', onAction: () => openSheet([pending[0]!.lan]) }] : []);
+
+  // v1.4.5 voice: the rows as customer options (CONTRACT.md 2.2) so "update Vikram Rao" / "Vikram Rao RC" opens that
+  // row exactly like a tap. Submitted rows are sent too ("… is already submitted"). Upload / submit stay taps.
+  useFocusEffect(useCallback(() => {
+    const token = setVoiceOptions(customerOptions(cases, (c) => ({ lan: c.lan, name: c.customer, vehicle: c.vehicle, status: c.status, ...(c.regNo ? { regNo: c.regNo } : {}) })), 'RcPendency');
+    return () => clearVoiceOptions(token);
+  }, [cases]));
+  const draft = useVoiceDraft();
+  const focused = useIsFocused();
+  useEffect(() => {
+    if (!focused || !draft?.slots.customerLan) return;
+    const lan = voiceDraft.take('customerLan');
+    const row = cases.find((c) => c.lan === lan);
+    if (!row || row.status !== 'Pending') return;
+    haptic.select();
+    setTab('Pending');
+    openSheet([row.lan]); // same as tapping the row
+  }, [draft, focused, cases]); // eslint-disable-line react-hooks/exhaustive-deps
+  // v1.4.5 S2.4: "I want to update Vikram Rao's RC" said on another screen → RcPendency with the name: open that row.
+  useEffect(() => {
+    if (!focused || !draft?.slots.customerName) return;
+    const name = voiceDraft.take('customerName');
+    if (!name) return;
+    const opts = customerOptions(cases, (c) => ({ lan: c.lan, name: c.customer, vehicle: c.vehicle, status: c.status, ...(c.regNo ? { regNo: c.regNo } : {}) }));
+    const m = matchCustomer(name, opts);
+    if (m?.kind === 'one') { haptic.select(); setTab('Pending'); openSheet([m.option.value ?? m.option.id]); return; }
+    if (m?.kind === 'several') { const ph = customerPhrases(m.options); voiceSay(`${ph.slice(0, -1).join(', ')} or ${ph[ph.length - 1]}?`); return; }
+    if (m?.kind === 'submitted') { voiceSay(`${m.option.label}'s RC is already submitted${m.option.regNo ? ` (${m.option.regNo})` : ''}.`); return; }
+    voiceSay(`${name} is not in pending RCs.`, 'error');
+  }, [draft, focused, cases]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Voice Undo (auto-opened row): close it again.
+  useUndoSource<string[] | null>('customer', () => editing, (v) => setEditing(v), focused);
 
   const toggle = (lan: string) => { haptic.select(); setSelected((s) => (s.includes(lan) ? s.filter((x) => x !== lan) : [...s, lan])); };
   const openSheet = (lans: string[]) => { setDrafts((d) => { const n = { ...d }; lans.forEach((l) => { n[l] = n[l] ?? { reg: '' }; }); return n; }); setEditing(lans); };
@@ -86,6 +127,49 @@ export default function RcPendencyScreen() {
   };
   const editingCases = (editing ?? []).map((l) => cases.find((c) => c.lan === l)).filter(Boolean) as RcCase[];
   const validCount = (editing ?? []).filter(valid).length;
+
+  // ---- v1.4.5 S2.4 RC number by voice (CONTRACT.md S2.4) -------------------------------------------------------
+  // Screen context: the tab and the dealer's state (snaps misheard state codes; the dealer master has no stateCode
+  // yet → MH). With the entry sheet open: sheet 'rc-entry', the customer, the vehicle-reg field and the Submit CTA,
+  // which voice presses only after a SPOKEN yes ("Submit MH12BC1260 for Vikram Rao?"). The Submit button stays.
+  const dealerState = profile?.stateCode ?? 'MH';
+  const sheetOpen = !!editing && editing.length > 0 && focused;
+  const one = editingCases.length === 1 ? editingCases[0] : undefined;
+  const regOf = (lan: string | undefined) => (lan ? normaliseReg(drafts[lan]?.reg ?? '') : '');
+  const fillLan = one?.lan ?? editingCases.find((c) => !valid(c.lan))?.lan ?? editingCases[0]?.lan;
+  useEffect(() => {
+    if (!sheetOpen) return undefined;
+    const token = setVoiceFields([{ id: RC_FIELD_ID, kind: 'reg', label: 'Registration number', value: drafts[fillLan ?? '']?.reg ?? '' }], 'RcPendency');
+    return () => clearVoiceFields(token);
+  }, [sheetOpen, fillLan, drafts]);
+  const submitPrompt = one ? `Submit ${regOf(one.lan)} for ${one.customer}?` : `Submit ${validCount} RC${validCount === 1 ? '' : 's'} for verification?`;
+  useVoiceStep(focused ? (sheetOpen
+    ? { route: 'RcPendency', sheet: RC_SHEET, extra: { tab: tab.toLowerCase(), dealerState, ...(one ? { customer: { name: one.customer, lan: one.lan }, ...(valid(one.lan) ? { regNo: regOf(one.lan) } : {}) } : {}) },
+      cta: { id: RC_SUBMIT, label: 'Submit for verification', destructive: true, enabled: validCount > 0, hint: 'Say the RC number first, like M H 12 A B 1234.', confirmPrompt: submitPrompt, press: () => submitRef.current() } }
+    : { route: 'RcPendency', extra: { tab: tab.toLowerCase(), dealerState } }) : null);
+  const submitRef = useRef(submit);
+  submitRef.current = submit;
+  // A spoken plate: fill the Registration number, read it back (spoken + spelled) and ask "Submit … for …?".
+  const askRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => askRef.current?.(), []);
+  useEffect(() => { if (!sheetOpen) { askRef.current?.(); askRef.current = null; } }, [sheetOpen]);
+  useEffect(() => {
+    if (!sheetOpen || !draft?.slots.rcNumber || !fillLan) return;
+    const reg = voiceDraft.take('rcNumber');
+    if (!reg || !isValidReg(reg)) return;
+    setDraft(fillLan, { reg: prettyReg(reg), ocr: false });
+    haptic.select();
+    const row = cases.find((c) => c.lan === fillLan);
+    askRef.current?.();
+    askRef.current = askVoiceConfirm({
+      prompt: `${readBackReg(reg)}. Submit ${reg}${row && editingCases.length === 1 ? ` for ${row.customer}` : ''}?`,
+      yesWords: ['submit', 'send', 'verify'],
+      onYes: () => submitRef.current(),
+    });
+  }, [draft, sheetOpen, fillLan]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Undo of a voice fill: the number typed before.
+  useUndoSource<{ lan: string; reg: string } | null>('reg', () => (fillLan ? { lan: fillLan, reg: drafts[fillLan]?.reg ?? '' } : null),
+    (v) => { if (v) { setDraft(v.lan, { reg: v.reg }); askRef.current?.(); askRef.current = null; } }, sheetOpen);
 
   return (
     <JourneyScreen title="RC pendency" titleInBody assistant="rc" showTerms={false} toast={toast} footer={selecting ? (

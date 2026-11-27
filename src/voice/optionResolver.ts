@@ -19,9 +19,14 @@
  *   none   a model that is not on screen ("jupiter 125": only the number matches) → null (caller keeps its reading)
  * Pure: no React Native imports.
  */
-import { vehicleTokens } from './intentMatcher';
+import { amountBlocksNavigation, payIsNotMandate, vehicleTokens } from './intentMatcher';
+import { FIELD_METHODS, isFieldAnswer, LOAN_ASSET_NO_FIELD_TEXT, LOAN_FIELD_ID, LOAN_NO_FIELD_TEXT, resolveDrawdown, resolveEnhance, resolveLoanAmount, resolveTaRepay } from './fieldResolver';
+import { hasUpdateVerb, isRcTurn, resolveRc, updateRcGuard, updateRcName } from './rcResolve';
 import { parseResponse } from './sttClient';
-import type { CommandResponse, IntentCandidate, VoiceOption } from './types';
+import type { CommandContext, CommandResponse, IntentCandidate, VoiceOption } from './types';
+import { planTarget } from './voiceLogic';
+import { getVoiceField } from './voiceOptions';
+import { customerPhrases, matchCustomer } from './customerMatch';
 import { tokenSimilarity } from './voiceNormalize';
 import { shortBrand } from './voiceOptions';
 
@@ -171,9 +176,34 @@ export function resolveScreenOption(text: string, options: readonly VoiceOption[
  * ("open payouts" on the Asset screen stays a navigation). Never for an expected field (OTP / phone / amount).
  */
 export function offlineReading(local: CommandResponse, option: CommandResponse | null, expect?: string): CommandResponse {
+  // v1.4.5: an exact field answer (loan amount, TA repay, OTP, customer row) always beats the command list.
+  // v1.4.5 S2.7: "open TA" on a list screen is the sure command, not "Ta is not on this list." (an absent name).
+  if (option && option.autoReason === 'customer_absent' && (local.status ?? 'ok') === 'ok' && local.autoExecute === true) return local;
+  if (option && isFieldAnswer(option)) return option;
   if (expect || !option) return local;
   if (option.autoExecute === true || (local.status ?? 'ok') !== 'ok') return option;
   return local;
+}
+
+/** v1.4.5: shown instead of a fuzzy "Did you mean" when no voice route answers. */
+export const NO_CONNECTION = 'No connection — try again or tap it';
+
+/**
+ * v1.4.5: every voice route is down. A confident phone reading still runs (auto-act, e.g. a full on-screen chip
+ * match; a chip select preview is exact, not fuzzy). Anything the phone is unsure of — say again, clarify, a
+ * "Did you mean" (confirm band) — becomes NO_CONNECTION instead. With a route up, always deliver.
+ */
+export function offlineVerdict(off: CommandResponse, allDown: boolean): 'deliver' | 'no_connection' {
+  if (!allDown) return 'deliver';
+  // v1.4.5: a field answer is exact (parsed amount / OTP digits / a named row), never a fuzzy guess.
+  if (FIELD_METHODS.has(off.method ?? '')) return 'deliver';
+  if ((off.status ?? 'ok') !== 'ok') return 'no_connection';
+  if (off.action.type === 'select') return 'deliver';
+  if (off.autoExecute === true || off.confidenceBand === 'auto') return 'deliver';
+  // A sure keyword match that only needs Confirm because it moves money / signs (never auto by design).
+  if (off.autoReason === 'destructive' && off.action.type !== 'none') return 'deliver';
+  if (off.confidenceBand === undefined && off.action.type !== 'none' && off.score >= 0.8 && !off.candidates?.length) return 'deliver';
+  return 'no_connection';
 }
 
 /** A chip answer that must not act on its own (shaky phone text): Confirm preview, same select. */
@@ -208,4 +238,115 @@ export async function serverOrOption(
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
+}
+
+/**
+ * v1.4.5: the phone's own reading of the focused screen's fields and chips, in server shape, or null.
+ * Order: loan amount (Asset field) → TA repay / enhance (TaInf) → customer rows → vehicle / tenure chips.
+ * The server stays first whenever it answers; this is the offline path and the navigation guard below.
+ */
+export function resolveOnPhone(text: string, ctx: Pick<CommandContext, 'screen' | 'options' | 'fields' | 'expect' | 'context'>, confidence = 1): CommandResponse | null {
+  if (!text?.trim() || ctx.expect === 'otp') return null;
+  // v1.4.5 S2.4: an RC number (RC sheet: fill / correction / "say the full number"; elsewhere a valid plate → Confirm).
+  const rc = resolveRc(text, ctx, confidence);
+  if (rc) return rc;
+  if (isRcTurn(ctx)) { const row = resolveCustomer(text, ctx.options, ctx.screen, confidence); if (row) return row; return null; }
+  // v1.4.5 S2.5: the TA drawdown amount step (field drawdown-amount) takes a bare amount before repay / loan readers.
+  const dd = resolveDrawdown(text, ctx.fields, confidence);
+  if (dd) return dd;
+  // TA "How much?" was asked: the next bare amount on TaInf is the repay amount.
+  const amountTurn = ctx.expect === 'amount';
+  const repay = resolveTaRepay(text, ctx.screen, ctx.fields, confidence, amountTurn);
+  if (repay) return repay;
+  if (amountTurn) return null;
+  const loan = resolveLoanAmount(text, getVoiceField(LOAN_FIELD_ID, ctx.fields), ctx.screen, confidence);
+  if (loan) return loan;
+  const enhance = resolveEnhance(text, ctx.screen, confidence, ctx.fields, ctx.options, typeof ctx.context?.sheet === 'string' ? ctx.context.sheet : undefined);
+  if (enhance) return enhance;
+  const row = resolveCustomer(text, ctx.options, ctx.screen, confidence);
+  if (row) return row;
+  return resolveScreenOption(text, ctx.options, confidence);
+}
+
+/**
+ * v1.4.5 customer rows (RcPendency; CONTRACT.md 3.5, server select_customer.py): one clear row → open it at once
+ * ("Open Vikram Rao's RC?", same as a tap; upload stays a manual tap), duplicates → clarify "Vikram Rao or
+ * Vikram Singh?", absent → "Sanjay Pawar is not in pending RCs.", submitted → already submitted. Null = no name.
+ */
+export function resolveCustomer(text: string, options: readonly VoiceOption[] | undefined, screen?: string, confidence = 1): CommandResponse | null {
+  const m = matchCustomer(text, options);
+  if (!m) return null;
+  const rc = screen === 'RcPendency';
+  const base = { transcript: text, confidence, engine: 'device', method: 'token:customer', matcher: 'customer' };
+  const cand = (o: VoiceOption, score: number, phrase?: string) => ({ intent: 'SELECT_OPTION', phrase: phrase ?? o.label, score, option: { id: o.id, kind: 'customer', label: o.label, value: o.value ?? o.id } });
+  if (m.kind === 'absent') {
+    return parseResponse({ ...base, intent: 'UNKNOWN', score: 0.3, matchedPhrase: null, action: { type: 'none' }, status: 'retry',
+      responseText: `${m.name} is ${rc ? 'not in pending RCs' : 'not on this list'}.`, confidenceBand: 'retry', autoExecute: false, autoReason: 'customer_absent' });
+  }
+  if (m.kind === 'submitted') {
+    const reg = m.option.regNo ? ` (${m.option.regNo})` : '';
+    return parseResponse({ ...base, intent: 'UNKNOWN', score: 0.5, matchedPhrase: m.option.label, action: { type: 'none' }, status: 'retry',
+      responseText: `${m.option.label}'s RC is already submitted${reg}.`, confidenceBand: 'retry', autoExecute: false, autoReason: 'customer_submitted' });
+  }
+  if (m.kind === 'several') {
+    const phrases = customerPhrases(m.options);
+    return parseResponse({ ...base, intent: 'UNKNOWN', score: 0.6, matchedPhrase: phrases[0], action: { type: 'none' }, status: 'clarify',
+      responseText: `${phrases.slice(0, -1).join(', ')} or ${phrases[phrases.length - 1]}?`, confidenceBand: 'clarify', autoExecute: false, autoReason: 'option',
+      candidates: m.options.map((o, i) => cand(o, 0.6, phrases[i])) });
+  }
+  const o = m.option;
+  const value = o.value ?? o.id;
+  const score = m.level === 'full' || m.level === 'fuzzy' ? 0.95 : 0.8;
+  return parseResponse({ ...base, intent: 'SELECT_OPTION', score, matchedPhrase: o.label,
+    action: { type: 'select', kind: 'customer', id: o.id, label: o.label, value }, slots: { customerLan: value },
+    status: 'ok', responseText: rc ? `Open ${o.label}'s RC?` : `Open ${o.label}?`, confidenceBand: 'auto', autoExecute: true, autoReason: 'option',
+    candidates: [cand(o, score)] });
+}
+
+const ROW_STEALERS: ReadonlySet<string> = new Set(['UPLOAD_RC', 'SHOW_RC_PENDENCY', 'CHANGE_DOWN_PAYMENT', 'TAKE_DELIVERY_PHOTO']);
+const LOAN_NAV_INTENTS: ReadonlySet<string> = new Set([
+  'START_NEW_LOAN', 'START_MOBILE_JOURNEY', 'NEW_TWO_WHEELER_LOAN', 'NEW_CAR_LOAN', 'NEW_CONSUMER_DURABLE_LOAN', 'SEARCH_MOBILE_NUMBER', 'SEARCH_CUSTOMER',
+]);
+
+/**
+ * v1.4.5 last line of defence on ANY answer (an older server, Whisper's reading): an amount phrase never navigates
+ * (START_NEW_LOAN / any journey) without a start verb, and "pay …" never becomes the UPI mandate. The phone's
+ * field reading replaces it, else a non-acting line. `heard` = what the dealer said (device text / transcript).
+ */
+export function guardAnswer(cmd: CommandResponse, heard: string, ctx: Pick<CommandContext, 'screen' | 'options' | 'fields' | 'expect' | 'context'>): CommandResponse {
+  const text = heard ?? '';
+  if (!text.trim() || ctx.expect === 'otp' || isFieldAnswer(cmd)) return cmd;
+  // v1.4.5: a name on a screen with customer rows beats an RC / down-payment reading ("upload RC for Vikram Rao"
+  // opens Vikram Rao's row, never Docs; upload stays a manual tap).
+  if (ROW_STEALERS.has(cmd.intent) && ctx.options?.some((o) => o.kind === 'customer')) {
+    const row = resolveCustomer(text, ctx.options, ctx.screen, cmd.confidence);
+    if (row) return row;
+  }
+  // v1.4.5 S2.4: on the RC sheet the phone's plate reading beats an older server's NUMBER + OTP reading; letters +
+  // digits are never an OTP anywhere; "I want to update Vikram Rao's RC" is never a new loan.
+  if (cmd.intent !== 'ADVANCE' && (isRcTurn(ctx) || (cmd.normalizedFields ?? []).some((f) => f.type === 'OTP' || f.type === 'NUMBER'))) {
+    const rc = resolveRc(text, ctx, cmd.confidence);
+    if (rc) return rc;
+  }
+  const upd = updateRcGuard(text, cmd, ctx);
+  if (upd) return upd;
+  if ((updateRcName(text) || hasUpdateVerb(text)) && ctx.options?.some((o) => o.kind === 'customer') && cmd.intent !== 'SELECT_OPTION' && cmd.action.type !== 'select') {
+    // Only a named row (one / several / already submitted) — "open portfolio" is never "Portfolio is not in pending RCs".
+    const row = resolveCustomer(text, ctx.options, ctx.screen, cmd.confidence);
+    if (row && row.autoReason !== 'customer_absent') return row;
+  }
+  const t = planTarget(cmd);
+  const loanNav = (LOAN_NAV_INTENTS.has(cmd.intent) || (t.kind === 'navigate' && cmd.intent !== 'TA_REPAY' && cmd.intent !== 'ENHANCE_TA_LIMIT' && t.filter !== 'down_payment'))
+    && t.kind === 'navigate' && amountBlocksNavigation(text);
+  const mandate = (cmd.intent === 'SETUP_UPI_MANDATE' || cmd.intent === 'OPEN_UPI_APP') && payIsNotMandate(text);
+  if (!loanNav && !mandate) return cmd;
+  const mine = resolveOnPhone(text, ctx, cmd.confidence);
+  if (mine) return mine;
+  const loanLine = loanNav && /\b(?:loan|lone)\b|लोन/i.test(text);
+  return parseResponse({
+    transcript: cmd.transcript, confidence: cmd.confidence, engine: cmd.engine ?? 'device', method: 'amount', matcher: 'guard',
+    intent: loanLine ? 'SET_LOAN_AMOUNT' : 'UNKNOWN', score: 0, matchedPhrase: null, action: { type: 'none' }, status: loanLine ? 'ok' : 'retry',
+    responseText: loanLine ? (ctx.screen === 'Asset' ? LOAN_ASSET_NO_FIELD_TEXT : LOAN_NO_FIELD_TEXT) : 'Sorry, say that again.',
+    confidenceBand: loanLine ? 'confirm' : 'retry', autoExecute: false, autoReason: loanNav ? 'amount_never_navigates' : 'pay_is_not_mandate',
+  });
 }

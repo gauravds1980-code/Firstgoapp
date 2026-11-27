@@ -1,4 +1,4 @@
-# FIRSTgo on iOS (v1.4.4)
+# FIRSTgo on iOS (v1.4.5)
 
 FIRSTgo (Expo SDK 58, React Native 0.88) runs on iPhone from the same code as the Android APK and the web build. This page covers the iOS settings, how voice (Zippy) works on a real iPhone, and the exact steps to test, build and ship.
 
@@ -11,8 +11,8 @@ FIRSTgo (Expo SDK 58, React Native 0.88) runs on iPhone from the same code as th
 | | iOS | Android |
 |---|---|---|
 | App ID | `com.idfcfirst.firstgo.dealer` (bundle id) | `com.idfcfirst.boom.dealer` (package) |
-| Marketing version | `1.4.4` (`expo.version`) | `1.4.4` |
-| Build number | `ios.buildNumber` = `"1"` | `android.versionCode` = `21` |
+| Marketing version | `1.4.5` (`expo.version`) | `1.4.5` |
+| Build number | `ios.buildNumber` = `"1"` | `android.versionCode` = `22` |
 
 **v1.4.0:** still `ios.buildNumber` "1" (new marketing version, no 1.4.0 iOS binary yet); adds `expo-speech-recognition` (its plugin sets `NSSpeechRecognitionUsageDescription`, needs a new dev build).
 
@@ -23,6 +23,8 @@ FIRSTgo (Expo SDK 58, React Native 0.88) runs on iPhone from the same code as th
 **v1.4.3:** still `ios.buildNumber` "1" (no 1.4.x iOS binary shipped yet); Android `versionCode` 20. JS-only voice changes: faster streaming voice, bottom-right mic, and turn logging. No new native iOS plugins.
 
 **v1.4.4:** still `ios.buildNumber` "1" (no 1.4.x iOS binary shipped yet); Android `versionCode` 21. JS-only voice changes: offline vehicle chip selection and clearer voice details. No new native iOS plugins.
+
+**v1.4.5:** still `ios.buildNumber` "1" (no 1.4.x iOS binary shipped yet); Android `versionCode` 22. JS-only changes: hands-off voice, loan amount, TA repay, e-sign OTP, RC by name and voice, and a steadier voice connection. No new native iOS plugins.
 
 **Why the iOS build number is "1".** No iOS binary of v1.3.0 was ever shipped, so v1.3.1 is the first iOS binary, and Apple only requires the build number to be unique and increasing *within one marketing version*. So `1.3.1 (1)` is correct. It doesn't need to match Android's `versionCode` 16, because the two stores count separately. Android reached 16 through earlier APKs; iOS has no history yet.
 

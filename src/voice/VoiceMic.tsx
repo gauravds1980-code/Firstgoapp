@@ -1,9 +1,10 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { Pressable, View } from 'react-native';
 import { useIsFocused, useRoute } from '@react-navigation/native';
 import { Icon, Text } from '../components/ui';
 import { colors, elevation } from '../theme/tokens';
 import { haptic } from '../utils/haptics';
+import { clock, type MicView } from './micFlow';
 import { micDock, type MicPlacement } from './micDock';
 import { createMicGesture, type MicGesture } from './micGesture';
 import { voiceMetrics } from './voiceMetrics';
@@ -15,8 +16,6 @@ const LABEL = {
   handsfree: { idle: 'Tap to talk', listening: 'Listening, tap to cancel', thinking: 'Checking what you said' },
 } as const;
 
-/** m:ss for the recording timer. */
-const clock = (ms: number) => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const now = (): number => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
 /** Gold ring around the maroon disc (mockups: /workspace/firstgo-transcript-mockup, after-portfolio-mock.png). */
 const RING = 3;
@@ -34,23 +33,21 @@ const RING = 3;
  * Push-to-talk: press-and-hold, release ends the turn. Hands-free: tap to start, tap again to cancel.
  * Double-tap (micGesture.ts): opens / closes the live transcript sheet; the first press is never delayed.
  */
-export function VoiceMic({ placement }: { placement: MicPlacement }) {
-  const { phase, transcriptOpen } = useVoiceSession();
+export function VoiceMic({ placement, view, elapsed }: {
+  placement: MicPlacement;
+  /** v1.4.5: the SAME view + timer VoiceHost gives the "Listening…" bubble (micFlow.micView) — one source of truth. */
+  view: MicView;
+  elapsed: number;
+}) {
+  const { transcriptOpen } = useVoiceSession();
   const { mode } = useVoiceSettings();
   const handsFree = mode === 'handsfree';
-  // Local "pressed" flag so the disc changes on this very frame, not after the session round-trip.
-  const [pressed, setPressed] = useState(false);
   const pendingPaint = useRef(false);
-  const live = phase === 'listening' || (pressed && !handsFree);
-  const checking = phase === 'thinking' && !live;
-  const [elapsed, setElapsed] = useState(0);
-  useEffect(() => {
-    if (!live) { setElapsed(0); return; }
-    const t0 = Date.now();
-    const t = setInterval(() => setElapsed(Date.now() - t0), 250);
-    return () => clearInterval(t);
-  }, [live]);
-  useEffect(() => { if (phase !== 'listening' && !pressed) pendingPaint.current = false; }, [phase, pressed]);
+  // v1.4.5: no local "pressed" flag any more (it painted a recording disc while the session was not listening).
+  // The press handler starts the turn synchronously, so the session's listening state arrives in this same frame.
+  const live = view.live;
+  const checking = view.checking && !live;
+  useEffect(() => { if (!live) pendingPaint.current = false; }, [live]);
 
   // First frame that shows the pressed state → metrics (press-in → visible feedback).
   useLayoutEffect(() => {
@@ -80,13 +77,11 @@ export function VoiceMic({ placement }: { placement: MicPlacement }) {
     const at = now();
     haptic.tap();
     const ptt = getVoiceSettings().mode !== 'handsfree';
-    // Paint first (same frame), then let the gesture start the turn.
-    if (ptt) { pendingPaint.current = true; setPressed(true); }
-    if (gesture.current!.down(at) === 'double') { pendingPaint.current = false; setPressed(false); }
+    if (ptt) pendingPaint.current = true;
+    if (gesture.current!.down(at) === 'double') pendingPaint.current = false;
   };
   const onPressOut = () => {
     const at = now();
-    setPressed(false);
     if (getVoiceSettings().mode === 'handsfree') pendingPaint.current = voiceSession.state.phase !== 'listening';
     gesture.current!.up(at);
   };

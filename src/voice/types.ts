@@ -20,6 +20,26 @@ export interface VoiceSlots {
    * Never display it unmasked and never log it; the OTP screens take it out of the draft on use.
    */
   otp?: string;
+  /** v1.4.5: Esign hands-off — verify the drafted `otp` at once (set only for exactly 6 digits on the Esign OTP step). */
+  otpSubmit?: boolean;
+  /** v1.4.5: Asset loan-amount slider value set by voice (SET_LOAN_AMOUNT). */
+  loanAmount?: number;
+  /** v1.4.5: TA repay amount / "repay the full outstanding" (TA_REPAY; the TaInf repay sheet reads them). */
+  repayAmount?: number;
+  repayAll?: boolean;
+  /** v1.4.5: a customer row picked by name (RcPendency: the loan number of the row to open). */
+  customerLan?: string;
+  /** v1.4.5 S2: enhance sheet new limit / reason chip id (+ go on to the reason step at once). */
+  enhanceAmount?: number;
+  enhanceReasonId?: string;
+  enhanceAdvance?: boolean;
+  /** v1.4.5 S2: TA drawdown amount (+ go on to the confirm step at once). */
+  drawdownAmount?: number;
+  drawdownAdvance?: boolean;
+  /** v1.4.5 S2: RC number for the open RC entry sheet (storage form, MH12BC1260). */
+  rcNumber?: string;
+  /** v1.4.5 S2: mobile number filled by voice: send the OTP after the debounce. */
+  sendOtp?: boolean;
 }
 
 /** Push-to-talk UI phase shared by the header mic and the voice overlay. */
@@ -50,13 +70,34 @@ export interface VoiceOption {
   variant?: string;
   /** Asset id, tenure months, etc. */
   value?: string;
+  /** v1.4.5 customer rows (kind 'customer', CONTRACT.md 2.2): name, loan number, vehicle, RC status / reg no. */
+  name?: string;
+  loanNo?: string;
+  lan?: string;
+  vehicle?: string;
+  status?: string;
+  regNo?: string;
 }
 
 /** Server-picked chip for SELECT_VEHICLE_MODEL / SELECT_OPTION. */
-export interface SelectAction { type: 'select'; kind: VoiceOptionKind; id: string; label: string; value?: string }
+export interface SelectAction {
+  type: 'select'; kind: VoiceOptionKind; id: string; label: string; value?: string;
+  /** v1.4.5 S2: field Undo value, "go on to the next step now", the reason chip said with an enhance amount. */
+  previous?: string; advance?: boolean; reason?: ReasonRef;
+}
+
+/** v1.4.5 S2.0: the button voice ADVANCE presses on the current step (sent as `context.cta`). */
+export interface StepCta { id: string; label: string; destructive?: boolean; enabled?: boolean; hint?: string }
+
+/** v1.4.5 S2: an enhance-sheet reason chip carried by ENHANCE_TA_LIMIT ({id, kind:'reason', label, value}). */
+export interface ReasonRef { id: string; kind: string; label: string; value?: string }
 
 export type VoiceAction =
-  | { type: 'navigate'; route: string; filter?: string }
+  | { type: 'navigate'; route: string; filter?: string; sheet?: string; amount?: number; full?: boolean; reason?: ReasonRef; customerName?: string }
+  /** v1.4.5 S2.2 ADVANCE: press the current step's CTA (`confirmed` = the spoken yes already happened). */
+  | { type: 'advance'; route?: string; sheet?: string; step?: string; cta?: string; destructive?: boolean; confirmed?: boolean; reg?: string; customerLan?: string }
+  /** v1.4.5 S2.4 / S2.6: fill a field on this screen (RC number, mobile + sendOtp, Esign OTP submit). */
+  | { type: 'fill'; field: string; value?: string; display?: string; customerLan?: string; sendOtp?: boolean; submit?: boolean }
   | { type: 'assistant'; action: AssistantActionName }
   | SelectAction
   | { type: 'none' };
@@ -71,6 +112,9 @@ export interface IntentCandidate {
   score: number;
   /** Present when the candidate is an on-screen chip ("Did you mean Xtreme 125R or Xtreme 160R?"). */
   option?: { id: string; kind: VoiceOptionKind; label: string; value?: string };
+  /** v1.4.5: the candidate's own action / slots (TA "Repay the full ₹4,50,000" = the full repay sheet). */
+  action?: VoiceAction;
+  slots?: VoiceSlots;
 }
 
 /** PHONE / AMOUNT / OTP / DIGITS from the server; kept open for forward compatibility. */
@@ -94,17 +138,43 @@ export interface NormalizedField {
 /** "That one" / "the same number" style reference the server resolved against the screen. */
 export interface VoiceReference { resolved: boolean; type?: string; value?: string }
 
+/**
+ * v1.4.5: a numeric FIELD the focused screen registers (setVoiceFields), sent with /command as `fields`
+ * (CONTRACT.md 2.1). Never a tappable chip. Asset: `loan-amount` (min / max / step / value); TaInf: `ta-repay` (utilised).
+ */
+export interface VoiceField {
+  id: string;
+  /** 'reg' = the RC entry sheet's registration number (`value` = what is typed). */
+  kind: 'amount' | 'reg';
+  label?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  /** Current value (Undo restores it); the typed plate for kind 'reg'. */
+  value?: number | string;
+  /** Enhance: the current sanctioned limit (min = current + step). */
+  current?: number;
+  /** TA utilised / outstanding (the most a repay can be). */
+  utilised?: number;
+  /** Optional EMI read-out ("The EMI is ₹6,471 a month for 24 months."). */
+  emi?: number;
+  tenure?: number;
+}
+
 /** What the current screen expects the dealer to say (sent with /command as `expect`). */
-export type VoiceExpect = 'otp' | 'phone' | 'digits' | 'amount';
+export type VoiceExpect = 'otp' | 'phone' | 'digits' | 'amount' | 'reg';
 
 /** Extra request fields for POST /command (and the streaming start call). */
 export interface CommandContext {
   sessionId: string;
   screen?: string;
   expect?: VoiceExpect;
-  context?: { route?: string };
+  /** v1.4.5 S2.0: also the open sheet / step / CTA and screen extras (customer, tab, dealerState, …). */
+  context?: { route?: string; sheet?: string; step?: string; cta?: StepCta; [k: string]: unknown };
   /** Chips the dealer can tap on the focused screen (vehicle models, tenures, …). */
   options?: VoiceOption[];
+  /** v1.4.5: numeric fields on the focused screen (loan amount, TA repay). */
+  fields?: VoiceField[];
 }
 
 export interface CommandResponse {
@@ -145,6 +215,13 @@ export interface CommandResponse {
   autoReason?: string;
   /** v1.4.0: which matcher decided — 'keyword' | 'fuzzy' (device) | 'labse' | 'keyword_timeout' (server). */
   matcher?: string;
+  /** v1.4.5: TA "How much?": send the NEXT turn with this `expect`. */
+  expectNext?: VoiceExpect;
+  /** v1.4.5: an OTP turn (mask everything). */
+  otp?: boolean;
+  /** v1.4.5 S2: a destructive step asks a spoken yes; the mobile fill should send the OTP. */
+  voiceConfirm?: boolean;
+  sendOtp?: boolean;
 }
 
 /** How the server banded this command's confidence (v1.2.7). */

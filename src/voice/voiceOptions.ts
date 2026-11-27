@@ -6,9 +6,11 @@
  * Plain module (no React / React Native imports) so it can be unit-tested in Node and read from
  * non-hook code. Also holds the vehicle-name matcher the Asset screen uses for a confirmed select.
  */
-import type { VoiceOption } from './types';
+import type { VoiceField, VoiceOption } from './types';
 
-let current: { owner: number; route?: string; options: VoiceOption[] } | null = null;
+// v1.4.5 S2: several owners may register at once (a screen's rows + an open sheet's reason chips); they merge in
+// registration order. Each owner clears only its own registration.
+let regs: { owner: number; route?: string; options: VoiceOption[] }[] = [];
 let nextOwner = 1;
 
 /**
@@ -17,21 +19,47 @@ let nextOwner = 1;
  */
 export function setVoiceOptions(options: VoiceOption[], route?: string): number {
   const owner = nextOwner++;
-  current = { owner, ...(route ? { route } : {}), options: options.slice() };
+  regs = [...regs, { owner, ...(route ? { route } : {}), options: options.slice() }];
   return owner;
 }
 
-/** Clear the registry. With a token, only clears if that registration is still the current one. */
+/** Clear the registry. With a token, only that registration. */
 export function clearVoiceOptions(token?: number): void {
-  if (token === undefined || current?.owner === token) current = null;
+  regs = token === undefined ? [] : regs.filter((r) => r.owner !== token);
 }
 
 /** Registered options (for `route`, when the registration was route-scoped). */
 export function getVoiceOptions(route?: string): VoiceOption[] {
-  if (!current) return [];
-  if (current.route && route && current.route !== route) return [];
-  return current.options;
+  return regs.filter((r) => !(r.route && route && r.route !== route)).flatMap((r) => r.options);
 }
+
+// ---- v1.4.5 numeric FIELDS (loan amount on Asset, TA repay on TaInf) -------------------------------------
+// Same lifecycle as the chips (register on focus, clear on blur, route-scoped), but a separate registry: a
+// screen may have both (Asset: model / tenure chips + the loan-amount field), and a field is never a chip.
+
+let fieldRegs: { owner: number; route?: string; fields: VoiceField[] }[] = [];
+
+/** Register the focused screen's numeric fields ({id, kind:'amount', min, max, step, value, …}). Returns a token. */
+export function setVoiceFields(fields: VoiceField[], route?: string): number {
+  const owner = nextOwner++;
+  fieldRegs = [...fieldRegs, { owner, ...(route ? { route } : {}), fields: fields.map((f) => ({ ...f })) }];
+  return owner;
+}
+
+/** Clear the field registry. With a token, only that registration. */
+export function clearVoiceFields(token?: number): void {
+  fieldRegs = token === undefined ? [] : fieldRegs.filter((r) => r.owner !== token);
+}
+
+/** Registered fields (for `route`, when the registration was route-scoped); a later id replaces an earlier one. */
+export function getVoiceFields(route?: string): VoiceField[] {
+  const out = new Map<string, VoiceField>();
+  for (const r of fieldRegs) if (!(r.route && route && r.route !== route)) for (const f of r.fields) out.set(f.id, f);
+  return [...out.values()];
+}
+
+/** One registered field by id ('loan-amount', 'ta-repay'). */
+export const getVoiceField = (id: string, fields: readonly VoiceField[] | undefined): VoiceField | undefined => fields?.find((f) => f.id === id);
 
 /** Short brand used in chip labels. Mirrors firstgo-voice-local data/catalogue.json `shortBrand`. */
 const SHORT_BRAND: Readonly<Record<string, string>> = {

@@ -7,6 +7,8 @@
  * must not point at the Google proxy (8792) by default, because that costs money.
  * Spoken replies always use Piper on the local server, never Google TTS.
  */
+import { bakedRouteList, createRouteManager } from './voiceRoutes';
+
 export type SttProviderName = 'google' | 'sarvam';
 
 /** Local Whisper + LaBSE + Piper stack (firstgo-voice-local). Same /command contract as the Google proxy. */
@@ -39,15 +41,27 @@ export const PTT_MIN_HOLD_MS = 250;
 /** Hard cap on a single push-to-talk recording. */
 export const PTT_MAX_HOLD_MS = 15_000;
 
-export const isVoiceConfigured = (): boolean => STT_BASE_URL.length > 0;
-export const commandUrl = (): string => `${STT_BASE_URL}/command`;
-export const ttsUrl = (): string => `${STT_BASE_URL}/tts`;
+/**
+ * v1.4.5 voice routes (voiceRoutes.ts): EXPO_PUBLIC_STT_URL first, then the optional comma-separated
+ * EXPO_PUBLIC_STT_URLS, behind any list fetched from GET {route}/routes. Every URL below goes through the current
+ * (last healthy) route, so a dropped tunnel switches to the next route and back when the primary recovers.
+ */
+export const BAKED_STT_ROUTES: readonly string[] = bakedRouteList(STT_BASE_URL, process.env.EXPO_PUBLIC_STT_URLS);
+export const voiceRoutes = createRouteManager({ baked: BAKED_STT_ROUTES });
+/** Current voice route (base URL, no trailing slash), '' when voice is not configured. */
+export const voiceBase = (): string => voiceRoutes.current();
+
+export const isVoiceConfigured = (): boolean => voiceBase().length > 0;
+export const commandUrl = (base: string = voiceBase()): string => `${base}/command`;
+export const ttsUrl = (base: string = voiceBase()): string => `${base}/tts`;
 /** v1.4.2: typed / device-recognised text (alias of /command with a transcript; falls back to /command). */
-export const textUrl = (): string => `${STT_BASE_URL}/text`;
+export const textUrl = (base: string = voiceBase()): string => `${base}/text`;
 /** v1.4.2: fire-and-forget backtest log for turns decided on the device (voiceTurnLog.ts). */
-export const logUrl = (): string => `${STT_BASE_URL}/log`;
+export const logUrl = (base: string = voiceBase()): string => `${base}/log`;
 /** Tells the server the read-out finished (or was stopped) so it accepts the next /command. */
-export const ttsDoneUrl = (): string => `${STT_BASE_URL}/tts/done`;
+export const ttsDoneUrl = (base: string = voiceBase()): string => `${base}/tts/done`;
+/** v1.4.3 live PCM stream base: {route}/stream/{id}/… (serverStream.ts). */
+export const streamBaseUrl = (): string => voiceBase();
 
 /**
  * EXPO_PUBLIC_VOICE_STREAMING — DEFAULT ON. Server path only: live PCM from the mic is POSTed to

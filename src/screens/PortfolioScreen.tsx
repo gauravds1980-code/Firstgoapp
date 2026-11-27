@@ -3,7 +3,8 @@ import { View } from 'react-native';
 import { JourneyScreen } from '../components/Screen';
 import { ZippyAvoid } from '../components/assistant/zippyAvoid';
 import { Chip, DateFilterBar, ExampleTag, inrShort, StatCard } from '../components/business';
-import { Card, EmptyState, Pill, Text } from '../components/ui';
+import { Card, EmptyState, Pill, PressableScale, Text } from '../components/ui';
+import { CaseDetailSheet, useCaseRows } from '../components/CaseDetailSheet';
 import { IconWell } from '../components/phosphor';
 import { presetRange } from '../state/stores';
 import { Bucket, BUCKETS, bucketOf, casesFor, fmtDate } from '../services/business';
@@ -19,10 +20,13 @@ export default function PortfolioScreen() {
   const { profile } = useApp();
   const [range, setRange] = useDateRange();
   const [bucket, setBucket] = useState<Bucket | 'All'>('All');
-  const cases = useMemo(() => casesFor(profile), [profile]).filter((c) => inRange(c.disbursedOn, range));
+  const all = useMemo(() => casesFor(profile), [profile]);
+  const cases = useMemo(() => all.filter((c) => inRange(c.disbursedOn, range)), [all, range]);
   const pos = cases.reduce((t, c) => t + c.pos, 0);
   const split = BUCKETS.map((b) => { const cs = cases.filter((c) => bucketOf(c.dpd) === b); return { b, n: cs.length, pos: cs.reduce((t, c) => t + c.pos, 0) }; });
-  const shown = bucket === 'All' ? cases : cases.filter((c) => bucketOf(c.dpd) === bucket);
+  const shown = useMemo(() => (bucket === 'All' ? cases : cases.filter((c) => bucketOf(c.dpd) === bucket)), [cases, bucket]);
+  // v1.4.5 S2.7: rows open the loan (tap or voice "open Rahul Sharma"); the rows on screen are the voice options.
+  const rows = useCaseRows('Portfolio', shown);
   const overdue = split.filter((s) => s.b !== 'Current').reduce((t, s) => t + s.pos, 0);
   return (
     <JourneyScreen title="Portfolio" titleInBody assistant="portfolio" showTerms={false}>
@@ -67,7 +71,8 @@ export default function PortfolioScreen() {
           : <EmptyState tone="success" icon="check-decagram-outline" title={`No loans in ${bucket} DPD`} body="Nobody in this bucket right now. Tap All to see every loan."
               action={{ label: 'Show all loans', icon: 'filter-off-outline', onPress: () => setBucket('All') }} />)}
         {shown.map((c, i) => (
-          <View key={c.lan} style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.md, borderBottomWidth: i === shown.length - 1 ? 0 : 1, borderBottomColor: colors.border }}>
+          <PressableScale key={c.lan} onPress={() => rows.openLan(c.lan)} accessibilityRole="button" accessibilityLabel={`${c.customer}, ${c.vehicle}, ${c.dpd ? `${c.dpd} days past due` : 'current'}. Open loan`}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.md, borderBottomWidth: i === shown.length - 1 ? 0 : 1, borderBottomColor: colors.border }}>
             {/* design-a: Phosphor fill glyph in the Portfolio (teal) well, white glyph ≥ 7.4:1. */}
             <IconWell name={c.product} bg={colors.tileTeal} />
             <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
@@ -76,9 +81,10 @@ export default function PortfolioScreen() {
               <Text variant="caption" color={colors.textSecondary}>POS {inr(c.pos)} of {inr(c.amount)}</Text>
             </View>
             <ZippyAvoid><Pill label={c.dpd ? `${c.dpd} DPD` : 'Current'} tone={c.dpd === 0 ? 'success' : c.dpd <= 30 ? 'warning' : 'danger'} /></ZippyAvoid>
-          </View>
+          </PressableScale>
         ))}
       </Card>
+      <CaseDetailSheet c={rows.open} onClose={() => rows.openLan(null)} />
     </JourneyScreen>
   );
 }

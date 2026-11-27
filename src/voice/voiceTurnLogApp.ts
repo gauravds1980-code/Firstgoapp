@@ -4,26 +4,55 @@
  * Turn type is unchanged.
  */
 import { Platform } from 'react-native';
-import { File } from 'expo-file-system';
+import { File, Paths } from 'expo-file-system';
 import appJson from '../../app.json';
 import { secureStorage } from '../utils/secureStorage';
-import { isVoiceConfigured, STT_BASE_URL } from './config';
+import { isVoiceConfigured, voiceBase, voiceRoutes } from './config';
+import { createLogQueue } from './voiceLogQueue';
 import type { CommandExtras } from './sttClient';
 import { VoiceError, type CommandContext, type CommandResponse } from './types';
 import { isOtpCommand } from './voiceLogic';
 import {
-  createVoiceTurnLog, deliveredOutcome, failureOutcome, isOtpTurn, newTurnId, shouldAttachClip, turnEndRecord, type DeviceTurnRecord, type TurnLogPath,
+  createVoiceTurnLog, deliveredOutcome, failureOutcome, isOtpTurn, newTurnId, shouldAttachClip, turnEndRecord, type DeviceTurnRecord, type KeyValueStorage, type TurnLogPath,
 } from './voiceTurnLog';
+
+/**
+ * v1.4.5 /log offline queue storage: a JSON file in the app's document directory (200 entries can exceed what the
+ * keychain holds; the entries carry no audio and no OTP digits, see voiceLogQueue.ts). localStorage on web.
+ */
+const fileStorage: KeyValueStorage = {
+  async get(key) {
+    if (Platform.OS === 'web') return typeof localStorage === 'undefined' ? null : localStorage.getItem(key);
+    const f = new File(Paths.document, `${key}.json`);
+    return f.exists ? await f.text() : null;
+  },
+  async set(key, value) {
+    if (Platform.OS === 'web') { if (typeof localStorage !== 'undefined') localStorage.setItem(key, value); return; }
+    const f = new File(Paths.document, `${key}.json`);
+    if (!f.exists) f.create();
+    f.write(value);
+  },
+};
+
+export const voiceLogQueue = createLogQueue({ storage: fileStorage });
 
 export const voiceTurnLog = createVoiceTurnLog({
   fetch: (url, init) => fetch(url, init),
   storage: secureStorage,
-  baseUrl: () => (isVoiceConfigured() ? STT_BASE_URL : ''),
+  baseUrl: () => (isVoiceConfigured() ? voiceBase() : ''),
   platform: Platform.OS,
   appVersion: String((appJson as { expo?: { version?: string } }).expo?.version ?? ''),
+  queue: voiceLogQueue,
+  report: (base, outcome) => voiceRoutes.report(base, outcome),
 });
 // Load the hashed install id early so the first request already carries it.
 void voiceTurnLog.deviceIdHash();
+
+// v1.4.5 routes: cached + fetched route list at app start, then resend any queued /log posts; again on recovery.
+voiceRoutes.onRecover(() => { void voiceTurnLog.flushQueue(); });
+if (isVoiceConfigured()) {
+  void voiceRoutes.start(secureStorage).catch(() => {}).then(() => voiceTurnLog.flushQueue()).catch(() => {});
+}
 
 /** The parts of useVoiceCommand's Turn this module reads. */
 type TurnLike = {
@@ -51,7 +80,8 @@ function infoFor(t: object): TurnInfo {
   return i;
 }
 
-const otpTurn = (t: TurnLike, cmd?: CommandResponse | null) => t.otp || isOtpTurn({ expect: t.ctx.expect }) || (!!cmd && isOtpCommand(cmd));
+const otpTurn = (t: TurnLike, cmd?: CommandResponse | null) =>
+  t.otp || isOtpTurn({ expect: t.ctx.expect, screen: t.ctx.screen, route: t.ctx.context?.route }) || (!!cmd && isOtpCommand(cmd));
 
 /** Remember the phone recogniser's final text for this turn (sent with later requests). */
 export function noteDeviceText(t: TurnLike, text: string, confidence: number | null | undefined): void {

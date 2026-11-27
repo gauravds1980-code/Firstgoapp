@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { NativeScrollEvent, NativeSyntheticEvent, ScrollView, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
@@ -18,8 +18,10 @@ import { reportValidationError } from '../tutorial/tutorialStore';
 import { waiverPlan } from '../utils/waivers';
 import { NB_HYPHEN } from '../navigation/types';
 import { useVoiceDraft, voiceDraft } from '../voice/voiceDraft';
-import { clearVoiceOptions, matchVehicleRow, setVoiceOptions, vehicleLabel } from '../voice/voiceOptions';
+import { clearVoiceFields, clearVoiceOptions, matchVehicleRow, setVoiceFields, setVoiceOptions, vehicleLabel } from '../voice/voiceOptions';
 import { useUndoSource } from '../voice/voiceUndo';
+import { useVoiceStep } from '../voice/useAutoAdvance';
+import { askVoiceConfirm, voiceSay } from '../voice/voiceAsk';
 
 export default function AssetScreen() {
   const nav = useNavigation();
@@ -49,6 +51,13 @@ export default function AssetScreen() {
     return () => clearVoiceOptions(token);
   }, [catalogue, tenureOptions]));
 
+  // v1.4.5 voice: the "Desired loan amount" slider as a numeric field (CONTRACT.md 2.1) so "loan amount 1 lakh"
+  // sets it (rounded to the step, min = product minLoan, max = maxLoan()). Re-registered when its range moves.
+  useFocusEffect(useCallback(() => {
+    const token = setVoiceFields([{ id: 'loan-amount', kind: 'amount', label: 'Loan amount', min, max, step: p.loanStep, value: loan, emi: Math.round(monthly), tenure: journey.tenure }], 'Asset');
+    return () => clearVoiceFields(token);
+  }, [min, max, p.loanStep, loan, monthly, journey.tenure]));
+
   // Voice: a CONFIRMED select ("Select Xtreme 125R", "24 months") does exactly what the chip press
   // does. Only the slots used here are taken; Continue is never pressed for the dealer.
   const draft = useVoiceDraft();
@@ -63,15 +72,27 @@ export default function AssetScreen() {
       voiceDraft.take('assetId'); voiceDraft.take('vehicle'); voiceDraft.take('model'); voiceDraft.take('brand');
       haptic.select();
     }
+    // v1.4.5 SET_LOAN_AMOUNT: same as moving the slider (clamped to the slider's range and step). Never Continue.
+    if (s.loanAmount !== undefined) {
+      const v = voiceDraft.take('loanAmount');
+      if (v !== undefined && Number.isFinite(v)) {
+        const stepped = Math.round(v / p.loanStep) * p.loanStep;
+        update({ loan: Math.max(min, Math.min(max, stepped)) });
+        haptic.select();
+        setAskCta((n) => n + 1); // v1.4.5 S2.5: then the spoken 'Confirm and start KYC?'
+      }
+    }
     if (s.tenureMonths !== undefined && tenureOptions.includes(s.tenureMonths)) {
       const tn = voiceDraft.take('tenureMonths');
       if (tn !== undefined) { update({ tenure: tn }); haptic.select(); }
     }
-  }, [draft, focused, catalogue, tenureOptions, journey.asset.id, journey.offer.amount, journey.condition, product, update]);
+  }, [draft, focused, catalogue, tenureOptions, journey.asset.id, journey.offer.amount, journey.condition, product, update, min, max, p.loanStep]);
 
   // Voice Undo (auto-acted select): restore the previous model / tenure the same way a chip press does.
   useUndoSource('asset', () => journey.asset, (a) => update({ asset: a, loan: maxLoan(product, journey.offer.amount, a.onRoadPrice, journey.condition) }), focused);
   useUndoSource('tenure', () => journey.tenure, (tn) => update({ tenure: tn }), focused);
+  // v1.4.5: Undo of a voice-set loan amount puts the slider back.
+  useUndoSource('loan', () => journey.loan, (v) => { askRef.current?.(); askRef.current = null; update({ loan: v }); }, focused);
 
   // Shortest tenure that brings EMI under the UPI cap, to suggest a fix
   const fixTenure = p.tenureOptions.find((tn) => tn > journey.tenure && emi(loan, t.annualRate, tn) <= UPI_MANDATE_EMI_CAP);
@@ -91,6 +112,36 @@ export default function AssetScreen() {
   // "Checking bank records" beat, so the CTA never says "start KYC" when KYC won't happen.
   const plan = waiverPlan(journey, product);
   const cta = !plan.kyc ? 'Confirm & start KYC' : !plan.mandate ? 'Confirm & set up mandate' : `Confirm & go to e${NB_HYPHEN}sign`;
+
+  // v1.4.5 S2.5 hands-off: the footer CTA is what voice ADVANCE presses here ("proceed" / "confirm" / "start KYC" /
+  // "aage chaliye") — always as a SPOKEN confirm (it starts KYC / mandate / e-sign), never automatic; blocked over the
+  // UPI cap with the reason. After a voice loan amount the app asks "Loan amount ₹1,00,000, EMI ₹4,700 a month.
+  // Confirm and start KYC?" — a spoken yes runs the same press as the button (which stays).
+  const ctaId = !plan.kyc ? 'confirm-kyc' : !plan.mandate ? 'confirm-mandate' : 'confirm-esign';
+  const capHint = `EMI ${inr(monthly)} is above the ${inr(UPI_MANDATE_EMI_CAP)} UPI AutoPay cap. ${fixTenure ? `Say ${fixTenure} months, or lower the loan amount.` : 'Lower the loan amount.'}`;
+  const pressCta = () => { if (!blocked) nav.navigate('FaceKyc'); };
+  const focusedRef = useRef(focused);
+  focusedRef.current = focused;
+  const pressRef = useRef(pressCta);
+  pressRef.current = pressCta;
+  const ctaSpoken = cta.replace('&', 'and').replace(NB_HYPHEN, '-');
+  useVoiceStep({ route: 'Asset', extra: { loanAmount: loan, emi: Math.round(monthly) },
+    cta: { id: ctaId, label: cta, destructive: true, enabled: !blocked, hint: capHint, confirmPrompt: `${ctaSpoken}?`, press: pressCta } });
+  const [askCta, setAskCta] = useState(0);
+  const askRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (!askCta || !focusedRef.current) return;
+    askRef.current?.();
+    askRef.current = null;
+    if (blocked) { voiceSay(capHint, 'error'); return; }
+    askRef.current = askVoiceConfirm({
+      prompt: `Loan amount ${inr(loan)}, EMI ${inr(monthly)} a month. ${ctaSpoken}?`,
+      yesWords: ['confirm', 'proceed', 'start', 'kyc', 'continue'],
+      onYes: () => { if (focusedRef.current) pressRef.current(); },
+    });
+  }, [askCta]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => askRef.current?.(), []);
+  useEffect(() => { if (!focused) { askRef.current?.(); askRef.current = null; } }, [focused]);
 
   // Section-aware Zippy help + what still needs the dealer here.
   const sec = useSectionTracker<'vehicle' | 'emi' | 'charges'>('vehicle');
@@ -124,7 +175,7 @@ export default function AssetScreen() {
             </Text>
           </View>
         )}
-        <Button label={cta} iconRight="arrow-right" onPress={() => nav.navigate('FaceKyc')} disabled={blocked}
+        <Button label={cta} iconRight="arrow-right" onPress={pressCta} disabled={blocked}
           accessibilityHint={blocked ? 'Disabled: EMI is above the UPI mandate cap' : undefined} />
       </View>}>
       <View style={{ gap: space.xs }} onLayout={sec.at('vehicle')}>
