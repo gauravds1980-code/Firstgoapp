@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { Platform } from 'react-native';
 import { secureStorage } from '../utils/secureStorage';
 import { DEFAULT_SPOKEN_REPLIES } from './voiceCues';
+import { VOICE_STREAMING } from './config';
 import { defaultOnDeviceAsr, type TalkMode, type VoiceLocale } from './voiceMode';
 
 /**
@@ -15,6 +16,8 @@ import { defaultOnDeviceAsr, type TalkMode, type VoiceLocale } from './voiceMode
  * onDeviceAsr (v1.4.0, feature flag `voice.onDeviceAsr`) — use the phone's speech recognizer as the
  *   primary path (live words, no upload wait). Default ON on native, OFF on web. When off or
  *   unavailable the app records and sends the clip to the voice server, as before.
+ * serverStream (v1.4.2) — voice-server path only: stream the mic live and show the server's words while the
+ *   dealer speaks (default ON; EXPO_PUBLIC_VOICE_STREAMING=0 makes the default OFF). Off: record the whole clip.
  * metricsLog (v1.4.0, dev flag) — print one `[voice-metrics]` line per turn to the console.
  * debugAsr (v1.4.2) — show one voice debug line under the live pill (which ASR path, why). Release builds too.
  * spokenReplies (v1.4.2, feature flag `voice.spokenReplies`) — Zippy speaks its replies with Piper (bundled clip
@@ -28,6 +31,8 @@ export type VoiceSettings = {
   mode: TalkMode;
   locale: VoiceLocale;
   onDeviceAsr: boolean;
+  serverStream: boolean;
+  parallelStream: boolean;
   metricsLog: boolean;
   debugAsr: boolean;
   spokenReplies: boolean;
@@ -38,6 +43,8 @@ const KEYS: Record<keyof VoiceSettings, string> = {
   mode: 'firstgo.voice.mode',
   locale: 'firstgo.voice.locale',
   onDeviceAsr: 'firstgo.voice.onDeviceAsr',
+  serverStream: 'firstgo.voice.serverStream',
+  parallelStream: 'firstgo.voice.parallelStream',
   metricsLog: 'firstgo.voice.metricsLog',
   debugAsr: 'firstgo.voice.debugAsr',
   spokenReplies: 'firstgo.voice.spokenReplies',
@@ -48,6 +55,8 @@ export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   mode: 'ptt',
   locale: 'en-IN',
   onDeviceAsr: defaultOnDeviceAsr(Platform.OS),
+  serverStream: VOICE_STREAMING,
+  parallelStream: false,
   metricsLog: false,
   debugAsr: false,
   spokenReplies: DEFAULT_SPOKEN_REPLIES,

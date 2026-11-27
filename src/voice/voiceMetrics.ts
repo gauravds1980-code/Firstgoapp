@@ -12,7 +12,8 @@
  * masked before it is kept or logged. Pure: no React Native imports (unit-tested in Node).
  */
 
-export type TurnMark = 'pressIn' | 'feedback' | 'release' | 'finalText' | 'action' | 'audioStart' | 'check' | 'gate';
+/** firstPartial (v1.4.2): first non-empty live partial on the server streaming path (logged as pressToFirstPartial). */
+export type TurnMark = 'pressIn' | 'feedback' | 'firstPartial' | 'release' | 'finalText' | 'action' | 'audioStart' | 'check' | 'gate';
 export type TurnPath = 'device' | 'server' | 'device+text';
 export type TurnMatcher = 'keyword' | 'fuzzy' | 'labse' | 'server' | 'none';
 
@@ -121,6 +122,8 @@ export function createVoiceMetrics(opts: { size?: number; clock?: () => number; 
     /** One log line: spans + tags only (no transcript, digits masked). */
     line(t: Turn): string {
       const parts = METRIC_NAMES.map((n) => [n, api.span(t, n)] as const).filter(([, v]) => v !== null).map(([n, v]) => `${n}=${v}`);
+      const fp = t.marks.firstPartial;
+      if (fp !== undefined && t.marks.pressIn !== undefined) parts.push(`pressToFirstPartial=${Math.round(fp - t.marks.pressIn)}`);
       return `[voice-metrics] #${t.id} path=${t.path ?? '-'} matcher=${t.matcher ?? '-'} mode=${t.mode ?? '-'} outcome=${t.outcome ?? '-'} ${parts.join(' ')}${t.note ? ` note=${t.note}` : ''}`;
     },
   };

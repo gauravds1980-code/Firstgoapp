@@ -395,3 +395,42 @@ test('tutorial words never override a specific intent, a non-help read-out or a 
   const fill = base({ intent: 'UNKNOWN', transcript: 'help 9876543210', normalizedFields: [{ type: 'PHONE', value: '9876543210', display: '98765 43210', valid: true }] });
   assert.equal(planTarget(fill).kind, 'fill');
 });
+
+// ---- v1.4.2: a model picked from "Did you mean" continues the journey / loan the dealer asked for ----
+
+test('withCandidate: model option on START_QR_JOURNEY navigates to ScanQr with the model in slots', () => {
+  const cands = [
+    { intent: 'START_QR_JOURNEY', phrase: 'Hero Xtreme 125R', score: 0.7, option: { id: 'hero-xtreme', kind: 'vehicle_model', label: 'Hero Xtreme 125R', value: 'hero-xtreme' } },
+    { intent: 'START_QR_JOURNEY', phrase: 'Hero Xtreme 160R', score: 0.69, option: { id: 'hero-xtreme-160', kind: 'vehicle_model', label: 'Hero Xtreme 160R', value: 'hero-xtreme-160' } },
+    { intent: 'START_QR_JOURNEY', phrase: 'start QR journey', score: 0.68 },
+  ];
+  const cmd = base({ transcript: 'start QR journey for xtreme', intent: 'START_QR_JOURNEY', status: 'clarify', candidates: cands, autoExecute: false, confidenceBand: 'clarify' });
+  const picked = withCandidate(cmd, cands[1]);
+  assert.equal(picked.status, 'ok');
+  assert.equal(picked.intent, 'START_QR_JOURNEY');
+  assert.deepEqual(picked.action, { type: 'navigate', route: 'ScanQr' });
+  assert.equal(picked.slots?.assetId, 'hero-xtreme-160');
+  assert.equal(picked.slots?.vehicle, 'Hero Xtreme 160R');
+  assert.equal(picked.candidates, undefined);
+  assert.equal(picked.autoExecute, undefined);
+  assert.deepEqual(planTarget(picked), { kind: 'navigate', route: 'ScanQr' });
+  // The last candidate (main intent, no option) navigates without a model.
+  const plain = withCandidate(cmd, cands[2]);
+  assert.deepEqual(planTarget(plain), { kind: 'navigate', route: 'ScanQr' });
+  assert.equal(plain.slots?.assetId, undefined);
+});
+
+test('withCandidate: model option on NEW_TWO_WHEELER_LOAN opens the loan (filter kept) with the model', () => {
+  const c = { intent: 'NEW_TWO_WHEELER_LOAN', phrase: 'Bajaj Pulsar 150', score: 0.66, option: { id: 'bajaj-pulsar-150', kind: 'vehicle_model', label: 'Bajaj Pulsar 150', value: 'bajaj-pulsar-150' } };
+  const picked = withCandidate(base({ intent: 'NEW_TWO_WHEELER_LOAN', status: 'clarify', candidates: [c] }), c);
+  assert.deepEqual(picked.action, { type: 'navigate', route: 'SearchMobile', filter: 'two_wheeler' });
+  assert.deepEqual(planTarget(picked), { kind: 'navigate', route: 'SearchMobile', filter: 'two_wheeler' });
+  assert.equal(picked.slots?.assetId, 'bajaj-pulsar-150');
+});
+
+test('withCandidate: non-model options and select intents still stay a select on this screen', () => {
+  const tenure = withCandidate(base({ status: 'clarify' }), { intent: 'START_QR_JOURNEY', phrase: '24 months', score: 0.6, option: { id: 'tenure-24', kind: 'tenure', label: '24 months', value: '24' } });
+  assert.equal(planTarget(tenure).kind, 'select');
+  const sel = withCandidate(base({ status: 'clarify' }), { intent: 'SELECT_VEHICLE_MODEL', phrase: 'Hero Xtreme 125R', score: 0.6, option: { id: 'hero-xtreme', kind: 'vehicle_model', label: 'Hero Xtreme 125R', value: 'hero-xtreme' } });
+  assert.equal(planTarget(sel).kind, 'select');
+});

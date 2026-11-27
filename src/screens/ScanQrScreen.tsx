@@ -12,7 +12,6 @@ import { colors, radius, space, touch } from '../theme/tokens';
 import { haptic } from '../utils/haptics';
 import { reportValidationError } from '../tutorial/tutorialStore';
 import { HeaderDockSlot } from '../components/assistant/HeaderDockSlot';
-import { HeaderVoiceMic } from '../voice/HeaderVoiceMic';
 import { ZippyTipSlot } from '../components/assistant/ZippyTipSlot';
 import { ZippyAvoid } from '../components/assistant/zippyAvoid';
 import { reportFooterHeight } from '../components/assistant/zippySection';
@@ -87,11 +86,9 @@ export default function ScanQrScreen() {
         <PressableScale onPress={() => nav.goBack()} accessibilityRole="button" accessibilityLabel="Close scanner" style={{ width: touch.min, height: touch.min, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="close" size={28} color="#fff" />
         </PressableScale>
-        {/* Left spacer balances the two right-hand slots, so the title stays centred. */}
-        <View style={{ width: touch.min }} />
+        {/* v1.4.2: no voice mic on the camera (micDock: Scan QR hides it) — one control on the finder is enough. */}
         <Text variant="h3" color="#fff" numberOfLines={1} style={{ flex: 1, textAlign: 'center' }}>Scan offer QR</Text>
         <HeaderDockSlot />
-        <HeaderVoiceMic onDark />
       </View>
 
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.lg, paddingHorizontal: space.lg }}>

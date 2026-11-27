@@ -53,8 +53,13 @@ type Edit = { index: number; type: NormalizedField['type'] };
  * shown; typing an OTP uses a secure input. Drawn as an absolute overlay by VoiceHost (inside
  * VoiceHost's own transparent Modal while Zippy's help sheet is open).
  */
-export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, onChoose, onEditField, onSayAgain, onEditTranscript }: {
+export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, onChoose, onEditField, onSayAgain, onEditTranscript, embedded = false }: {
   command: CommandResponse | null; plan: ApplyOutcome | null; expect?: VoiceExpect;
+  /**
+   * v1.4.2: drawn as a card inside the live transcript sheet (no scrim, no own sheet, no own scroller) so the
+   * dealer sees one surface. Same content, same Confirm / "Did you mean" / Cancel behaviour.
+   */
+  embedded?: boolean;
   onConfirm: () => void; onCancel: () => void;
   onChoose?: (c: IntentCandidate) => void;
   onEditField?: (index: number, type: NormalizedField['type'], text: string) => void;
@@ -119,18 +124,9 @@ export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, 
     setEdit(null); setTyped(''); setTypedErr(undefined);
   };
 
-  return (
-    <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, justifyContent: 'flex-end', paddingBottom: kb.lift, paddingTop: insets.top }} accessibilityViewIsModal>
-      <Pressable style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: colors.scrim }} onPress={onCancel} accessibilityLabel="Cancel voice command" />
-      <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, paddingHorizontal: space.lg, paddingTop: space.sm, paddingBottom: space.md + insets.bottom, gap: space.md, maxHeight: '85%' }}>
-        <View style={{ alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: colors.borderStrong }} />
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
-          <Icon name={status === 'retry' || status === 'reprompt' ? 'microphone-question' : 'microphone'} size={20} color={colors.primary} />
-          <Text variant="h3" style={{ flex: 1 }} accessibilityRole="header">{title}</Text>
-        </View>
-        <ScrollView ref={kb.scrollRef} onScroll={kb.onScroll} scrollEventThrottle={32} style={{ flexShrink: 1 }} contentContainerStyle={{ gap: space.sm }} keyboardShouldPersistTaps="handled">
-         <KeyboardRevealProvider value={kb.api}>
-          {!!command.transcript.trim() && !fixing && (
+  const bodyContent = (
+    <>
+          {!embedded && !!command.transcript.trim() && !fixing && (
             <View style={{ alignSelf: 'flex-end', maxWidth: '92%', flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
               <View style={{ flexShrink: 1, backgroundColor: colors.aiUser, paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.lg, borderBottomRightRadius: 4 }}>
                 <Text variant="body" color={colors.onPrimary}>“{safeTranscript(command)}”</Text>
@@ -150,9 +146,9 @@ export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, 
               <Button label="Use this" variant="secondary" icon="check" disabled={!fixed.trim()} onPress={() => onEditTranscript?.(fixed)} />
             </View>
           )}
-          <View style={{ padding: space.sm, borderRadius: radius.lg, backgroundColor: actionable ? colors.aiThread : colors.surfaceMuted, gap: space.xxs }}>
-            <Text variant="overline" color={colors.textSecondary}>WHAT I’LL DO</Text>
-            <Text variant="bodyStrong">{what}</Text>
+          {!(embedded && clarify) && <View style={{ padding: space.sm, borderRadius: radius.lg, backgroundColor: actionable ? colors.aiThread : colors.surfaceMuted, gap: space.xxs }}>
+            {!embedded && <Text variant="overline" color={colors.textSecondary}>WHAT I’LL DO</Text>}
+            <Text variant={embedded ? 'body' : 'bodyStrong'}>{what}</Text>
             {status === 'ok' && command.intent !== 'UNKNOWN' && (
               <>
                 <Row label="Intent" value={command.intent} />
@@ -165,7 +161,7 @@ export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, 
             {status === 'retry' && !serverText && VOICE_EXAMPLES.map((ex) => (
               <Text key={ex} variant="body" color={colors.textSecondary}>• “{ex}”</Text>
             ))}
-          </View>
+          </View>}
           {candidates.length > 0 && (
             <View style={{ gap: space.xs }}>
               {status === 'retry' && <Text variant="caption" color={colors.textSecondary}>Or did you mean:</Text>}
@@ -236,13 +232,46 @@ export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, 
               <Text variant="caption" color={colors.textSecondary}>Saved as a draft on Confirm — check them on the next screen.</Text>
             </View>
           )}
-         </KeyboardRevealProvider>
+    </>
+  );
+  const titleRow = (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+      <Icon name={status === 'retry' || status === 'reprompt' ? 'microphone-question' : 'microphone'} size={20} color={colors.primary} />
+      <Text variant="h3" style={{ flex: 1 }} accessibilityRole="header">{title}</Text>
+    </View>
+  );
+  const body = (
+    <KeyboardRevealProvider value={kb.api}>
+      {bodyContent}
+    </KeyboardRevealProvider>
+  );
+  const buttons = (
+    <View style={{ gap: space.xs }}>
+      {actionable && <Button label={confirmLabel(plan)} onPress={onConfirm} icon="check" />}
+      {!actionable && onSayAgain && <Button label="Say again" variant="secondary" icon="microphone" onPress={onSayAgain} />}
+      <Button label={embedded ? 'Not this' : 'Cancel'} variant={actionable || onSayAgain ? 'ghost' : 'secondary'} onPress={onCancel} />
+    </View>
+  );
+  if (embedded) {
+    return (
+      <View testID="voice-preview-embedded" style={{ padding: space.md, gap: space.sm, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+        {titleRow}
+        <View style={{ gap: space.sm }}>{body}</View>
+        {buttons}
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, justifyContent: 'flex-end', paddingBottom: kb.lift, paddingTop: insets.top }} accessibilityViewIsModal>
+      <Pressable style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: colors.scrim }} onPress={onCancel} accessibilityLabel="Cancel voice command" />
+      <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, paddingHorizontal: space.lg, paddingTop: space.sm, paddingBottom: space.md + insets.bottom, gap: space.md, maxHeight: '85%' }}>
+        <View style={{ alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: colors.borderStrong }} />
+        {titleRow}
+        <ScrollView ref={kb.scrollRef} onScroll={kb.onScroll} scrollEventThrottle={32} style={{ flexShrink: 1 }} contentContainerStyle={{ gap: space.sm }} keyboardShouldPersistTaps="handled">
+          {body}
         </ScrollView>
-        <View style={{ gap: space.xs }}>
-          {actionable && <Button label={confirmLabel(plan)} onPress={onConfirm} icon="check" />}
-          {!actionable && onSayAgain && <Button label="Say again" variant="secondary" icon="microphone" onPress={onSayAgain} />}
-          <Button label="Cancel" variant={actionable || onSayAgain ? 'ghost' : 'secondary'} onPress={onCancel} />
-        </View>
+        {buttons}
       </View>
     </View>
   );

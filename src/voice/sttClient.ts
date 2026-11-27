@@ -1,4 +1,4 @@
-import { commandUrl, isVoiceConfigured, streamUrl, STT_PROVIDER, STT_TIMEOUT_MS, VOICE_STREAMING, type SttProviderName } from './config';
+import { commandUrl, isVoiceConfigured, textUrl, STT_PROVIDER, STT_TIMEOUT_MS, type SttProviderName } from './config';
 import {
   VoiceError, type CommandContext, type CommandResponse, type CommandStatus, type ConfidenceBand, type IntentCandidate, type NormalizedField,
   type VoiceAction, type VoiceReference,
@@ -8,7 +8,19 @@ import {
  * v1.4.0 request extras: skipTts = return the action without waiting for Piper. v1.4.2: always sent, so /command never
  * inlines a Piper WAV; speech is a separate /tts only when `voice.spokenReplies` is on (default: cue sounds).
  */
-export type CommandExtras = { skipTts?: boolean; languageCode?: string };
+export type CommandExtras = {
+  skipTts?: boolean;
+  languageCode?: string;
+  // v1.4.2 backtest-log metadata (all optional; see voiceTurnLog.ts). Old servers ignore these.
+  turnId?: string;
+  appVersion?: string;
+  platform?: string;
+  path?: 'device' | 'server' | 'device+check' | 'device+text' | 'stream';
+  deviceTranscript?: string;
+  deviceConfidence?: number;
+  outcome?: string;
+  deviceIdHash?: string;
+};
 
 export interface SttProvider {
   name: SttProviderName;
@@ -158,7 +170,11 @@ async function postJson(url: string, payload: unknown, ctrl: AbortController): P
   });
 }
 
-async function readCommand(res: Response): Promise<CommandResponse> {
+/** The bits of a fetch Response readCommand needs (lets serverStream.ts take any fetch-like function). */
+export type ResponseLike = { ok: boolean; status: number; json(): Promise<unknown> };
+
+/** /command (and /stream/{id}/end) response → CommandResponse. 409 → 'busy', non-2xx → 'http', empty → 'no_speech'. */
+export async function readCommand(res: ResponseLike): Promise<CommandResponse> {
   let body: unknown = null;
   try { body = await res.json(); } catch { /* non-JSON body */ }
   if (res.status === 409) throw new VoiceError('busy');
@@ -175,19 +191,23 @@ export async function postToCommand(audioBase64: string, mimeType = 'audio/mp4',
   return postCommandBody({ audio: audioBase64, mimeType, ...ctx, ...extras });
 }
 
-/** v1.4.0: POST /command with `{ transcript }` (no audio): keyword-first match, slots, normalized numbers. */
+/**
+ * v1.4.0: `{ transcript }` (no audio): keyword-first match, slots, normalized numbers. v1.4.2: POST /text (same
+ * handler, logged as /text); a server without /text (404 / 405) gets the same body on /command.
+ */
 export async function postText(transcript: string, ctx?: CommandContext, extras?: CommandExtras): Promise<CommandResponse> {
-  return postCommandBody({ transcript, ...ctx, ...extras });
+  return postCommandBody({ transcript, ...ctx, ...extras }, textUrl());
 }
 
-async function postCommandBody(body: Record<string, unknown>): Promise<CommandResponse> {
+async function postCommandBody(body: Record<string, unknown>, url: string = commandUrl()): Promise<CommandResponse> {
   if (!isVoiceConfigured()) throw new VoiceError('not_configured');
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), STT_TIMEOUT_MS);
   try {
     let res: Response;
     try {
-      res = await postJson(commandUrl(), body, ctrl);
+      res = await postJson(url, body, ctrl);
+      if ((res.status === 404 || res.status === 405) && url !== commandUrl()) res = await postJson(commandUrl(), body, ctrl);
     } catch (e) {
       throw new VoiceError(ctrl.signal.aborted ? 'timeout' : 'network', e instanceof Error ? e.message : undefined);
     }
@@ -197,52 +217,8 @@ async function postCommandBody(body: Record<string, unknown>): Promise<CommandRe
   }
 }
 
-/** Raw PCM (s16le, 16 kHz, mono) is the only format /stream/{id}/chunk accepts. */
-const isPcm = (mimeType: string) => /^audio\/(pcm|l16|x-pcm|s16le)\b/i.test(mimeType);
-const STREAM_CHUNK_B64 = 16_000; // ~12 KB of PCM per chunk (a multiple of 4 keeps base64 slices valid)
-
-/**
- * HTTP chunked streaming (EXPO_PUBLIC_VOICE_STREAMING=1 only): start → chunk… → end. PTT release is the
- * endpoint, so `end` is sent as soon as the last chunk is out — no silence wait. Returns the /command shape.
- */
-export async function streamCommand(pcmBase64: string, ctx: CommandContext): Promise<CommandResponse> {
-  if (!isVoiceConfigured()) throw new VoiceError('not_configured');
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), STT_TIMEOUT_MS);
-  const id = ctx.sessionId;
-  try {
-    const start = await postJson(streamUrl(id, 'start'), {
-      sessionId: id, expect: ctx.expect, screen: ctx.screen, mode: 'ptt',
-      ...(ctx.context ? { context: ctx.context } : {}), ...(ctx.options?.length ? { options: ctx.options } : {}),
-    }, ctrl);
-    if (start.status === 409) throw new VoiceError('busy');
-    if (!start.ok) throw new VoiceError('http', `stream start HTTP ${start.status}`);
-    for (let i = 0; i < pcmBase64.length; i += STREAM_CHUNK_B64) {
-      const r = await postJson(streamUrl(id, 'chunk'), { audioBase64: pcmBase64.slice(i, i + STREAM_CHUNK_B64) }, ctrl);
-      if (!r.ok) throw new VoiceError('http', `stream chunk HTTP ${r.status}`);
-    }
-    return await readCommand(await postJson(streamUrl(id, 'end'), { ...ctx }, ctrl));
-  } catch (e) {
-    if (e instanceof VoiceError) throw e;
-    throw new VoiceError(ctrl.signal.aborted ? 'timeout' : 'network', e instanceof Error ? e.message : undefined);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/**
- * Whole-clip /command, or streaming when the toggle is on AND the clip is raw PCM. expo-audio records
- * AAC (.m4a) today, so with the current recorder this always takes the whole-clip path; any streaming
- * failure other than 'busy' / 'no_speech' falls back to /command.
- */
+/** Whole-clip /command. Live streaming (server path) lives in serverStream.ts and falls back to this. */
 async function command(audioBase64: string, mimeType: string, ctx?: CommandContext, extras?: CommandExtras): Promise<CommandResponse> {
-  if (VOICE_STREAMING && ctx && isPcm(mimeType)) {
-    try {
-      return await streamCommand(audioBase64, ctx);
-    } catch (e) {
-      if (e instanceof VoiceError && (e.code === 'busy' || e.code === 'no_speech' || e.code === 'not_configured')) throw e;
-    }
-  }
   return postToCommand(audioBase64, mimeType, ctx, extras);
 }
 

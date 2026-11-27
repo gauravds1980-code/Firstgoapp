@@ -22,12 +22,14 @@ export interface AsrDiag {
   lastError: string | null;
   /** v1.4.2 confidence gate: "confident · acted", "shaky (low match, unknown conf) · waited 420 ms · used Whisper"… */
   gate: string | null;
+  /** v1.4.2 parallel Whisper stream on the phone path: "parallel stream", "parallel stream off (silent)"… */
+  parallel: string | null;
   /** Internal: when start() was called (ms clock of the caller). */
   startedAt: number | null;
 }
 
 const EMPTY: AsrDiag = {
-  turn: 0, path: null, service: null, onDevice: false, persist: false, partials: 0, firstPartialMs: null, lastError: null, gate: null, startedAt: null,
+  turn: 0, path: null, service: null, onDevice: false, persist: false, partials: 0, firstPartialMs: null, lastError: null, gate: null, parallel: null, startedAt: null,
 };
 
 let state: AsrDiag = { ...EMPTY };
@@ -100,5 +102,6 @@ export function asrDiagLine(d: AsrDiag): string | null {
   if (d.firstPartialMs !== null) parts.push(`first ${d.firstPartialMs} ms`);
   if (d.lastError) parts.push(`error ${d.lastError}`);
   if (d.gate) parts.push(d.gate);
+  if (d.parallel) parts.push(d.parallel);
   return parts.join(' · ');
 }

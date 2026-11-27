@@ -15,15 +15,16 @@ import { StepProgress } from './StepProgress';
 import { HeaderDockSlot } from './assistant/HeaderDockSlot';
 import { scrollZippyAvoid } from './assistant/zippyAvoid';
 import { ZIPPY_SAFE_GUTTER } from './assistant/ZippyBubble';
-import { HeaderVoiceMic } from '../voice/HeaderVoiceMic';
+import { MIC_DISC, MIC_GAP } from '../voice/micDock';
 import { Icon, PressableScale, Text } from './ui';
 import { ToastView, type ToastTone } from './Toast';
 import { KeyboardRevealProvider, useKeyboardForm } from './keyboard';
 
 /**
  * Compact header used by every main-stack screen except Home and Scan QR.
- *   [‹ back]? [IDFC mark] [IDFC FIRST Bank / title] … [Zippy dock] [mic] [home]
- * The mic (HeaderVoiceMic) is its own slot, independent of Zippy. No dealer avatar here (Home only).
+ *   [‹ back]? [IDFC mark] [IDFC FIRST Bank / title] … [Zippy dock] [home]
+ * v1.4.2: the voice mic left the header for the bottom-right thumb zone (VoiceMic, drawn by VoiceHost above
+ * the sticky footer this scaffold reports). No dealer avatar here (Home only).
  * `title` is the screen's own name ("Profile") on non-journey screens, or the product
  * ("Two-wheeler loan") on journey screens. Everything is ONE line (wordmark and title both), so the
  * header height never changes from screen to screen. Same logo-mark tile as login and Home.
@@ -50,15 +51,14 @@ export function BrandHeader({ showHome = true, title, subtitle, back = false, hi
           {!hideTitle && <Text variant="label" color={title ? colors.text : colors.textSecondary} numberOfLines={1} maxFontSizeMultiplier={fontScaleCap.control}>{heading}</Text>}
         </View>
       </View>
-      {/* Zippy docks here; the hold-to-talk mic is its own slot beside it (both fixed footprints, so the header never shifts). */}
+      {/* Zippy docks here (fixed footprint, so the header never shifts). The mic is bottom-right (VoiceMic). */}
       <HeaderDockSlot />
-      <HeaderVoiceMic />
       {showHome && <HeaderCircleButton icon="home-outline" label="Go to home" onPress={() => nav.navigate('Home')} />}
     </View>
   );
 }
 
-/** A header action in the shared 40dp circle (same shape and size as the mic and the docked Zippy). */
+/** A header action in the shared 40dp circle (same shape and size as the docked Zippy). */
 export function HeaderCircleButton({ icon, label, onPress, children }: { icon?: React.ComponentProps<typeof Icon>['name']; label: string; onPress?: () => void; children?: React.ReactNode }) {
   return (
     <PressableScale accessibilityRole="button" accessibilityLabel={label} onPress={onPress} hitSlop={headerBtn.hitSlop}
@@ -97,7 +97,8 @@ export function JourneyScreen({ step, title, titleInBody = false, interstitial, 
   const showBack = back ?? (!step && !interstitial);
   React.useEffect(() => { if (!hasFooter) { reportFooterHeight(route, 0); setFooterH(0); } }, [hasFooter, route]);
   // No sticky footer → the field's action is inline below it: keep room for it above the keyboard.
-  const kb = useKeyboardForm({ revealBelow: hasFooter ? 16 : 140 });
+  // With a footer, a focused field stops above the bottom-right mic (v1.4.2), which sits on the footer.
+  const kb = useKeyboardForm({ revealBelow: hasFooter ? MIC_GAP + MIC_DISC + space.xs : 140 });
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }}>
       <View style={{ backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border }}>

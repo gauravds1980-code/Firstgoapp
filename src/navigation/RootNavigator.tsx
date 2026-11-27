@@ -146,7 +146,7 @@ export default function RootNavigator() {
         </Stack.Group>
       </Stack.Navigator>
       <ZippyBubble route={route} />
-      {/* One voice session for the whole app, driven by the standalone header mic (HeaderVoiceMic); independent of Zippy. */}
+      {/* One voice session for the whole app, with its bottom-right mic (VoiceMic) and live transcript; independent of Zippy. */}
       <VoiceHost route={route} />
     </NavigationContainer>
     </View>

@@ -18,7 +18,8 @@ import { colors, elevation, fontScaleCap, gutter, headerBtn, radius, space, touc
 import { inr } from '../utils/finance';
 import { haptic } from '../utils/haptics';
 import { HeaderDockSlot } from '../components/assistant/HeaderDockSlot';
-import { HeaderVoiceMic } from '../voice/HeaderVoiceMic';
+import { alignedMicBottom } from '../voice/micDock';
+import { useVoiceMicAnchor } from '../voice/VoiceMic';
 import { ZIPPY_SAFE_GUTTER } from '../components/assistant/ZippyBubble';
 import { HeaderCircleButton } from '../components/Screen';
 import { BrandLockup } from '../components/BrandMarks';
@@ -121,6 +122,8 @@ export default function HomeScreen() {
   // The FAB zone is Home's "footer": floating Zippy rests above it (and its tip slot).
   const route = useRoute().name;
   useEffect(() => { reportFooterHeight(route, fabBottom + FAB_H); }, [route, fabBottom]);
+  // v1.4.2: the bottom-right voice mic sits level with the 72 dp Scan QR disc (same centre line), 16 dp from the right.
+  useVoiceMicAnchor(alignedMicBottom(fabBottom, 72));
   // v1.3.0: preview only the loan rows that sit fully above the Scan QR FAB on the first screen (1–3).
   const [viewH, setViewH] = useState(0);
   const [loansAt, setLoansAt] = useState({ section: 0, card: 0 });
@@ -145,7 +148,7 @@ export default function HomeScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }}>
       {/* Header: the shared bank lockup (IDFC mark + one-line "IDFC FIRST Bank" + "» FIRSTgo"), Zippy's dock,
-          the standalone hold-to-talk mic, bell, avatar → Profile & settings. Only the lockup's text column shrinks; the trailing controls keep
+          bell, avatar → Profile & settings (v1.4.2: the voice mic is bottom-right, level with Scan QR). Only the lockup's text column shrinks; the trailing controls keep
           fixed boxes. A little extra top padding keeps the wordmark off the status bar / notch. */}
       {/* v1.3.0: the lockup has priority — compact 36dp mark, 16dp side padding, and every action is the same
           40dp circle in a 44pt box (dock slot reserved whether Zippy floats or is docked), so "IDFC FIRST Bank"
@@ -153,7 +156,6 @@ export default function HomeScreen() {
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.md, paddingTop: space.xs, minHeight: 64 }}>
         <BrandLockup markSize={36} style={{ flex: 1, marginRight: space.xxs }} />
         <HeaderDockSlot />
-        <HeaderVoiceMic />
         <HeaderCircleButton icon="bell-outline" label={`Notifications, ${data?.unread ?? 0} unread`}>
           <Badge count={data?.unread ?? 0} style={{ position: 'absolute', top: 0, right: -2 }} />
         </HeaderCircleButton>

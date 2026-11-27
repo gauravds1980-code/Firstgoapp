@@ -89,8 +89,8 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
  * v1.3.0: floating Zippy keeps off the focused screen's controls and key values (ZippyAvoid rects, with
  * a ZIPPY_AVOID_GAP gutter): it picks a clear rest spot per screen and nudges itself off anything a
  * layout / scroll change or a drop puts under it. Screens can hide it (useZippyHidden, e.g. face capture).
- * v1.2.8: no mic on the orb and no voice-driven mood / lips. The push-to-talk mic is the standalone
- * HeaderVoiceMic, which stays in the header whether Zippy is docked or floating.
+ * v1.2.8: no mic on the orb and no voice-driven mood / lips. v1.4.2: the voice mic (VoiceMic) is a
+ * bottom-right disc just above the footer; Zippy's lowest rest spot (footer + tip zone) stays clear of it.
  */
 export function ZippyBubble({ route }: { route?: string }) {
   const { width: W, height: H } = useWindowDimensions();

@@ -7,6 +7,7 @@ import { CATALOG_VERSION, COMMAND_CATALOG } from '../commandCatalog.generated';
 import { chooseCandidate, LOCAL_AUTO, localCommand, matchCommand, needsServerText, sameTarget } from '../intentMatcher';
 import { planTarget, shouldAutoExecute } from '../voiceLogic';
 import { normalizeText } from '../voiceNormalize';
+import './intentCues.spec'; // v1.4.2 cue / guard / vehicle tests (tsconfig.voicetest.json lists test files explicitly)
 
 const intentOf = (t: string) => matchCommand(t).intent;
 

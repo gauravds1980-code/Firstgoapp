@@ -87,7 +87,7 @@ function DropRing({ on, size }: { on: boolean; size: number }) {
  * Docked → this slot draws the mini face: tap = help sheet, drag down / long-press = float on screen.
  * Floating (the default since v1.2.9) → empty slot (same footprint, so the header never jumps); while the
  * floating orb is dragged over the header it shows a "drop to dock" ring.
- * Zippy only: no mic here (the standalone HeaderVoiceMic is a sibling slot), and the face shows the
+ * Zippy only: no mic here (v1.4.2: the voice mic is the bottom-right VoiceMic), and the face shows the
  * route mood — voice commands never animate it.
  * Floating → empty placeholder (same footprint), so there is only ever one face. While its screen is focused the slot
  * registers a measurer, so ZippyBubble flies to its real on-screen position.

@@ -259,6 +259,23 @@ export function withCandidate(cmd: CommandResponse, c: IntentCandidate): Command
     const o = c.option;
     const intent = SELECT_INTENTS.has(c.intent) ? c.intent : o.kind === 'vehicle_model' ? 'SELECT_VEHICLE_MODEL' : 'SELECT_OPTION';
     const target = { kind: 'select' as const, optionKind: o.kind, id: o.id, label: o.label, ...(o.value !== undefined ? { value: o.value } : {}) };
+    // v1.4.2: a model picked for a navigate intent ("start QR journey for Xtreme 125R" → "Did you mean Xtreme
+    // 125R or Xtreme 160R?") continues into the journey / loan the dealer asked for, carrying the model in the
+    // draft slots. Only model-on-a-navigate-intent; plain chip picks stay a select on this screen.
+    const go = INTENT_ROUTE[c.intent];
+    if (go && o.kind === 'vehicle_model' && !SELECT_INTENTS.has(c.intent)) {
+      return {
+        ...cmd,
+        status: 'ok',
+        intent: c.intent,
+        score: c.score,
+        matchedPhrase: c.phrase,
+        candidates: undefined,
+        ...CLEAR_AUTO,
+        action: { type: 'navigate', route: go.route, ...(go.filter ? { filter: go.filter } : {}) },
+        slots: slotsForSelect(target),
+      };
+    }
     return {
       ...cmd,
       status: 'ok',

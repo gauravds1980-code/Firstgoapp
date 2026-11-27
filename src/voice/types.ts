@@ -26,7 +26,13 @@ export interface VoiceSlots {
 export type VoiceUiPhase = 'idle' | 'listening' | 'thinking';
 
 /** v1.4.0: what the dealer said, live. `final` once the turn ended; `checking` while Whisper re-checks it. Never OTP digits. */
-export type VoiceLive = { text: string; final: boolean; checking: boolean };
+export type VoiceLive = {
+  text: string; final: boolean; checking: boolean;
+  /** v1.4.2: who produced the words (live transcript chips): the phone recognizer, the server (Whisper / text), or typed. */
+  source?: 'device' | 'server' | 'typed';
+  /** v1.4.2: the turn these words belong to (the live transcript keeps one dealer line per turn). */
+  turn?: number;
+};
 
 export type AssistantActionName = 'help' | 'list_commands' | 'explain_screen' | 'repeat' | 'open';
 

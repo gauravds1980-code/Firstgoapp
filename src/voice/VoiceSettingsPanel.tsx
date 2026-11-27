@@ -95,6 +95,18 @@ export function VoiceSettingsPanel() {
             trackColor={{ false: colors.borderStrong, true: colors.primary }} thumbColor={colors.surface} ios_backgroundColor={colors.borderStrong} />
         </ZippyAvoid>
       </View>
+      {Platform.OS !== 'web' && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text variant="bodyStrong">Live words from the voice server</Text>
+            <Text variant="caption" color={colors.textSecondary}>When the voice server listens, show your words while you speak. Uses about 2 MB of data per minute of talking.</Text>
+          </View>
+          <ZippyAvoid>
+            <Switch value={s.serverStream} onValueChange={(on) => setVoiceSetting('serverStream', on)} accessibilityLabel="Live words from the voice server"
+              trackColor={{ false: colors.borderStrong, true: colors.primary }} thumbColor={colors.surface} ios_backgroundColor={colors.borderStrong} />
+          </ZippyAvoid>
+        </View>
+      )}
       <PressableScale onPress={() => { setShowStats((v) => !v); refresh(); }} accessibilityRole="button" accessibilityState={{ expanded: showStats }} accessibilityLabel="Voice speed stats"
         style={{ minHeight: touch.min, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
         <Icon name="speedometer" size={20} color={colors.primary} />
@@ -132,6 +144,18 @@ export function VoiceSettingsPanel() {
                 trackColor={{ false: colors.borderStrong, true: colors.primary }} thumbColor={colors.surface} ios_backgroundColor={colors.borderStrong} />
             </ZippyAvoid>
           </View>
+          {Platform.OS !== 'web' && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text variant="caption" color={colors.text}>Check with the voice server while you speak (test)</Text>
+                <Text variant="caption" color={colors.textMuted}>Phone recognizer only. Sends your voice to the server as you talk so unclear words are checked faster. Some phones can’t share the mic; it turns itself off if so.</Text>
+              </View>
+              <ZippyAvoid>
+                <Switch value={s.parallelStream} onValueChange={(on) => setVoiceSetting('parallelStream', on)} accessibilityLabel="Check with the voice server while you speak"
+                  trackColor={{ false: colors.borderStrong, true: colors.primary }} thumbColor={colors.surface} ios_backgroundColor={colors.borderStrong} />
+              </ZippyAvoid>
+            </View>
+          )}
           {SHOW_DEV_UI && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
               <Text variant="caption" color={colors.textSecondary} style={{ flex: 1 }}>Log each turn to the console (dev)</Text>
