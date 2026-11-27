@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { File } from 'expo-file-system';
 import { haptic } from '../utils/haptics';
 import { applyCommand, planCommand, ROUTE_LABEL, stopSpeaking, type ApplyOutcome } from './applyCommand';
 import { PTT_MAX_HOLD_MS, PTT_MIN_HOLD_MS } from './config';
-import { deviceAsrPermission, deviceAsrSupport, startDeviceAsr, warmDeviceAsr, type DeviceAsrHandle } from './deviceAsr';
+import { assessDeviceResult, downgradeCommand, gateDiagText, MAX_PARTIALS, normalizeAsrConfidence, runGate, WHISPER_DISAGREE_MIN } from './confidenceGate';
+import { countAsrPartial, markAsrStarted, resetAsrTurn, updateAsrDiag } from './asrDiag';
+import { getEarlyWhisper } from './earlyWhisper';
+import { deviceAsrPermission, deviceAsrSupport, markOnDeviceBroken, markPersistBroken, startDeviceAsr, warmDeviceAsr, type DeviceAsrHandle } from './deviceAsr';
 import { chooseCandidate, localCommand, matchCommand, needsServerText } from './intentMatcher';
 import { isReadingOut, playReply } from './piper';
+import { playVoiceCue } from './playVoiceCue';
 import { getSttProvider } from './sttClient';
 import {
   VoiceError, voiceErrorMessage, type AssistantActionName, type CommandContext, type CommandResponse, type IntentCandidate, type NormalizedField,
@@ -17,11 +21,25 @@ import { currentCommandContext } from './voiceContext';
 import { autoToastText, isOtpCommand, maskOtp, planTarget, shouldAutoExecute, undoSlotsFor, withTypedValue } from './voiceLogic';
 import { voiceMetrics, type TurnMatcher, type TurnPath } from './voiceMetrics';
 import {
-  chooseAsrPath, classifyAsrError, contextualStrings, didYouMeanFrom, oneTapActs, reconcile, recognizerLang, type AsrPath, type TalkMode, type TurnStage,
+  classifyAsrError, explainAsrPath, contextualStrings, didYouMeanFrom, oneTapActs, reconcile, recognizerLang, type AsrPath, type TalkMode, type TurnStage,
 } from './voiceMode';
 import { getVoiceOptions } from './voiceOptions';
-import { getVoiceSettings } from './voiceSettings';
+import { getVoiceSettings, subscribeVoiceSettings } from './voiceSettings';
 import { captureUndo, runUndo, type UndoRecord } from './voiceUndo';
+import { cueKindFor, replyMode, type VoiceCueKind } from './voiceCues';
+
+/**
+ * End-of-turn reply (v1.4.2). `voice.spokenReplies` on → Piper (bundled clip or /tts) as before; off (default) →
+ * a short cue sound, never /tts. Either way /command was sent skipTts, so it never synthesises.
+ */
+function voiceRespond(r: { text?: string; cue: VoiceCueKind; metric?: number; haptic?: boolean }): void {
+  const onStart = () => { if (r.metric) voiceMetrics.mark(r.metric, 'audioStart'); };
+  if (replyMode(getVoiceSettings().spokenReplies) === 'speech') {
+    if (r.text?.trim()) void playReply(r.text, { onStart });
+    return;
+  }
+  playVoiceCue(r.cue, { haptic: r.haptic, onStart });
+}
 
 /** `expect` is what the screen asked for when the clip was sent (used for "Type it instead" with no row). */
 export type VoicePreview = { command: CommandResponse; plan: ApplyOutcome; expect?: VoiceExpect };
@@ -69,6 +87,14 @@ type Turn = {
   checkStarted: boolean;
   wantCheck: boolean;
   timers: ReturnType<typeof setTimeout>[];
+  /** v1.4.2: recent distinct partials (capped at MAX_PARTIALS) for the confidence gate's stability score. */
+  partials: string[];
+  /**
+   * Confidence gate: 'waiting' = a shaky phone result is held while Whisper is awaited (onCheck resolves
+   * `gateResolve` instead of reconciling); 'done' = delivered, later checks go through reconcile as before.
+   */
+  gate: 'none' | 'waiting' | 'done';
+  gateResolve: ((r: CommandResponse | null) => void) | null;
 };
 
 /**
@@ -106,6 +132,7 @@ export function useVoiceCommand({ readOut }: {
   const altRef = useRef<CommandResponse | null>(null);
   const deviceOff = useRef(false);
   const deviceFails = useRef(0);
+  const deviceOffBy = useRef<'permission' | 'error'>('error');
   const readOutRef = useRef(readOut);
   readOutRef.current = readOut;
 
@@ -117,17 +144,40 @@ export function useVoiceCommand({ readOut }: {
   const setToast = useCallback((t: VoiceToast | null) => { toastRef.current = t; setToastState(t); }, []);
 
   useEffect(() => { void warmDeviceAsr(); }, []);
+  // v1.4.2: the phone recognizer gets another chance when the dealer toggles it in Settings, or on the next
+  // app foreground after it was paused for a non-permission reason (no app restart needed).
+  useEffect(() => {
+    let flag = getVoiceSettings().onDeviceAsr;
+    const unsub = subscribeVoiceSettings(() => {
+      const next = getVoiceSettings().onDeviceAsr;
+      if (next !== flag) { flag = next; deviceOff.current = false; deviceFails.current = 0; deviceOffBy.current = 'error'; }
+    });
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'active' && deviceOff.current && deviceOffBy.current !== 'permission') { deviceOff.current = false; deviceFails.current = 0; }
+    });
+    return () => { unsub(); sub.remove(); };
+  }, []);
   // One `[voice-metrics]` console line per turn in dev builds or with the metricsLog dev flag (never a transcript).
   useEffect(() => { voiceMetrics.setLogger((l) => { if (__DEV__ || getVoiceSettings().metricsLog) console.log(l); }); }, []);
 
   const clearTurnTimers = (t: Turn | null) => { if (t) { t.timers.forEach(clearTimeout); t.timers = []; } };
   const current = (id: number) => turnRef.current?.id === id && req.current === id;
+  /** The turn's 'release' metric mark (same clock as now()); the gate's cap is measured from it. */
+  const releaseTime = (t: Turn): number => voiceMetrics.turns().find((x) => x.id === t.metric)?.marks.release ?? now();
 
-  /** Reply AFTER the action: bundled clip or Piper /tts. Never blocks the action. OTP digits are never spoken. */
-  const speakAfter = useCallback((cmd: CommandResponse, metric?: number) => {
+  /**
+   * Reply AFTER the action: a cue (default) or, with spokenReplies on, a bundled clip / Piper /tts. Never blocks
+   * the action. OTP digits are never spoken. `acted`: this turn already ran the command (haptic.success fired).
+   */
+  const speakAfter = useCallback((cmd: CommandResponse, metric?: number, how?: { acted?: boolean; nothing?: boolean }) => {
     const text = (isOtpCommand(cmd) ? cmd.readBack ?? cmd.responseText : cmd.responseText ?? cmd.readBack) ?? '';
-    if (!text.trim()) return;
-    void playReply(text, { onStart: () => { if (metric) voiceMetrics.mark(metric, 'audioStart'); } });
+    const cue = cueKindFor({
+      didAct: how?.acted,
+      status: cmd.status,
+      hasCandidates: !!cmd.candidates?.length,
+      kind: how?.nothing ? 'nothing' : how?.acted ? 'acted' : 'preview',
+    });
+    voiceRespond({ text, cue, metric, haptic: how?.acted ? false : undefined });
   }, []);
 
   // Toast auto-dismiss: after AUTO_TOAST_MS the action stands and Undo is gone.
@@ -152,7 +202,7 @@ export function useVoiceCommand({ readOut }: {
     void stopSpeaking();
     runUndo(u.record);
     haptic.select();
-    void playReply('Undone.');
+    voiceRespond({ text: 'Undone.', cue: cueKindFor({ kind: 'undone' }), haptic: false });
   }, [setToast]);
 
   const dismissToast = useCallback(() => { undoRef.current = null; altRef.current = null; setToast(null); }, [setToast]);
@@ -162,10 +212,10 @@ export function useVoiceCommand({ readOut }: {
     const out = applyCommand(cmd, { navDelayMs });
     const t = turnRef.current;
     if (t) t.stage = 'confirmed';
-    if (isActed(out.kind)) { haptic.success(); speakAfter(cmd); return; }
+    if (isActed(out.kind)) { haptic.success(); speakAfter(cmd, undefined, { acted: true }); return; }
     if (out.kind === 'assistant') {
       const text = readOutRef.current(out.action);
-      if (text) void playReply(text);
+      if (text) voiceRespond({ text, cue: cueKindFor({ kind: 'assistant' }) });
     }
   }, [speakAfter]);
 
@@ -198,7 +248,7 @@ export function useVoiceCommand({ readOut }: {
           icon: out.kind === 'navigated' ? 'navigate' : out.kind === 'selected' ? 'select' : 'fill',
         });
         haptic.success();
-        speakAfter(command, t.metric);
+        speakAfter(command, t.metric, { acted: true });
         voiceMetrics.end(t.metric, { outcome: 'auto' });
         return;
       }
@@ -207,7 +257,7 @@ export function useVoiceCommand({ readOut }: {
     const nothing = plan.kind === 'none' && (command.status ?? 'ok') === 'retry' && !(command.candidates?.length);
     t.stage = nothing ? 'nothing' : 'preview';
     setPreview({ command, plan, ...(t.ctx.expect ? { expect: t.ctx.expect } : {}) }, id);
-    speakAfter(command, t.metric);
+    speakAfter(command, t.metric, { nothing });
     voiceMetrics.end(t.metric, { outcome: command.status === 'clarify' ? 'clarify' : command.status === 'retry' ? 'retry' : 'preview' });
   }, [setPreview, setToast, speakAfter]);
 
@@ -226,6 +276,8 @@ export function useVoiceCommand({ readOut }: {
     if (!t || t.id !== id) return;
     voiceMetrics.mark(t.metric, 'check');
     setLive((l) => (l && current(id) ? { ...l, checking: false } : l));
+    // The confidence gate is holding a shaky phone result for this check: hand it over (the gate delivers once).
+    if (t.gate === 'waiting' && t.gateResolve) { const r = t.gateResolve; t.gateResolve = null; r(server); return; }
     const device = t.result;
     let stage: TurnStage = t.stage;
     if (stage === 'preview' && previewTurn.current !== id) stage = 'gone';
@@ -238,6 +290,7 @@ export function useVoiceCommand({ readOut }: {
     if (r.kind === 'did_you_mean') {
       const cmd = didYouMeanFrom(device, server);
       setPreview({ command: cmd, plan: planCommand(cmd), ...(t.ctx.expect ? { expect: t.ctx.expect } : {}) }, id);
+      voiceRespond({ cue: 'confirm' }); // re-staged "Did you mean": cue only (nothing was spoken here before)
       return;
     }
     // offer_undo: the action stands; the toast now offers Undo and "Did you mean …?".
@@ -246,6 +299,9 @@ export function useVoiceCommand({ readOut }: {
     altRef.current = server;
     setToast({ ...cur, alt: server.matchedPhrase ?? server.intent.toLowerCase().replace(/_/g, ' ') });
   }, [deliver, setPreview, setToast]);
+
+  /** The Whisper check failed: a gate waiting on it stops waiting (null = no Whisper result). */
+  const gateGiveUp = (t: Turn) => { if (t.gate === 'waiting' && t.gateResolve) { const r = t.gateResolve; t.gateResolve = null; r(null); } };
 
   /** Upload the recognizer's parallel recording to Whisper (background). Deletes the file. */
   const startCheck = useCallback((id: number) => {
@@ -257,23 +313,29 @@ export function useVoiceCommand({ readOut }: {
       let b64 = '';
       const file = new File(uri);
       try { b64 = await file.base64(); } catch { /* unreadable */ } finally { try { if (file.exists) file.delete(); } catch { /* best effort */ } }
-      if (!b64) { setLive((l) => (l ? { ...l, checking: false } : l)); return; }
+      if (!b64) { setLive((l) => (l ? { ...l, checking: false } : l)); gateGiveUp(t); return; }
       try {
         const server = await getSttProvider().command(b64, 'audio/wav', t.ctx, { skipTts: true });
         onCheck(id, server);
       } catch {
         // The device result stands; the check is best-effort.
         setLive((l) => (l && current(id) ? { ...l, checking: false } : l));
+        gateGiveUp(t);
       }
     })();
   }, [onCheck]);
 
-  /** Device / typed text → server text path (slots, numbers, OTP, options) or the local matcher. */
-  const handleText = useCallback(async (id: number, text: string, confidence: number, via: 'device' | 'typed') => {
+  /**
+   * Device / typed text → server text path (slots, numbers, OTP, options) or the local matcher.
+   * `local`: the already computed local reading. `guard` (confidence gate, shaky phone text and no usable
+   * Whisper): the server's text reading may act on its own only when it is itself sure (status ok and
+   * score ≥ WHISPER_DISAGREE_MIN); anything weaker becomes a one-tap "Did you mean …?" / say again.
+   */
+  const handleText = useCallback(async (id: number, text: string, confidence: number, via: 'device' | 'typed', opts: { local?: CommandResponse; guard?: boolean } = {}) => {
     const t = turnRef.current;
     if (!t || t.id !== id) return;
     const ctx = t.ctx;
-    const local = localCommand(text, matchCommand(text), confidence);
+    const local = opts.local ?? localCommand(text, matchCommand(text), confidence);
     const matcher = (local.matcher === 'keyword' ? 'keyword' : local.matcher === 'fuzzy' ? 'fuzzy' : 'none') as TurnMatcher;
     const serverText = needsServerText(text, ctx) || local.status === 'retry';
     if (!serverText) { deliver(id, local, { path: via === 'typed' ? 'device+text' : 'device', matcher }); return; }
@@ -283,7 +345,9 @@ export function useVoiceCommand({ readOut }: {
       if (!current(id)) return;
       // A weak server guess on a phrase the phone matched better: keep the local reading.
       const useLocal = local.status !== 'retry' && (cmd.status ?? 'ok') !== 'ok' && !(cmd.normalizedFields?.length);
-      deliver(id, useLocal ? local : cmd, { path: 'device+text', matcher: useLocal ? matcher : cmd.matcher === 'labse' || cmd.method === 'semantic' ? 'labse' : 'server' });
+      const chosen = useLocal ? local : cmd;
+      const sure = (chosen.status ?? 'ok') === 'ok' && chosen.score >= WHISPER_DISAGREE_MIN;
+      deliver(id, opts.guard && !sure ? downgradeCommand(chosen) : chosen, { path: 'device+text', matcher: useLocal ? matcher : cmd.matcher === 'labse' || cmd.method === 'semantic' ? 'labse' : 'server' });
     } catch (e) {
       if (!current(id)) return;
       // Server unreachable: the on-device reading still works for plain commands (never for numbers / OTP).
@@ -292,8 +356,13 @@ export function useVoiceCommand({ readOut }: {
     }
   }, [deliver, fail]);
 
-  /** The recognizer's final text for turn `id`. */
-  const onDeviceFinal = useCallback((id: number, raw: string, confidence: number) => {
+  /**
+   * The recognizer's final text for turn `id`. `rawConfidence` is the recogniser's own value (-1 / 0 =
+   * unknown on Android; 0.5 = built from the last partial). v1.4.2 confidence gate: a confident result acts at
+   * once (as before); a shaky one waits for Whisper (≤ WHISPER_WAIT_MS after release) or, with no audio copy,
+   * becomes a one-tap "Did you mean …?". Slots / numbers / OTP / on-screen options keep the server text path.
+   */
+  const onDeviceFinal = useCallback((id: number, raw: string, rawConfidence: number) => {
     const t = turnRef.current;
     if (!t || t.id !== id || t.handled) return;
     t.handled = true;
@@ -307,9 +376,57 @@ export function useVoiceCommand({ readOut }: {
     setLive({ text: t.otp ? maskOtp(text.replace(/\D/g, '').length) : text, final: true, checking: t.wantCheck });
     // The second check is best-effort: never leave "checking" up if the audio or Whisper never answers.
     if (t.wantCheck) t.timers.push(setTimeout(() => setLive((l) => (l && current(id) ? { ...l, checking: false } : l)), 8000));
-    void handleText(id, text, confidence, 'device');
+    const conf = normalizeAsrConfidence(rawConfidence, Platform.OS);
+    // The matcher saw 0.8 for "unknown" before v1.4.2; keep that so its behaviour is unchanged.
+    const matcherConf = conf ?? 0.8;
+    if (needsServerText(text, t.ctx)) {
+      // Slots / numbers / OTP / options: the server's text path decides (OTP never auto-verifies anyway). Not gated.
+      updateAsrDiag({ gate: 'not gated (server text)' });
+      void handleText(id, text, matcherConf, 'device');
+      startCheck(id);
+      return;
+    }
+    const local = localCommand(text, matchCommand(text), matcherConf);
+    const matcher = (local.matcher === 'keyword' ? 'keyword' : local.matcher === 'fuzzy' ? 'fuzzy' : 'none') as TurnMatcher;
+    const a = assessDeviceResult({
+      text, confidence: conf, local: { status: local.status, score: local.score, band: local.confidenceBand }, partials: t.partials, heardSpeech: true,
+    });
+    if (!a.shaky) {
+      t.gate = 'done';
+      updateAsrDiag({ gate: gateDiagText({ decision: 'confident' }) });
+      voiceMetrics.tag(t.metric, { note: 'gate:confident' });
+      void handleText(id, text, matcherConf, 'device', { local });
+      startCheck(id);
+      return;
+    }
+    // Shaky: don't act yet. The pill keeps the draft text with the "checking" dot; the Whisper check starts now
+    // if the audio file already exists (else onAudio starts it, since the turn is handled).
+    t.gate = 'waiting';
+    setThinking(true);
+    const whisper = t.wantCheck ? new Promise<CommandResponse | null>((res) => { t.gateResolve = res; }) : null;
     startCheck(id);
-  }, [fail, handleText, startCheck]);
+    const releasedAt = releaseTime(t);
+    // With chunked streaming (voice-stream / DA-30), Whisper's result is ready at release, so the shaky path
+    // costs ~0 ms instead of up to 600 ms; the streaming client registers its result in earlyWhisper.ts and it
+    // races the WAV check here (first usable wins).
+    const early = getEarlyWhisper({ id, ctx: t.ctx, releasedAt });
+    void runGate({ shaky: true, wantCheck: t.wantCheck, device: local, releasedAt, now, whisper, early }).then((g) => {
+      if (!current(id) || turnRef.current !== t) return;
+      t.gate = 'done';
+      t.gateResolve = null;
+      voiceMetrics.mark(t.metric, 'gate');
+      // Phone had no match and no usable Whisper: today's server /text fallback, guarded (see handleText).
+      const retryText = g.downgraded && local.status === 'retry';
+      updateAsrDiag({ gate: gateDiagText({ decision: g.decision, waitedMs: g.waitedMs, reasons: a.reasons, confidence: conf, retryText }) });
+      voiceMetrics.tag(t.metric, { note: `gate:${g.decision}` });
+      if (g.use === 'whisper') {
+        deliver(id, g.command, { path: 'server', matcher: g.command.matcher === 'labse' || g.command.method === 'semantic' ? 'labse' : 'server' });
+        return;
+      }
+      if (retryText) { void handleText(id, text, matcherConf, 'device', { local, guard: true }); return; }
+      deliver(id, g.command, { path: 'device', matcher });
+    });
+  }, [fail, handleText, startCheck, deliver]);
 
   /** Server path: record → POST /command (skipTts) → deliver. */
   const sendRecording = useCallback(async (id: number) => {
@@ -345,12 +462,14 @@ export function useVoiceCommand({ readOut }: {
     const ctx = currentCommandContext();
     const lang = recognizerLang(s.locale);
     const sup = deviceAsrSupport(lang);
-    const path = chooseAsrPath({ platform: Platform.OS, flagOn: s.onDeviceAsr, moduleLoaded: sup.moduleLoaded, recognitionAvailable: sup.available, disabledThisSession: deviceOff.current });
+    const why = explainAsrPath({ platform: Platform.OS, flagOn: s.onDeviceAsr, moduleLoaded: sup.moduleLoaded, recognitionAvailable: sup.available, disabledThisSession: deviceOff.current, disabledBy: deviceOffBy.current });
+    const path = why.path; resetAsrTurn(path, why.reason);
     const otp = ctx.expect === 'otp';
     const metric = voiceMetrics.start({ mode: s.mode, path: path === 'device' ? 'device' : 'server' }, pressedAt);
     const t: Turn = {
       id, metric, mode: s.mode, path, ctx, otp, pressedAt, released: false, asr: null, partial: '', handled: false, result: null, stage: 'nothing',
       toastId: null, audioUri: null, checkStarted: false, wantCheck: path === 'device' && !otp && sup.canRecord, timers: [],
+      partials: [], gate: 'none', gateResolve: null,
     };
     turnRef.current = t;
     setError(null); setInfo(null); setPreview(null); setThinking(false);
@@ -376,7 +495,8 @@ export function useVoiceCommand({ readOut }: {
         if (!current(id)) return;
         if (perm !== 'granted') {
           // Speech recognition refused (iOS asks separately): the server path still works with the mic alone.
-          deviceOff.current = true;
+          deviceOff.current = true; deviceOffBy.current = 'permission';
+          updateAsrDiag({ lastError: 'not-allowed' });
           setListening(false); setLive(null);
           setInfo('Using the voice server. Hold the mic again to talk.');
           voiceMetrics.end(metric, { outcome: 'permission' });
@@ -398,6 +518,7 @@ export function useVoiceCommand({ readOut }: {
         return;
       }
       const names = getVoiceOptions(ctx.screen).map((o) => o.label);
+      const startedAt = now();
       t.asr = startDeviceAsr({
         locale: s.locale,
         contextualStrings: contextualStrings(names),
@@ -406,6 +527,8 @@ export function useVoiceCommand({ readOut }: {
         onPartial: (text) => {
           if (!current(id) || t.handled) return;
           t.partial = text;
+          if (t.partials[t.partials.length - 1] !== text) { t.partials.push(text); if (t.partials.length > MAX_PARTIALS) t.partials.shift(); }
+          countAsrPartial(now());
           setLive({ text: t.otp ? maskOtp(text.replace(/\D/g, '').length) : text, final: false, checking: false });
         },
         onSpeechEnd: () => { if (current(id) && t.mode === 'handsfree' && !t.released) { t.released = true; voiceMetrics.mark(metric, 'release'); } },
@@ -415,23 +538,34 @@ export function useVoiceCommand({ readOut }: {
           t.audioUri = uri;
           if (t.handled) startCheck(id);
         },
-        onError: (code) => {
+        onError: (code, _msg, info) => {
           if (!current(id) || t.handled) return;
-          const kind = classifyAsrError(code);
+          updateAsrDiag({ service: info.service, onDevice: info.onDeviceRequested, persist: info.persistRequested, lastError: code });
+          const kind = classifyAsrError(code, info);
           if (kind === 'cancelled') return;
           t.handled = true;
           clearTurnTimers(t);
           setListening(false);
           if (kind === 'no_speech') { setLive(null); setError(voiceErrorMessage(new VoiceError('no_speech'))); voiceMetrics.end(metric, { outcome: 'no_speech' }); return; }
-          if (kind === 'disable' || kind === 'permission') deviceOff.current = true;
-          else if (++deviceFails.current >= MAX_DEVICE_FAILURES) deviceOff.current = true;
+          if (kind === 'retry_network' || kind === 'drop_persist') {
+            // On-device model missing / audio copy refused: next turn uses the network recognizer / no copy. Not a failure.
+            if (kind === 'retry_network') markOnDeviceBroken(recognizerLang(s.locale)); else markPersistBroken();
+            setLive(null);
+            setInfo('Couldn’t hear that clearly. Hold the mic and try again.');
+            voiceMetrics.end(metric, { outcome: `asr_${kind}` });
+            return;
+          }
+          if (kind === 'permission') { deviceOff.current = true; deviceOffBy.current = 'permission'; }
+          else if (kind === 'disable' || ++deviceFails.current >= MAX_DEVICE_FAILURES) { deviceOff.current = true; deviceOffBy.current = 'error'; }
           setLive(null);
           setInfo(deviceOff.current ? 'Phone speech recognition isn’t available here. Using the voice server — hold the mic again.' : 'Couldn’t hear that clearly. Hold the mic and try again.');
           voiceMetrics.end(metric, { outcome: `asr_${kind}` });
         },
         onEnd: () => { if (current(id) && !t.handled) setListening(false); },
       });
-      if (!t.asr) { deviceOff.current = true; return; }
+      // start() threw: onError already classified it (e.g. drop_persist). Only a missing module disables here.
+      if (!t.asr) { if (!t.handled) { deviceOff.current = true; deviceOffBy.current = 'error'; } return; }
+      markAsrStarted({ service: t.asr.info.service, onDevice: t.asr.info.onDeviceRequested, persist: t.asr.info.persistRequested }, startedAt);
       // Cap: 15 s. Hands-free otherwise ends at the recognizer's end-of-speech.
       t.timers.push(setTimeout(() => { if (current(id) && !t.handled) t.asr?.stop(); }, PTT_MAX_HOLD_MS));
     })();
@@ -491,7 +625,7 @@ export function useVoiceCommand({ readOut }: {
     if (isTurnLive() || ptt.phase !== 'idle') {
       abort();
       setInfo('Okay, cancelled.');
-      void playReply('Okay, cancelled.');
+      voiceRespond({ text: 'Okay, cancelled.', cue: cueKindFor({ kind: 'cancelled' }) });
       return;
     }
     beginTurn(at);
@@ -512,7 +646,7 @@ export function useVoiceCommand({ readOut }: {
     setPreview(null);
     const t = turnRef.current;
     if (t) t.stage = 'gone';
-    void playReply('Okay, cancelled.');
+    voiceRespond({ text: 'Okay, cancelled.', cue: cueKindFor({ kind: 'cancelled' }) });
   }, [setPreview]);
 
   /**
@@ -559,6 +693,7 @@ export function useVoiceCommand({ readOut }: {
     turnRef.current = {
       id, metric, mode: getVoiceSettings().mode, path: 'device', ctx: currentCommandContext(), otp: false, pressedAt: now(), released: true, asr: null, partial: '',
       handled: true, result: null, stage: 'nothing', toastId: null, audioUri: null, checkStarted: false, wantCheck: false, timers: [],
+      partials: [], gate: 'none', gateResolve: null,
     };
     voiceMetrics.mark(metric, 'release');
     voiceMetrics.mark(metric, 'finalText');

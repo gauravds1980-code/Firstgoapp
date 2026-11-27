@@ -6,6 +6,9 @@
  * time and bundled as assets (assets/voice-replies, see replyClips.generated.ts); they play instantly and
  * never touch the network. A clip may be cut off by the next mic press (barge-in); a dynamic Piper read-out
  * may not (the server would refuse the clip with 409 anyway).
+ *
+ * v1.4.2: spoken replies are behind feature flag `voice.spokenReplies` (default OFF — short cue sounds instead,
+ * see voiceCues.ts / playVoiceCue.ts). While it is off playReply() / speak() do nothing: no clip, no /tts.
  */
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer, type AudioStatus } from 'expo-audio';
 import { File, Paths } from 'expo-file-system';
@@ -13,6 +16,9 @@ import { STT_TIMEOUT_MS, isVoiceConfigured, ttsDoneUrl, ttsUrl } from './config'
 import { VOICE_SESSION_ID } from './voiceContext';
 import { REPLY_CLIPS, REPLY_CLIP_SECONDS } from './replyClips.generated';
 import { clipKey } from './voiceMode';
+import { stopVoiceCue } from './playVoiceCue';
+import { shouldSpeakReplies } from './voiceCues';
+import { getVoiceSettings } from './voiceSettings';
 
 interface TtsResponse {
   audioBase64?: string;
@@ -59,6 +65,7 @@ export const isSpeaking = (): boolean => pending || player !== null;
 export const isReadingOut = (): boolean => (pending && kind !== 'clip') || (player !== null && kind === 'piper');
 
 export async function stopSpeaking() {
+  stopVoiceCue(); // a short cue is always interruptible
   gen += 1;
   const wasPending = pending;
   const wasClip = kind === 'clip';
@@ -75,6 +82,7 @@ export const replyClipFor = (text: string): number | undefined => REPLY_CLIPS[cl
  * (cached on the server). `onStart` fires when audio actually starts (latency metrics).
  */
 export async function playReply(text: string, cb?: { onStart?: () => void; onDone?: () => void }) {
+  if (!shouldSpeakReplies(getVoiceSettings().spokenReplies)) { cb?.onDone?.(); return; } // safety net: flag off
   const clip = replyClipFor(text);
   if (clip === undefined) return speak(text, cb);
   await stopSpeaking();
@@ -148,6 +156,7 @@ export async function speak(
   cb?: { onStart?: () => void; onDone?: () => void },
   precomputed?: { audioBase64?: string; audioDurationSec?: number },
 ) {
+  if (!shouldSpeakReplies(getVoiceSettings().spokenReplies)) { cb?.onDone?.(); return; } // safety net: flag off
   const trimmed = text.trim();
   if (!trimmed && !precomputed?.audioBase64) { cb?.onDone?.(); return; }
   await stopSpeaking();

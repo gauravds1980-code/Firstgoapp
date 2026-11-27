@@ -7,6 +7,7 @@ export const haptic = {
   select() { if (Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {}); },
   success() { if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {}); },
   error() { if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {}); },
+  warning() { if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {}); },
 };
 
 /**

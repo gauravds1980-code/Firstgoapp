@@ -2,7 +2,7 @@
   "expo": {
     "name": "FIRSTgo",
     "slug": "boom-dealer",
-    "version": "1.4.1",
+    "version": "1.4.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -29,7 +29,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "softwareKeyboardLayoutMode": "resize",
-      "versionCode": 18,
+      "versionCode": 19,
       "permissions": [
         "android.permission.RECORD_AUDIO"
       ]

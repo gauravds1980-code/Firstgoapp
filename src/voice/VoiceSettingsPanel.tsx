@@ -17,6 +17,7 @@ const METRIC_LABEL: Record<MetricName, string> = {
   releaseToAction: 'Let go → screen acts',
   releaseToAudio: 'Let go → Zippy speaks',
   releaseToCheck: 'Let go → server double-check',
+  releaseToGate: 'Let go → unsure words checked',
 };
 
 const card = { gap: space.sm, padding: space.md, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border } as const;
@@ -41,7 +42,7 @@ function Segmented<T extends string>({ value, options, onChange, label }: { valu
 
 /**
  * Voice settings (v1.4.0) in Profile: talk mode (default hold-to-talk), recognizer language, the phone's own
- * speech recognizer (feature flag `voice.onDeviceAsr`), and "Voice speed stats" (p50 / p95 of the last 50 turns).
+ * speech recognizer (feature flag `voice.onDeviceAsr`), spoken replies vs cue sounds (`voice.spokenReplies`), and "Voice speed stats" (p50 / p95 of the last 50 turns).
  */
 export function VoiceSettingsPanel() {
   const s = useVoiceSettings();
@@ -52,6 +53,7 @@ export function VoiceSettingsPanel() {
     : !sup.moduleLoaded ? 'Not in this build — the voice server is used.'
     : !sup.available ? 'No speech service on this phone — the voice server is used.'
     : sup.onDevice ? 'Works offline on this phone. The server double-checks in the background.'
+    : sup.service && sup.service !== 'default' ? 'Uses the Google speech service on this phone. The server double-checks in the background.'
     : 'Uses the phone’s recognizer. The server double-checks in the background.';
   const summary = showStats ? voiceMetrics.summary() : null;
   const turns = voiceMetrics.turns();
@@ -83,6 +85,16 @@ export function VoiceSettingsPanel() {
             trackColor={{ false: colors.borderStrong, true: colors.primary }} thumbColor={colors.surface} ios_backgroundColor={colors.borderStrong} />
         </ZippyAvoid>
       </View>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text variant="bodyStrong">Zippy speaks replies</Text>
+          <Text variant="caption" color={colors.textSecondary}>When off, Zippy plays a short sound instead of spoken words: a chime when done, a low blip to say it again, a soft pulse to confirm. Turn on to hear Zippy speak.</Text>
+        </View>
+        <ZippyAvoid>
+          <Switch value={s.spokenReplies} onValueChange={(on) => setVoiceSetting('spokenReplies', on)} accessibilityLabel="Zippy speaks replies"
+            trackColor={{ false: colors.borderStrong, true: colors.primary }} thumbColor={colors.surface} ios_backgroundColor={colors.borderStrong} />
+        </ZippyAvoid>
+      </View>
       <PressableScale onPress={() => { setShowStats((v) => !v); refresh(); }} accessibilityRole="button" accessibilityState={{ expanded: showStats }} accessibilityLabel="Voice speed stats"
         style={{ minHeight: touch.min, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
         <Icon name="speedometer" size={20} color={colors.primary} />
@@ -109,6 +121,16 @@ export function VoiceSettingsPanel() {
             <PressableScale onPress={() => { voiceMetrics.reset(); refresh(); }} accessibilityRole="button" accessibilityLabel="Reset stats" style={{ minHeight: touch.min, justifyContent: 'center' }}>
               <Text variant="label" color={colors.primary}>Reset</Text>
             </PressableScale>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text variant="caption" color={colors.text}>Show voice debug line</Text>
+              <Text variant="caption" color={colors.textMuted}>One line under the live words: which recognizer was used and why.</Text>
+            </View>
+            <ZippyAvoid>
+              <Switch value={s.debugAsr} onValueChange={(on) => setVoiceSetting('debugAsr', on)} accessibilityLabel="Show voice debug line"
+                trackColor={{ false: colors.borderStrong, true: colors.primary }} thumbColor={colors.surface} ios_backgroundColor={colors.borderStrong} />
+            </ZippyAvoid>
           </View>
           {SHOW_DEV_UI && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>

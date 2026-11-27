@@ -26,14 +26,53 @@ export interface AsrEnv {
   recognitionAvailable: boolean;
   /** A permanent recognizer failure already happened this app session (service missing, denied…). */
   disabledThisSession: boolean;
+  /** Why the session was disabled (debug line only; 'error' when not given). */
+  disabledBy?: 'permission' | 'error';
+}
+
+/** Why a turn used the server path (shown on the voice debug line). */
+export type AsrServerReason = 'flag_off' | 'web' | 'no_module' | 'no_service' | 'disabled_after_error' | 'permission';
+
+/** chooseAsrPath with the reason when it picks the server path. */
+export function explainAsrPath(env: AsrEnv): { path: AsrPath; reason?: AsrServerReason } {
+  if (!env.flagOn) return { path: 'server', reason: 'flag_off' };
+  if (env.platform === 'web') return { path: 'server', reason: 'web' };
+  if (!env.moduleLoaded) return { path: 'server', reason: 'no_module' };
+  if (env.disabledThisSession) return { path: 'server', reason: env.disabledBy === 'permission' ? 'permission' : 'disabled_after_error' };
+  if (!env.recognitionAvailable) return { path: 'server', reason: 'no_service' };
+  return { path: 'device' };
 }
 
 /** On-device recognizer when everything lines up, else the server path (always works). */
 export function chooseAsrPath(env: AsrEnv): AsrPath {
-  if (!env.flagOn) return 'server';
-  if (env.platform === 'web') return 'server';
-  if (!env.moduleLoaded || !env.recognitionAvailable || env.disabledThisSession) return 'server';
-  return 'device';
+  return explainAsrPath(env).path;
+}
+
+/** Recognition services worth naming explicitly when the phone has no DEFAULT one (preference order). */
+export const FALLBACK_RECOGNITION_SERVICES: readonly string[] = [
+  'com.google.android.googlequicksearchbox',
+  'com.google.android.as',
+  'com.google.android.tts',
+];
+
+/**
+ * Which recognition service to use. 'default' when the phone has a default service; else the first known
+ * Google package that is installed (many Xiaomi / Oppo / Vivo / Realme phones ship without a default);
+ * null when there is none.
+ */
+export function pickRecognitionService(defaultAvailable: boolean, services: readonly string[] | null | undefined): string | null {
+  if (defaultAvailable) return 'default';
+  const have = new Set((services ?? []).map((x) => x.trim()));
+  return FALLBACK_RECOGNITION_SERVICES.find((p) => have.has(p)) ?? null;
+}
+
+/** Locale key for comparing recognizer locales: "en_IN" / "en-in" / "EN-IN" → "en-in". */
+export const normLocale = (l: string): string => l.trim().toLowerCase().replace(/_/g, '-');
+
+/** Offline model for `lang` is installed (normalised compare against getSupportedLocales().installedLocales). */
+export function hasInstalledLocale(installed: readonly string[] | null | undefined, lang: string): boolean {
+  const k = normLocale(lang);
+  return (installed ?? []).some((l) => normLocale(l) === k);
 }
 
 export const defaultOnDeviceAsr = (platform: string): boolean => platform !== 'web';
@@ -74,8 +113,15 @@ export function contextualStrings(extra: readonly (string | undefined | null)[] 
 }
 
 /** What a recognizer error means for this turn and the session. */
-export type AsrErrorKind = 'disable' | 'fallback_turn' | 'no_speech' | 'cancelled' | 'permission';
-export function classifyAsrError(code: string | undefined): AsrErrorKind {
+export type AsrErrorKind = 'disable' | 'fallback_turn' | 'no_speech' | 'cancelled' | 'permission'
+  /** On-device model missing for the language: retry with the network recognizer (session stays on). */
+  | 'retry_network'
+  /** The recognizer refused the parallel audio copy (EXTRA_AUDIO_SOURCE): stop asking for it this session. */
+  | 'drop_persist';
+export interface AsrErrorContext { onDeviceRequested?: boolean; persistRequested?: boolean; gotResult?: boolean }
+export function classifyAsrError(code: string | undefined, ctx: AsrErrorContext = {}): AsrErrorKind {
+  if (code === 'language-not-supported' && ctx.onDeviceRequested) return 'retry_network';
+  if ((code === 'client' || code === 'audio-capture' || code === 'unknown') && ctx.persistRequested && !ctx.gotResult) return 'drop_persist';
   switch (code) {
     case 'aborted': return 'cancelled';
     case 'no-speech':
@@ -86,7 +132,8 @@ export function classifyAsrError(code: string | undefined): AsrErrorKind {
     case 'service-not-allowed':
     case 'language-not-supported':
     case 'bad-grammar': return 'disable';
-    // Network-based recognizer offline, busy, audio session interrupted, unknown client error: server path for this turn.
+    // Network-based recognizer offline, busy, rate-limited, audio session interrupted, unknown client error: server path for this turn.
+    case 'too-many-requests':
     case 'network':
     case 'busy':
     case 'audio-capture':

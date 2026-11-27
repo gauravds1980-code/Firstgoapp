@@ -5,13 +5,14 @@
  *   releaseToAction  release / end-of-speech → navigation / fill / preview applied (target < 700 ms)
  *   releaseToAudio   release / end-of-speech → reply audio starts
  *   releaseToCheck   release / end-of-speech → Whisper second check back (background)
+ *   releaseToGate    release → confidence-gate decision (shaky phone results only; capped ~600 ms)
  * Tags: path (device recognizer vs server), matcher (keyword / fuzzy / labse / server), mode.
  *
  * OTP SAFETY: no transcript is ever stored. The only free text is `note`, and every digit in it is
  * masked before it is kept or logged. Pure: no React Native imports (unit-tested in Node).
  */
 
-export type TurnMark = 'pressIn' | 'feedback' | 'release' | 'finalText' | 'action' | 'audioStart' | 'check';
+export type TurnMark = 'pressIn' | 'feedback' | 'release' | 'finalText' | 'action' | 'audioStart' | 'check' | 'gate';
 export type TurnPath = 'device' | 'server' | 'device+text';
 export type TurnMatcher = 'keyword' | 'fuzzy' | 'labse' | 'server' | 'none';
 
@@ -31,7 +32,7 @@ export interface Turn extends TurnTags {
   done: boolean;
 }
 
-export const METRIC_NAMES = ['pressToFeedback', 'releaseToText', 'releaseToAction', 'releaseToAudio', 'releaseToCheck'] as const;
+export const METRIC_NAMES = ['pressToFeedback', 'releaseToText', 'releaseToAction', 'releaseToAudio', 'releaseToCheck', 'releaseToGate'] as const;
 export type MetricName = (typeof METRIC_NAMES)[number];
 const SPANS: Record<MetricName, [TurnMark, TurnMark]> = {
   pressToFeedback: ['pressIn', 'feedback'],
@@ -39,6 +40,7 @@ const SPANS: Record<MetricName, [TurnMark, TurnMark]> = {
   releaseToAction: ['release', 'action'],
   releaseToAudio: ['release', 'audioStart'],
   releaseToCheck: ['release', 'check'],
+  releaseToGate: ['release', 'gate'],
 };
 /** Targets from the v1.4.0 brief (ms). */
 export const TARGETS: Partial<Record<MetricName, number>> = { pressToFeedback: 100, releaseToText: 300, releaseToAction: 700 };

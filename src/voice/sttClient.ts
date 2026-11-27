@@ -4,7 +4,10 @@ import {
   type VoiceAction, type VoiceReference,
 } from './types';
 
-/** v1.4.0 request extras: skipTts = return the action without waiting for Piper (the app speaks after acting). */
+/**
+ * v1.4.0 request extras: skipTts = return the action without waiting for Piper. v1.4.2: always sent, so /command never
+ * inlines a Piper WAV; speech is a separate /tts only when `voice.spokenReplies` is on (default: cue sounds).
+ */
 export type CommandExtras = { skipTts?: boolean; languageCode?: string };
 
 export interface SttProvider {

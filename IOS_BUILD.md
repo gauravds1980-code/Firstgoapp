@@ -1,4 +1,4 @@
-# FIRSTgo on iOS (v1.4.1)
+# FIRSTgo on iOS (v1.4.2)
 
 FIRSTgo (Expo SDK 58, React Native 0.88) runs on iPhone from the same code as the Android APK and the web build. This page covers the iOS settings, how voice (Zippy) works on a real iPhone, and the exact steps to test, build and ship.
 
@@ -11,12 +11,14 @@ FIRSTgo (Expo SDK 58, React Native 0.88) runs on iPhone from the same code as th
 | | iOS | Android |
 |---|---|---|
 | App ID | `com.idfcfirst.firstgo.dealer` (bundle id) | `com.idfcfirst.boom.dealer` (package) |
-| Marketing version | `1.4.1` (`expo.version`) | `1.4.1` |
+| Marketing version | `1.4.2` (`expo.version`) | `1.4.2` |
 | Build number | `ios.buildNumber` = `"1"` | `android.versionCode` = `17` |
 
 **v1.4.0:** still `ios.buildNumber` "1" (new marketing version, no 1.4.0 iOS binary yet); adds `expo-speech-recognition` (its plugin sets `NSSpeechRecognitionUsageDescription`, needs a new dev build).
 
 **v1.4.1:** still `ios.buildNumber` "1" (no 1.4.x iOS binary shipped yet); Android `versionCode` 18. Design-only: Phosphor tiles, Zippy dock defaults, contrast/FAB/OTP fixes. No new native iOS plugins.
+
+**v1.4.2:** still `ios.buildNumber` "1" (no 1.4.x iOS binary shipped yet); Android `versionCode` 19. JS-only voice changes: live phone-recogniser words, Whisper confidence gate, non-verbal cues, optional spoken Piper replies. No new native iOS plugins.
 
 **Why the iOS build number is "1".** No iOS binary of v1.3.0 was ever shipped, so v1.3.1 is the first iOS binary, and Apple only requires the build number to be unique and increasing *within one marketing version*. So `1.3.1 (1)` is correct. It doesn't need to match Android's `versionCode` 16, because the two stores count separately. Android reached 16 through earlier APKs; iOS has no history yet.
 
@@ -195,7 +197,7 @@ npx expo export -p ios --output-dir /tmp/firstgo-export-ios    # pass (Hermes bu
 git archive HEAD | tar -x -C /tmp/firstgo-ios-prebuild
 ln -s "$PWD/node_modules" /tmp/firstgo-ios-prebuild/node_modules
 (cd /tmp/firstgo-ios-prebuild && npx expo prebuild -p ios --no-install)
-# Expected Info.plist: CFBundleShortVersionString 1.4.1, CFBundleVersion 1, camera / microphone / photo strings,
+# Expected Info.plist: CFBundleShortVersionString 1.4.2, CFBundleVersion 1, camera / microphone / photo strings,
 # no speech-recognition / location / Face ID strings, empty UIBackgroundModes, ATS default.
 # project.pbxproj: PRODUCT_BUNDLE_IDENTIFIER com.idfcfirst.firstgo.dealer, TARGETED_DEVICE_FAMILY 1,
 # IPHONEOS_DEPLOYMENT_TARGET 16.4. AppIcon: one 1024×1024 image.

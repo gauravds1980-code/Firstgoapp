@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { Platform } from 'react-native';
 import { secureStorage } from '../utils/secureStorage';
+import { DEFAULT_SPOKEN_REPLIES } from './voiceCues';
 import { defaultOnDeviceAsr, type TalkMode, type VoiceLocale } from './voiceMode';
 
 /**
@@ -15,6 +16,9 @@ import { defaultOnDeviceAsr, type TalkMode, type VoiceLocale } from './voiceMode
  *   primary path (live words, no upload wait). Default ON on native, OFF on web. When off or
  *   unavailable the app records and sends the clip to the voice server, as before.
  * metricsLog (v1.4.0, dev flag) — print one `[voice-metrics]` line per turn to the console.
+ * debugAsr (v1.4.2) — show one voice debug line under the live pill (which ASR path, why). Release builds too.
+ * spokenReplies (v1.4.2, feature flag `voice.spokenReplies`) — Zippy speaks its replies with Piper (bundled clip
+ *   or /tts). Default OFF: each turn ends in a short non-verbal cue instead (voiceCues.ts) and /tts is never called.
  *
  * Kept in memory (sync reads for the voice hook) and mirrored to secureStorage (Keychain / Keystore on
  * device, localStorage on web) — the app already ships expo-secure-store, so no new native module.
@@ -25,6 +29,8 @@ export type VoiceSettings = {
   locale: VoiceLocale;
   onDeviceAsr: boolean;
   metricsLog: boolean;
+  debugAsr: boolean;
+  spokenReplies: boolean;
 };
 
 const KEYS: Record<keyof VoiceSettings, string> = {
@@ -33,6 +39,8 @@ const KEYS: Record<keyof VoiceSettings, string> = {
   locale: 'firstgo.voice.locale',
   onDeviceAsr: 'firstgo.voice.onDeviceAsr',
   metricsLog: 'firstgo.voice.metricsLog',
+  debugAsr: 'firstgo.voice.debugAsr',
+  spokenReplies: 'firstgo.voice.spokenReplies',
 };
 
 export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
@@ -41,6 +49,8 @@ export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   locale: 'en-IN',
   onDeviceAsr: defaultOnDeviceAsr(Platform.OS),
   metricsLog: false,
+  debugAsr: false,
+  spokenReplies: DEFAULT_SPOKEN_REPLIES,
 };
 
 let settings: VoiceSettings = { ...DEFAULT_VOICE_SETTINGS };
@@ -91,6 +101,7 @@ export async function loadVoiceSettings(): Promise<void> {
 }
 
 const subscribe = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
+export const subscribeVoiceSettings = subscribe;
 
 export function useVoiceSettings(): VoiceSettings {
   return useSyncExternalStore(subscribe, getVoiceSettings, getVoiceSettings);
