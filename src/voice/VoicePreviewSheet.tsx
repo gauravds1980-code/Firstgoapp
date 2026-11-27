@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius, space, touch } from '../theme/tokens';
 import { Button, Field, Icon, Pill, Text } from '../components/ui';
 import { KeyboardRevealProvider, useKeyboardForm } from '../components/keyboard';
-import { formatSlot, hasSlots, ROUTE_LABEL, SLOT_LABELS, VOICE_EXAMPLES, type ApplyOutcome } from './applyCommand';
+import { hasSlots, ROUTE_LABEL, slotDetailRows, VOICE_EXAMPLES, type ApplyOutcome } from './applyCommand';
 import type { CommandResponse, IntentCandidate, NormalizedField, VoiceExpect, VoiceSlots } from './types';
 import { candidateLabel, displayFields, FIELD_TYPE_FOR_EXPECT, fillLabel, hideFieldForSelect, isDestructiveCommand, isOtpCommand, safeTranscript, typedField } from './voiceLogic';
 
@@ -93,7 +93,8 @@ export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, 
   const anyShown = shownFields.some(Boolean);
   const actionable = plan.kind === 'navigated' || plan.kind === 'assistant' || plan.kind === 'filled' || plan.kind === 'selected';
   const pct = Math.round(Math.max(0, Math.min(1, command.score)) * 100);
-  const slots = plan.kind !== 'selected' && hasSlots(command.slots) ? command.slots : undefined;
+  const slotRows = plan.kind !== 'selected' && hasSlots(command.slots) ? slotDetailRows(command.slots) : [];
+  const slots = slotRows.length ? command.slots : undefined;
   const serverText = command.responseText?.trim() || command.readBack?.trim() || '';
   const filter = command.action.type === 'navigate' ? command.action.filter : undefined;
   const firstInvalid = fields.findIndex((f) => !f.valid);
@@ -226,9 +227,7 @@ export function VoicePreviewSheet({ command, plan, expect, onConfirm, onCancel, 
           {slots && (
             <View style={{ padding: space.sm, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, gap: space.xxs }}>
               <Text variant="overline" color={colors.textSecondary}>DETAILS I HEARD</Text>
-              {(Object.keys(SLOT_LABELS) as (keyof VoiceSlots)[]).map((k) => slots[k] === undefined ? null : (
-                <Row key={k} label={SLOT_LABELS[k]} value={formatSlot(k, slots[k])} />
-              ))}
+              {slotRows.map((r) => <Row key={r.key} label={r.label} value={r.value} />)}
               <Text variant="caption" color={colors.textSecondary}>Saved as a draft on Confirm — check them on the next screen.</Text>
             </View>
           )}

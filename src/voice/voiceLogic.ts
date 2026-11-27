@@ -475,3 +475,44 @@ export function autoToastText(cmd: CommandResponse, t: PlanTarget, routeLabel?: 
   }
   return 'Done';
 }
+
+/**
+ * Labels for the "DETAILS I HEARD" rows. `assetId` is the catalogue slug ("hero-xtreme") the Asset screen
+ * uses to pick the chip; it is not something the dealer said, so it has no row (it used to show as a second
+ * "Model" row next to "Xtreme 125R"). `otp` never reaches slots from the server, and is masked anyway.
+ */
+export const SLOT_LABELS: Partial<Record<keyof VoiceSlots, string>> = {
+  customerName: 'Customer',
+  vehicle: 'Vehicle',
+  vehicleCategory: 'Category',
+  downPayment: 'Down payment',
+  tenureMonths: 'Tenure',
+  mobileNumber: 'Mobile',
+  brand: 'Brand',
+  model: 'Model',
+  otp: 'OTP',
+};
+
+const CATEGORY_LABEL: Record<string, string> = { TWO_WHEELER: 'Two-wheeler', CAR: 'Car', CONSUMER_DURABLE: 'Consumer durable' };
+
+export function formatSlot(key: keyof VoiceSlots, v: VoiceSlots[keyof VoiceSlots]): string {
+  if (v === undefined) return '';
+  if (key === 'downPayment' && typeof v === 'number') return `₹${v.toLocaleString('en-IN')}`;
+  if (key === 'tenureMonths' && typeof v === 'number') return `${v} months`;
+  if (key === 'vehicleCategory' && typeof v === 'string') return CATEGORY_LABEL[v] ?? v;
+  if (key === 'mobileNumber' && typeof v === 'string' && v.length >= 4) return `•••••${v.slice(-4)}`;
+  if (key === 'otp') return maskOtp(String(v).length); // never the digits
+  return String(v);
+}
+
+/** The DETAILS I HEARD rows for these slots, in label order (internal ids skipped). */
+export function slotDetailRows(slots?: VoiceSlots): { key: keyof VoiceSlots; label: string; value: string }[] {
+  if (!slots) return [];
+  const out: { key: keyof VoiceSlots; label: string; value: string }[] = [];
+  for (const k of Object.keys(SLOT_LABELS) as (keyof VoiceSlots)[]) {
+    const v = slots[k];
+    if (v === undefined || v === '') continue;
+    out.push({ key: k, label: SLOT_LABELS[k]!, value: formatSlot(k, v) });
+  }
+  return out;
+}

@@ -87,30 +87,8 @@ export const VOICE_EXAMPLES = [
   'Explain this screen',
 ];
 
-export const SLOT_LABELS: Record<keyof VoiceSlots, string> = {
-  customerName: 'Customer',
-  vehicle: 'Vehicle',
-  vehicleCategory: 'Category',
-  downPayment: 'Down payment',
-  tenureMonths: 'Tenure',
-  mobileNumber: 'Mobile',
-  assetId: 'Model',
-  brand: 'Brand',
-  model: 'Model',
-  otp: 'OTP',
-};
-
-const CATEGORY_LABEL: Record<string, string> = { TWO_WHEELER: 'Two-wheeler', CAR: 'Car', CONSUMER_DURABLE: 'Consumer durable' };
-
-export function formatSlot(key: keyof VoiceSlots, v: VoiceSlots[keyof VoiceSlots]): string {
-  if (v === undefined) return '';
-  if (key === 'downPayment' && typeof v === 'number') return `₹${v.toLocaleString('en-IN')}`;
-  if (key === 'tenureMonths' && typeof v === 'number') return `${v} months`;
-  if (key === 'vehicleCategory' && typeof v === 'string') return CATEGORY_LABEL[v] ?? v;
-  if (key === 'mobileNumber' && typeof v === 'string' && v.length >= 4) return `•••••${v.slice(-4)}`;
-  if (key === 'otp') return maskOtp(String(v).length); // never the digits
-  return String(v);
-}
+// SLOT_LABELS / formatSlot moved to voiceLogic.ts (pure, unit-tested); re-exported for existing imports.
+export { formatSlot, SLOT_LABELS, slotDetailRows } from './voiceLogic';
 
 /** Human label for where Confirm goes. */
 export const ROUTE_LABEL: Partial<Record<NavigableRoute, string>> = {

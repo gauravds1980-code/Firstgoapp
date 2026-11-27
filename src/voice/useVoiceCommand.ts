@@ -27,6 +27,7 @@ import {
   classifyAsrError, explainAsrPath, contextualStrings, didYouMeanFrom, oneTapActs, reconcile, recognizerLang, type AsrPath, type TalkMode, type TurnStage,
 } from './voiceMode';
 import { getVoiceOptions } from './voiceOptions';
+import { offlineReading, optionAsConfirm, resolveScreenOption, serverOrOption } from './optionResolver';
 import { getVoiceSettings, subscribeVoiceSettings } from './voiceSettings';
 import { captureUndo, runUndo, type UndoRecord } from './voiceUndo';
 import { cueKindFor, replyMode, type VoiceCueKind } from './voiceCues';
@@ -399,9 +400,20 @@ export function useVoiceCommand({ readOut }: {
       return;
     }
     setThinking(true);
+    // fix-xtreme-select: the phone's own reading of the on-screen chips (never for an expected field / OTP).
+    // The server stays first; a FULL chip match only stops a dead tunnel from holding the turn (serverOrOption),
+    // and any chip answer is the offline fallback below. Shaky text (guard) never auto-acts on it.
+    const option = ctx.expect ? null : resolveScreenOption(text, ctx.options, confidence);
+    const ask = () => getSttProvider().text(text, ctx, turnExtras(t, 'server', { skipTts: true }));
     try {
-      const cmd = await getSttProvider().text(text, ctx, turnExtras(t, 'server', { skipTts: true }));
+      const got = await serverOrOption(ask, opts.guard ? null : option);
       if (!current(id)) return;
+      if (got.from === 'option') {
+        voiceMetrics.tag(t.metric, { note: 'option:server-late' });
+        deliver(id, got.cmd, { path: 'device', matcher: 'keyword' });
+        return;
+      }
+      const cmd = got.cmd;
       // A weak server guess on a phrase the phone matched better: keep the local reading.
       const useLocal = local.status !== 'retry' && (cmd.status ?? 'ok') !== 'ok' && !(cmd.normalizedFields?.length);
       const chosen = useLocal ? local : cmd;
@@ -410,8 +422,13 @@ export function useVoiceCommand({ readOut }: {
     } catch (e) {
       if (!current(id)) return;
       // Server unreachable: the on-device reading still works for plain commands (never for numbers / OTP).
-      if (!ctx.expect) deliver(id, local, { path: 'device', matcher });
-      else fail(id, e);
+      // On a screen with chips the phone resolves them itself ("extreme 125 r" → Xtreme 125R) instead of
+      // "Sorry, say that again" (fix-xtreme-select).
+      if (!ctx.expect) {
+        const off = offlineReading(local, option);
+        if (off === option) voiceMetrics.tag(t.metric, { note: 'option:offline' });
+        deliver(id, off === option && opts.guard ? optionAsConfirm(off) : off, { path: 'device', matcher: off === option ? 'keyword' : matcher });
+      } else fail(id, e);
     }
   }, [deliver, fail]);
 

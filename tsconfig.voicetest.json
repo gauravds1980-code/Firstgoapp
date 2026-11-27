@@ -26,6 +26,7 @@
     "src/voice/__tests__/serverStream.test.ts",
     "src/voice/__tests__/parallelWhisper.test.ts",
     "src/voice/__tests__/voiceTurnLog.test.ts",
+    "src/voice/__tests__/optionResolver.test.ts",
     "src/tutorial/__tests__/stuckDetector.test.ts",
     "src/tutorial/__tests__/catalog.test.ts",
     "src/tutorial/__tests__/feed.test.ts",
