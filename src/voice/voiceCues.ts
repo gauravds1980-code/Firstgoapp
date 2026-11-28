@@ -39,3 +39,11 @@ export const shouldSpeakReplies = (spokenReplies: boolean): boolean => spokenRep
 
 /** How a turn's reply is delivered. 'cue' never calls /tts, never plays a Piper clip. */
 export const replyMode = (spokenReplies: boolean): 'speech' | 'cue' => (shouldSpeakReplies(spokenReplies) ? 'speech' : 'cue');
+
+/**
+ * v1.4.9 (Gaurav #1): a STATUS answer (feature 5 — "aaj kitne approve hue", "Ramesh ka loan kahan tak pahuncha", money
+ * questions, commission) is ALWAYS spoken with Piper, whatever `voice.spokenReplies` says; the VoiceAnswerCard still
+ * shows it on screen. Every other reply keeps the flag (cue sounds by default).
+ */
+export type ReplyKind = 'status' | 'other';
+export const replyModeFor = (kind: ReplyKind, spokenReplies: boolean): 'speech' | 'cue' => (kind === 'status' ? 'speech' : replyMode(spokenReplies));

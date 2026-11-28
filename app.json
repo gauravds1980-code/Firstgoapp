@@ -2,14 +2,14 @@
   "expo": {
     "name": "FIRSTgo",
     "slug": "boom-dealer",
-    "version": "1.4.5",
+    "version": "1.4.9",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.idfcfirst.firstgo.dealer",
-      "buildNumber": "1",
+      "buildNumber": "26",
       "icon": "./assets/ios-icon.png",
       "infoPlist": {
         "NSCameraUsageDescription": "FIRSTgo uses the camera to scan the customer's IDFC FIRST offer QR code, photograph RCs, and run the customer's face e-KYC (front camera liveness check).",
@@ -29,7 +29,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "softwareKeyboardLayoutMode": "resize",
-      "versionCode": 22,
+      "versionCode": 26,
       "permissions": [
         "android.permission.RECORD_AUDIO"
       ]

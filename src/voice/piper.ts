@@ -9,6 +9,9 @@
  *
  * v1.4.2: spoken replies are behind feature flag `voice.spokenReplies` (default OFF — short cue sounds instead,
  * see voiceCues.ts / playVoiceCue.ts). While it is off playReply() / speak() do nothing: no clip, no /tts.
+ *
+ * v1.4.9 (Gaurav #1): speakStatusAnswer() is the ONE exception — a feature-5 status answer is always spoken with Piper
+ * (bundled clip or /tts on the local server), never Google TTS / expo-speech. Only useVoiceCommand's status path calls it.
  */
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer, type AudioStatus } from 'expo-audio';
 import { File, Paths } from 'expo-file-system';
@@ -83,8 +86,18 @@ export const replyClipFor = (text: string): number | undefined => REPLY_CLIPS[cl
  */
 export async function playReply(text: string, cb?: { onStart?: () => void; onDone?: () => void }) {
   if (!shouldSpeakReplies(getVoiceSettings().spokenReplies)) { cb?.onDone?.(); return; } // safety net: flag off
+  return playReplyNow(text, cb);
+}
+
+/** v1.4.9: a status answer (replyModeFor('status') === 'speech'): always Piper, flag or not. */
+export async function speakStatusAnswer(text: string, cb?: { onStart?: () => void; onDone?: () => void }) {
+  if (!text.trim()) { cb?.onDone?.(); return; }
+  return playReplyNow(text, cb);
+}
+
+async function playReplyNow(text: string, cb?: { onStart?: () => void; onDone?: () => void }) {
   const clip = replyClipFor(text);
-  if (clip === undefined) return speak(text, cb);
+  if (clip === undefined) return speakNow(text, cb);
   await stopSpeaking();
   const mine = gen;
   try {
@@ -164,6 +177,10 @@ export async function speak(
   precomputed?: { audioBase64?: string; audioDurationSec?: number },
 ) {
   if (!shouldSpeakReplies(getVoiceSettings().spokenReplies)) { cb?.onDone?.(); return; } // safety net: flag off
+  return speakNow(text, cb, precomputed);
+}
+
+async function speakNow(text: string, cb?: { onStart?: () => void; onDone?: () => void }, precomputed?: { audioBase64?: string; audioDurationSec?: number }) {
   const trimmed = text.trim();
   if (!trimmed && !precomputed?.audioBase64) { cb?.onDone?.(); return; }
   await stopSpeaking();

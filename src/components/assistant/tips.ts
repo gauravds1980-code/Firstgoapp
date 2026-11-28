@@ -6,7 +6,7 @@ import type { AssistantContext } from '../../navigation/types';
 export const ROUTE_CONTEXT: Record<string, AssistantContext> = {
   DealerLogin: 'login', DealerOtp: 'login', Home: 'home', Profile: 'profile', HelpSupport: 'profile', PrivacyTerms: 'profile', ComingSoon: 'profile', QuickList: 'home', ScanQr: 'scan', SearchMobile: 'search',
   Offer: 'offer', OfferReveal: 'offer', Asset: 'asset', FaceKyc: 'kyc', Mandate: 'mandate', Esign: 'esign', Docs: 'docs', Disbursal: 'disbursal',
-  Payouts: 'payouts', Portfolio: 'portfolio', Cases: 'cases', RcPendency: 'rc', TaInf: 'tainf', Help: 'help',
+  Payouts: 'payouts', Portfolio: 'portfolio', Cases: 'cases', RcPendency: 'rc', TaInf: 'tainf', Help: 'help', MoneyInFlight: 'money', Alerts: 'alerts', AlertSettings: 'alerts',
 };
 
 /** One short tip per screen — upbeat and confident, still dealer-floor professional. */
@@ -23,12 +23,14 @@ export const TIPS: Record<AssistantContext, string> = {
   esign: 'The KFS is on their phone with the agreement. Once they consent, six digits and it signs itself.',
   docs: 'Three uploads stand between you and disbursal. Invoice first?',
   disbursal: "Money's on its way. Share the RC once registration's done — I'll remind you.",
-  payouts: "Tap an invoice to see each case. Unclaimed? One tap and it's in the queue.",
+  payouts: "Your commission statement: expected vs paid for every file. Tap a line for details, or say \"short payment kahan hai\".",
   portfolio: 'Green is good. Tap a DPD bucket to see who needs a friendly nudge.',
   cases: 'Flip the date range up top to compare months side by side.',
   rc: "Snap the RC and I'll read the number. Tick a few to share them in one go.",
   tainf: 'Keep an eye on the bar: past 80% utilised, it turns red.',
   help: 'Pick any how-to. Most are under 20 seconds, and they play offline.',
+  money: 'Red means overdue. Tap a file to see what is holding the money, and fix it if it is yours.',
+  alerts: 'A dot means unread. Tap an alert to open the file or the invoice behind it.',
 };
 
 /**

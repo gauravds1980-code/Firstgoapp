@@ -25,6 +25,18 @@ import PortfolioScreen from '../screens/PortfolioScreen';
 import CasesScreen from '../screens/CasesScreen';
 import RcPendencyScreen from '../screens/RcPendencyScreen';
 import TaInfScreen from '../screens/TaInfScreen';
+import MoneyInFlightScreen from '../screens/MoneyInFlightScreen';
+import AlertsScreen from '../screens/AlertsScreen';
+import AlertSettingsScreen from '../screens/AlertSettingsScreen';
+import { inboxEvents, seedAlertsFor } from '../services/alerts';
+import { getInboxState, invoicesNow } from '../state/stores';
+import { setAlertsVoiceSource } from '../voice/alertsVoice';
+import { setPayoutVoiceSource } from '../voice/payoutVoice';
+import { statementInvoicesFor } from '../services/payoutStatement';
+import { mifFilesFor, isMoneyInFlightEnabled } from '../services/moneyInFlight';
+import { setMifVoiceContext } from '../voice/moneyVoice';
+import { setStatusVoiceSource } from '../voice/statusVoice';
+import { statusFilesFor } from '../services/loanStatus';
 import HelpScreen from '../screens/HelpScreen';
 import HelpSupportScreen from '../screens/HelpSupportScreen';
 import PrivacyTermsScreen from '../screens/PrivacyTermsScreen';
@@ -78,6 +90,9 @@ const linking: LinkingOptions<RootStackParamList> = {
       Cases: 'cases',
       RcPendency: 'rc',
       TaInf: 'ta-inf',
+      MoneyInFlight: 'money',
+      Alerts: 'alerts',
+      AlertSettings: 'alerts/settings',
       Help: 'help',
       ShortsFeed: 'shorts/:startId?',
     },
@@ -99,6 +114,33 @@ export default function RootNavigator() {
   const onNavState = useTutorialNudges();
   // Streaming tutorials: video disk cache (before any player exists) and the remote manifest.
   React.useEffect(() => { configureVideoCache(); void loadTutorialManifest(); }, []);
+  // v1.4.6 Money in flight: voice answers read the signed-in dealer's gate + files (same mock source as the list).
+  React.useEffect(() => {
+    setMifVoiceContext({ enabled: isMoneyInFlightEnabled(session?.profile), files: session ? mifFilesFor(session.mobile, session.profile) : [], openLan: null });
+  }, [session]);
+  // v1.4.7 alerts: voice reads the signed-in dealer's shared inbox (seeds + read marks) at answer time.
+  React.useEffect(() => {
+    const seeds = session ? seedAlertsFor(session.mobile, session.profile) : [];
+    const dealerId = session?.dealerId;
+    setAlertsVoiceSource(() => {
+      const inbox = getInboxState(dealerId);
+      return { signedIn: !!session, events: inboxEvents(seeds, inbox), inbox };
+    });
+  }, [session]);
+  // v1.4.8 payout statement: voice reads the signed-in dealer's statement (seed + their claims) at answer time.
+  React.useEffect(() => {
+    const seed = session ? statementInvoicesFor(session.mobile, session.profile) : [];
+    const dealerId = session?.dealerId;
+    setPayoutVoiceSource(() => ({ signedIn: !!session, invoices: invoicesNow(dealerId, seed) }));
+  }, [session]);
+  // v1.4.9 status checks: voice answers read the signed-in dealer's files (Money in flight + applications) and statement.
+  React.useEffect(() => {
+    const files = session ? statusFilesFor(session.mobile, session.profile) : [];
+    const seed = session ? statementInvoicesFor(session.mobile, session.profile) : [];
+    const dealerId = session?.dealerId;
+    const mifEnabled = isMoneyInFlightEnabled(session?.profile);
+    setStatusVoiceSource(() => ({ signedIn: !!session, mifEnabled, files, invoices: invoicesNow(dealerId, seed) }));
+  }, [session]);
   const sync = () => { setRoute(navRef.getCurrentRoute()?.name); onNavState(navRef.getRootState()); };
   if (!sessionRestored) {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg }}><ActivityIndicator color={colors.primary} /></View>;
@@ -136,6 +178,9 @@ export default function RootNavigator() {
             <Stack.Screen name="Cases" component={CasesScreen} />
             <Stack.Screen name="RcPendency" component={RcPendencyScreen} />
             <Stack.Screen name="TaInf" component={TaInfScreen} />
+            <Stack.Screen name="MoneyInFlight" component={MoneyInFlightScreen} />
+            <Stack.Screen name="Alerts" component={AlertsScreen} />
+            <Stack.Screen name="AlertSettings" component={AlertSettingsScreen} />
             <Stack.Screen name="Help" component={HelpScreen} />
           </Stack.Group>
         )}

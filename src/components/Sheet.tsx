@@ -16,7 +16,14 @@ import { sheetMaxHeight } from './keyboardMath';
  * Android, so nothing resizes for us): the container pads by the keyboard height, the cap shrinks so
  * the handle/title stay below the status bar, and the focused Field scrolls into view above the footer.
  */
-export function Sheet({ visible, onClose, title, subtitle, children, footer }: { visible: boolean; onClose: () => void; title: string; subtitle?: string; children: React.ReactNode; footer?: React.ReactNode }) {
+export function Sheet({ visible, onClose, title, subtitle, children, footer, inline }: {
+  visible: boolean; onClose: () => void; title: string; subtitle?: string; children: React.ReactNode; footer?: React.ReactNode;
+  /**
+   * v1.4.9: draw as an absolute overlay in the current tree instead of a Modal window, so the app's voice mic (drawn
+   * after it by VoiceHost) stays on top and usable — the voice ClarifySheet / file-status sheet answer a spoken choice.
+   */
+  inline?: boolean;
+}) {
   const insets = useSafeAreaInsets();
   const reduce = useReducedMotion();
   const y = useSharedValue(600);
@@ -32,8 +39,7 @@ export function Sheet({ visible, onClose, title, subtitle, children, footer }: {
   // The Modal's own height (layout viewport on web, where the window dims follow the visual viewport).
   const [boxH, setBoxH] = useState(0);
   const maxHeight = boxH ? sheetMaxHeight(boxH, kb.lift, insets.top) : '88%';
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
+  const body = (
       <View style={{ flex: 1, paddingBottom: kb.lift }} onLayout={(e) => setBoxH(e.nativeEvent.layout.height)}>
         <Pressable style={{ flex: 1, backgroundColor: 'rgba(18,18,18,0.45)' }} onPress={onClose} accessibilityLabel="Close sheet" />
         <Animated.View style={[{ width: '100%', alignSelf: 'stretch', overflow: 'hidden', backgroundColor: colors.surface, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, maxHeight, paddingBottom: Math.max(insets.bottom, space.md) }, style]} accessibilityViewIsModal>
@@ -53,6 +59,7 @@ export function Sheet({ visible, onClose, title, subtitle, children, footer }: {
           {footer ? <View style={{ paddingHorizontal: gutter.screen, paddingTop: space.xs, gap: space.xs, borderTopWidth: 1, borderTopColor: colors.border }}>{footer}</View> : null}
         </Animated.View>
       </View>
-    </Modal>
   );
+  if (inline) return visible ? <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 60 }}>{body}</View> : null;
+  return <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>{body}</Modal>;
 }

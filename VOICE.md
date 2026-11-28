@@ -1,5 +1,92 @@
 # Zippy voice commands
 
+## v1.4.9 — Hinglish status checks
+
+`src/voice/statusVoice.ts` (pure, tests `statusVoice.test.ts`) + `src/services/loanStatus.ts` (the dealer's files: Money in
+flight + a mock applications list for new TW / not-yet-sanctioned files). Read on the phone at once (offline, and with
+an 8793 server that still has the v1.4.8 command list); a server / Whisper answer with one of the intents lands in the
+same place (`useVoiceCommand.deliver`), details re-read from the transcript. Order in `handleText`: OTP → ADVANCE
+("proceed" / "aage chaliye", unchanged) → ClarifySheet choice → payout → alerts → **status** → Money in flight.
+Status answers are ALWAYS spoken with Piper (Gaurav #1: `replyModeFor('status')`, `piper.speakStatusAnswer`) whatever
+"Spoken replies" says; every other reply keeps the setting. Hinglish readouts; English UI. Never on an OTP turn.
+- "Ramesh ka loan kahan tak pahuncha", "Ramesh ki file kis stage pe hai", "what's the status of Ramesh's loan",
+  "TW-184210 ka status", "रमेश का लोन कहाँ तक पहुँचा" → SHOW_FILE_STATUS. One file: file-status sheet (VoiceAnswerCard,
+  amount / stage / masked mobile / LAN, Timeline; "proceed" = Remind customer). Several: ClarifySheet "Which one?"
+  ("Do Ramesh hain. Ramesh Jadhav, Swift, aaj approve hua, e-sign pending? Ya Ramesh Kale, Activa, pehle se
+  disbursed?"); say the vehicle ("Swift wala"), LAN tail, full name / surname or "pehla / dusra"; "proceed" never
+  guesses ("Pehle file choose karo."). Unknown: "Sanjay Pawar is not on this list."
+- "aaj kitne approve hue", "today's approvals", "kitne sanctioned aaj" → SHOW_TODAYS_APPROVALS; "aaj kitne apply hue"
+  → SHOW_TODAYS_APPLICATIONS; "aaj kitna disburse hua" (all products) → SHOW_TODAYS_DISBURSALS. SPEAK ONLY, stay on the
+  current screen with a VoiceAnswerCard (Gaurav #2). Counts = Home's Today tiles (same list).
+- "mera commission kab aayega", "payout kab aayega", "commission kab credit hoga" → SHOW_COMMISSION_STATUS: Payouts on
+  the latest Not-claimed invoice ("…claim ke liye ready hai. Claim karne ke baad do se teen working days…"), else
+  Claimed / Paid lines. "kitna commission pending hai", "invoices to claim" → SHOW_INVOICES_TO_CLAIM: Payouts, Ready to
+  claim (was TA / INF; "TA INF" itself is now OPEN_TA_INF).
+- Money questions stay feature 1 and are now also always spoken. Gated dealer (new TW only): the polite line as a
+  warning VoiceAnswerCard, nothing opens. Mixed dealer + a named file Money in flight does not track (new TW, or not
+  sanctioned yet): that file's sheet opens with "Priya Kulkarni new two-wheeler hai, money in flight isme nahi dikhta.
+  Abhi e-sign pending hai." (Gaurav #4).
+- "what can I say" read-out adds the status examples. No Google STT notice (Gaurav #3); Google TTS never used.
+
+## v1.4.8 — Payout statement
+
+`src/voice/payoutVoice.ts` (pure, tests `payoutVoice.test.ts`) reads these on the phone at once (offline, and with an
+8793 server that still has the v1.4.7 command list); a server / Whisper answer with one of the intents lands in the same
+place (`useVoiceCommand.deliver`). Checked BEFORE the alerts and Money-in-flight parsers ("short payment kahan hai" is a
+payout question, not "paisa kahan hai"). Commission is for every dealer: new-two-wheeler-only dealers get these too.
+Replies are English, spoken with Piper (same "Spoken replies" rule as every Zippy reply), and use only statement fields.
+- "payout statement dikhao", "mera payout statement dikhao", "show my payout statement", "commission statement",
+  "is mahine ka payout / statement", "pichhle mahine ka payout", "last 3 months ka payout", "October ka statement"
+  → SHOW_PAYOUT_STATEMENT: Payouts on that period (default This month), says "November statement: expected …, paid …,
+  … ready to claim. No short payments."
+- "short payment kahan hai", "short pay kahan hai", "any short pay", "kam payout kahan hai", "difference dikhao"
+  → SHOW_SHORT_PAYS: opens the period of the latest short-pay (last 3 months) on the Short paid chip, says
+  "1 short payment. Arjun Mehta, Maruti Swift, expected …, paid …, reason scheme cap."
+- "CR-20320 ka payout", "Kavya Nair ka commission", "show Kavya's payout", "is file ka payout kitna aaya"
+  → SHOW_PAYOUT_LINE: opens that line sheet, says expected / deductions / paid / difference / reason.
+- "short pay pe query", "payout pe query daalo"; on Payouts also "raise a query" / "is pe query daalo"
+  → RAISE_PAYOUT_QUERY: QuerySheet for the open line (else the latest short-pay) on the payout-ops queue (PAY-xxxx).
+  Send still needs Confirm ("proceed" asks "Send this query to Payout operations?").
+- "open payouts" / "payouts kholo" / "show my commission" stay OPEN_PAYOUTS (same screen). "proceed" / "aage chaliye"
+  unchanged; on a short-paid / 30+ days line sheet they press Raise a query.
+
+## v1.4.7 — Credit and payout alerts
+
+`src/voice/alertsVoice.ts` (pure, tests `alertsVoice.test.ts`) reads these on the phone at once (offline, and with an
+8793 server that still has the v1.4.6 command list); a server / Whisper answer with one of the intents lands in the same
+place (`useVoiceCommand.deliver`). Checked before the Money-in-flight parser; neither steals the other's phrases.
+- "alerts dikhao", "naya alert kya hai", "kya naya hai", "show my alerts", "notifications dikhao", "alerts kholo",
+  "any new alerts" → SHOW_ALERTS: opens the inbox, says "Teen naye alerts. <latest unread>".
+- "read my alerts", "alerts padh ke sunao", "aaj ke alerts padh ke sunao", "alerts sunao" → READ_ALERTS: opens (or stays
+  on) the inbox and reads up to the three latest unread (today's, if all are read), one Hinglish sentence each, with
+  Piper. First names, amounts and invoice tails only — never a mobile number. Like every Zippy reply this is spoken
+  only with "Spoken replies" on (otherwise the text shows on the voice pill and a cue plays).
+- "notification settings kholo", "alerts band karo", "turn off alerts", "quiet hours" → OPEN_ALERT_SETTINGS: opens
+  settings ("Notification settings.", bundled Piper clip). Nothing is switched off by voice.
+- "proceed" / "aage chaliye" on the inbox open the first unread row's destination.
+- New-two-wheeler-only dealers get the same phrases; their inbox holds commission alerts only.
+- Automatic readout of a newly arrived alert (inbox demo) never fires inside quiet hours (IST).
+
+## v1.4.6 — Money in flight
+
+`src/voice/moneyVoice.ts` (pure, tests `moneyVoice.test.ts`) reads these on the phone at once (offline too, and with an
+8793 server that still has the v1.4.5 command list); a server / Whisper answer with one of the intents lands in the
+same place (`useVoiceCommand.deliver`) and the name comes from the transcript by the same parser:
+- "mera paisa kahan hai", "where is my money", "money in flight", "pending credits dikhao" → SHOW_MONEY_IN_FLIGHT:
+  opens the list (All in flight), says "5 files in flight, 22.9 lakh. 2 overdue."
+- "kaunsi file atki hai", "which file is stuck", "stuck files", "overdue files dikhao" → SHOW_STUCK_FILES: Stuck filter,
+  "3 files stuck, 2 overdue. Oldest is Pooja Iyer, RC copy pending, 6 days."
+- "Ramesh ka paisa aaya?", "has Ramesh's money come", "Pooja ki file kahan hai" → SHOW_FILE_MONEY_STATUS: opens that
+  file's sheet and speaks its status; two matches → "A, vehicle or B, vehicle?"; unknown → "X is not on this list.";
+  "is loan ka paisa aaya" = the open sheet.
+- "aaj kitna credit hua", "today's credits" → SHOW_TODAYS_CREDITS; "raise a query" → RAISE_QUERY (QuerySheet for the open
+  / oldest overdue file; "proceed" there asks "Send this query to your RM?", a spoken yes sends).
+- SHOW_PENDING_DISBURSALS lands on Money in flight for dealers who have it. Undo goes back.
+- Gated dealer (new two-wheeler only): "Money in flight is not available for new two-wheeler dealers yet." (bundled
+  Piper clip); the app also sends `context.mifEnabled` so the server says the same. Dynamic lines go through Piper /tts.
+- "proceed" / "aage chaliye" are decided before this (ADVANCE): on the list = open the most urgent row; on the case sheet =
+  its primary CTA; never read as a Money-in-flight question. Replies are English; Hinglish only in the triggers.
+
 ## v1.4.5 S2 — hands-off: ADVANCE, enhance limit, RC number, auto-advance, voice-confirm
 
 Source: `/workspace/handsoff-sweep/FINDINGS.md`, contract `/workspace/v145-notes/CONTRACT.md` "S2 changes".

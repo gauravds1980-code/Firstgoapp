@@ -43,6 +43,9 @@ const palette = {
   warningTint: '#FFF4DB',
   danger: '#B42318',
   dangerTint: '#FDECEA',
+  // v1.4.6 design library: the info-pill pair that lived as raw hex in ui.tsx, folded into the palette (no new colour).
+  infoTint: '#E7F3F8',
+  infoText: '#1A5E86',
   tileMustard: '#CE993E',
   tileTeal: '#155C7C',
   tileNavy: '#1E2F5C',
@@ -91,6 +94,8 @@ export const colors = {
   warningSoft: palette.warningTint,
   danger: palette.danger,
   dangerSoft: palette.dangerTint,
+  info: palette.infoText,
+  infoSoft: palette.infoTint,
 
   tileMustard: palette.tileMustard,
   tileTeal: palette.tileTeal,

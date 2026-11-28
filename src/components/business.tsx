@@ -48,6 +48,7 @@ export function DateFilterBar() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexDirection: 'row', gap: space.xs }}>
           <Chip compact label="This month" on={range.preset === 'thisMonth'} onPress={() => pick('thisMonth')} />
           <Chip compact label="Last month" on={range.preset === 'lastMonth'} onPress={() => pick('lastMonth')} />
+          <Chip compact label="Last 3 months" on={range.preset === 'last3Months'} onPress={() => pick('last3Months')} />
           <Chip compact label="Custom" icon="calendar-range" on={range.preset === 'custom'} onPress={() => pick('custom')} />
         </ScrollView>
       </ZippyAvoid>

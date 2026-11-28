@@ -65,8 +65,19 @@ export const bucketOf = (dpd: number): Bucket => (dpd === 0 ? 'Current' : dpd <=
 
 /* ---------------- Payouts / invoices ---------------- */
 export type InvoiceStatus = 'Not claimed' | 'Claimed' | 'Paid';
-export interface PayoutLine { lan: string; customer: string; loan: number; ratePct: number; payout: number }
-export interface Invoice { id: string; date: Date; status: InvoiceStatus; lines: PayoutLine[]; amount: number; utr?: string }
+/**
+ * One commission line. `payout` = the NET expected figure as sent by the payout system (after any itemised deduction).
+ * v1.4.8 statement fields (explicit, as if from the payout system — never recomputed from loan × rate in the app):
+ * `gross` before deductions, itemised `deductions` (advance recovery, TDS, clawback…), `paid` once a payment posted,
+ * and the payout system's `reason` for a gap. Absent on the older generated lines (gross = payout, no deductions,
+ * paid = payout once the invoice is Paid).
+ */
+export interface PayoutDeduction { label: string; amount: number }
+export interface PayoutLine {
+  lan: string; customer: string; loan: number; ratePct: number; payout: number;
+  vehicle?: string; product?: ProductId; gross?: number; deductions?: PayoutDeduction[]; paid?: number; reason?: string;
+}
+export interface Invoice { id: string; date: Date; status: InvoiceStatus; lines: PayoutLine[]; amount: number; utr?: string; paidOn?: Date }
 
 /** Weekly payout invoices built from the cases (dealer payout ~0.75–1.5% of loan, example rates). */
 export function invoicesFor(cases: Case[]): Invoice[] {

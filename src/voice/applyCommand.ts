@@ -88,6 +88,8 @@ export const VOICE_EXAMPLES = [
   'Set up UPI mandate',
   'Explain this screen',
 ];
+/** v1.4.9 status checks: read out after the examples on "what can I say" (Hinglish voice phrases). */
+export const STATUS_EXAMPLES_LINE = 'Status ke liye poochho: Ramesh ka loan kahan tak pahuncha, aaj kitne approve hue, mera commission kab aayega.';
 
 // SLOT_LABELS / formatSlot moved to voiceLogic.ts (pure, unit-tested); re-exported for existing imports.
 export { formatSlot, SLOT_LABELS, slotDetailRows } from './voiceLogic';

@@ -11,7 +11,7 @@ import { deviceAsrPermission, deviceAsrSupport, markOnDeviceBroken, markPersistB
 import { DIDNT_CATCH, pressAction, prevTurnEndReason, selfEndAction } from './micFlow';
 import { chooseCandidate, localCommand, matchCommand, needsServerText, serverOverConfirm, shouldAskServerOnConfirm } from './intentMatcher';
 import { isParallelBroken, isParallelClash, markParallelBroken, parallelDiagText, registerTurnStreams, settleParallel, TurnCheck, TurnStreams, wantParallelStream, type ParallelOffReason } from './parallelWhisper';
-import { isReadingOut, playReply } from './piper';
+import { isReadingOut, playReply, speakStatusAnswer } from './piper';
 import { playVoiceCue } from './playVoiceCue';
 import { liveTextFromPartial } from './serverStream';
 import { getSttProvider, parseResponse, routeFailureKind } from './sttClient';
@@ -34,9 +34,18 @@ import { answerPending, askVoiceConfirm, parseYesNo, subscribeVoiceAsk } from '.
 import { advanceMatcherGuard, decideAdvance, getVoiceStep, isAdvancePhrase, isAdvanceReply, resolveAdvance } from './voiceStep';
 import { decideOtpTurn, ESIGN_VERIFY_TEXT, otpMaskFor, otpOfflineCommand, planOtpTurn } from './otpParse';
 import { voiceDraft } from './voiceDraft';
+import { alertsLocalCommand, alertsQueryFor, answerAlertsQuery, getAlertsVoiceContext, parseAlertsQuery } from './alertsVoice';
+import { answerPayoutQuery, getPayoutVoiceContext, parsePayoutQuery, payoutLocalCommand, payoutQueryFor, PAYOUTS_ROUTE } from './payoutVoice';
+import { answerMoneyQuery, getMifVoiceContext, mifLocalCommand, moneyQueryFor, MIF_ROUTE, parseMoneyQuery, type MoneyQuery } from './moneyVoice';
+import {
+  answerForChoice, answerStatusQuery, chooseClarify, getStatusVoiceContext, hybridMoneyAnswer, parseStatusQuery, statusLocalCommand, statusQueryFor,
+  statusUi, type StatusAnswer,
+} from './statusVoice';
+import { maskSpoken } from './voiceTranscript';
+import { navRef } from '../navigation/navRef';
 import { getVoiceSettings, subscribeVoiceSettings } from './voiceSettings';
 import { captureUndo, runUndo, type UndoRecord } from './voiceUndo';
-import { cueKindFor, replyMode, type VoiceCueKind } from './voiceCues';
+import { cueKindFor, replyMode, replyModeFor, type VoiceCueKind } from './voiceCues';
 import { logDelivered, logTurnEnd, logTurnOutcome, noteDeviceText, turnExtras } from './voiceTurnLogApp';
 
 /**
@@ -50,6 +59,15 @@ function voiceRespond(r: { text?: string; cue: VoiceCueKind; metric?: number; ha
     return;
   }
   playVoiceCue(r.cue, { haptic: r.haptic, onStart });
+}
+
+/**
+ * v1.4.9 (Gaurav #1): a status answer is ALWAYS spoken with Piper (bundled clip or local /tts), whatever
+ * `voice.spokenReplies` says. The VoiceAnswerCard shows the same text on screen.
+ */
+function statusRespond(text: string, metric?: number): void {
+  const onStart = () => { if (metric) voiceMetrics.mark(metric, 'audioStart'); };
+  if (replyModeFor('status', getVoiceSettings().spokenReplies) === 'speech') void speakStatusAnswer(text, { onStart });
 }
 
 /** `expect` is what the screen asked for when the clip was sent (used for "Type it instead" with no row). */
@@ -359,6 +377,202 @@ export function useVoiceCommand({ readOut }: {
       logDelivered(t, command, how.path, false);
       return;
     }
+    // v1.4.9 status checks: show an answer (VoiceAnswerCard / ClarifySheet / file sheet over the current screen, or
+    // Payouts for commission) and ALWAYS speak it with Piper. Counts stay on the current screen (Gaurav #2).
+    const presentStatus = (ans: StatusAnswer, question: string) => {
+      const q = maskSpoken(question.trim()).text;
+      if (ans.ui === 'navigate') {
+        const record = captureUndo([], t.ctx.screen !== ans.route);
+        navRef.navigate(ans.route, { ...ans.params, at: Date.now() });
+        const tid = Date.now();
+        undoRef.current = { id: tid, record };
+        altRef.current = null;
+        t.toastId = tid;
+        setToast({ id: tid, text: ans.toast, icon: 'navigate' });
+        statusUi.show({ kind: 'card', question: q, say: ans.say, tone: ans.tone });
+      } else if (ans.ui === 'card') statusUi.show({ kind: 'card', question: q, say: ans.say, tone: ans.tone });
+      else if (ans.ui === 'clarify') statusUi.show({ kind: 'clarify', question: q, say: ans.say, name: ans.name, options: ans.options, money: !!ans.money });
+      else statusUi.show({ kind: 'file', question: q, say: ans.say, tone: ans.tone, file: ans.file });
+      t.stage = 'acted';
+      haptic.success();
+      statusRespond(ans.say, t.metric);
+      voiceMetrics.end(t.metric, { outcome: ans.ui === 'clarify' ? 'clarify' : 'auto' });
+      logDelivered(t, command, how.path, ans.ui !== 'clarify');
+    };
+    const takeTurn = (note: string) => {
+      t.result = command;
+      expectNextRef.current = null;
+      setThinking(false);
+      setPreview(null);
+      voiceMetrics.tag(t.metric, { path: how.path, matcher: how.matcher, note });
+      voiceMetrics.mark(t.metric, 'action');
+    };
+    // v1.4.9 ClarifySheet open ("Which one?"): a spoken vehicle / LAN tail / full name picks that row.
+    const clarify = !t.otp ? statusUi.clarifyOpen() : null;
+    const pick = clarify ? chooseClarify(command.transcript, clarify.options) : null;
+    if (clarify && pick) {
+      takeTurn('status:clarify-pick');
+      const sctx = getStatusVoiceContext();
+      const a = answerForChoice(pick, sctx, clarify.money);
+      presentStatus({ ui: 'file', say: a.say, tone: a.tone, file: pick }, clarify.question);
+      return;
+    }
+    // v1.4.9 status questions: the phone's own reading or a server / Whisper status intent.
+    if (!t.otp) {
+      const sq = statusQueryFor(command);
+      if (sq) {
+        takeTurn(`status:${sq.kind}`);
+        const sctx = getStatusVoiceContext();
+        if (!sctx.signedIn || !navRef.isReady()) {
+          t.stage = 'nothing';
+          setInfo('Sign in first, then try that again.');
+          voiceRespond({ text: 'Sign in first, then try that again.', cue: cueKindFor({ kind: 'nothing' }), metric: t.metric });
+          voiceMetrics.end(t.metric, { outcome: 'retry' });
+          logDelivered(t, command, how.path, false);
+          return;
+        }
+        presentStatus(answerStatusQuery(sq, sctx), command.transcript);
+        return;
+      }
+    }
+    // v1.4.8 payout statement: "payout statement dikhao", "is mahine ka payout", "short payment kahan hai", "CR-20320 ka
+    // payout", "short pay pe query" — the phone's own reading or a server / Whisper payout intent. Commission is for every
+    // dealer (new-TW-only included). Opens Payouts on the period / filter / line and speaks statement fields only.
+    if (!t.otp) {
+      const pq = payoutQueryFor(command, t.ctx.screen === PAYOUTS_ROUTE);
+      if (pq) {
+        t.result = command;
+        expectNextRef.current = null;
+        setThinking(false);
+        setPreview(null);
+        voiceMetrics.tag(t.metric, { path: how.path, matcher: how.matcher, note: `payout:${pq.kind}` });
+        voiceMetrics.mark(t.metric, 'action');
+        const pctx = getPayoutVoiceContext();
+        const names = navRef.isReady() ? (navRef.getRootState()?.routeNames as string[] | undefined) : undefined;
+        if (!pctx.signedIn || !navRef.isReady() || (names && !names.includes(PAYOUTS_ROUTE))) {
+          t.stage = 'nothing';
+          setInfo('Sign in first, then try that again.');
+          voiceRespond({ text: 'Sign in first, then try that again.', cue: cueKindFor({ kind: 'nothing' }), metric: t.metric });
+          voiceMetrics.end(t.metric, { outcome: 'retry' });
+          logDelivered(t, command, how.path, false);
+          return;
+        }
+        const ans = answerPayoutQuery(pq, pctx);
+        const record = captureUndo([], t.ctx.screen !== PAYOUTS_ROUTE);
+        navRef.navigate('Payouts', { ...ans.params, at: Date.now() });
+        const tid = Date.now();
+        undoRef.current = { id: tid, record };
+        altRef.current = null;
+        t.stage = 'acted';
+        t.toastId = tid;
+        setToast({ id: tid, text: ans.toast, icon: 'navigate' });
+        setInfo(ans.say);
+        haptic.success();
+        voiceRespond({ text: ans.say, cue: cueKindFor({ didAct: true, status: 'ok', hasCandidates: false, kind: 'acted' }), metric: t.metric, haptic: false });
+        voiceMetrics.end(t.metric, { outcome: 'auto' });
+        logDelivered(t, command, how.path, true);
+        return;
+      }
+    }
+    // v1.4.7 alerts: "alerts dikhao", "naya alert kya hai", "read my alerts", "notification settings kholo" — the phone's
+    // own reading or a server / Whisper alert intent. Opens the inbox / settings; READ_ALERTS speaks the readout (Piper).
+    if (!t.otp) {
+      const aq = alertsQueryFor(command);
+      const actx = aq ? getAlertsVoiceContext() : null;
+      if (aq && actx) {
+        t.result = command;
+        expectNextRef.current = null;
+        setThinking(false);
+        setPreview(null);
+        voiceMetrics.tag(t.metric, { path: how.path, matcher: how.matcher, note: `alerts:${aq.kind}` });
+        voiceMetrics.mark(t.metric, 'action');
+        const names = navRef.isReady() ? (navRef.getRootState()?.routeNames as string[] | undefined) : undefined;
+        if (!actx.signedIn || !navRef.isReady() || (names && !names.includes('Alerts'))) {
+          t.stage = 'nothing';
+          setInfo('Sign in first, then try that again.');
+          voiceRespond({ text: 'Sign in first, then try that again.', cue: cueKindFor({ kind: 'nothing' }), metric: t.metric });
+          voiceMetrics.end(t.metric, { outcome: 'retry' });
+          logDelivered(t, command, how.path, false);
+          return;
+        }
+        const ans = answerAlertsQuery(aq, actx);
+        const record = captureUndo([], t.ctx.screen !== ans.route);
+        if (t.ctx.screen !== ans.route) {
+          if (ans.route === 'Alerts') navRef.navigate('Alerts', { at: Date.now() });
+          else navRef.navigate('AlertSettings', { focus: 'push', at: Date.now() });
+        }
+        const tid = Date.now();
+        undoRef.current = { id: tid, record };
+        altRef.current = null;
+        t.stage = 'acted';
+        t.toastId = tid;
+        setToast({ id: tid, text: ans.toast, icon: 'navigate' });
+        setInfo(ans.say);
+        haptic.success();
+        voiceRespond({ text: ans.say, cue: cueKindFor({ didAct: true, status: 'ok', hasCandidates: false, kind: 'acted' }), metric: t.metric, haptic: false });
+        voiceMetrics.end(t.metric, { outcome: 'auto' });
+        logDelivered(t, command, how.path, true);
+        return;
+      }
+    }
+    // v1.4.6 Money in flight: "mera paisa kahan hai", "Ramesh ka paisa aaya?", "kaunsi file atki hai" — the phone's own
+    // reading or a server / Whisper MIF intent. Gated dealers (new TW only) get the polite not-available line, nothing opens.
+    if (!t.otp) {
+      const mctx = getMifVoiceContext();
+      let mq: MoneyQuery | null = moneyQueryFor(command);
+      // The old "pending disbursals" intent lands here for dealers who have Money in flight (it used to open Cases).
+      if (!mq && command.intent === 'SHOW_PENDING_DISBURSALS' && mctx.enabled) mq = { kind: 'list', intent: 'SHOW_MONEY_IN_FLIGHT' };
+      if (mq) {
+        t.result = command;
+        expectNextRef.current = null;
+        setThinking(false);
+        setPreview(null);
+        voiceMetrics.tag(t.metric, { path: how.path, matcher: how.matcher, note: `mif:${mq.kind}` });
+        // v1.4.9 (Gaurav #4): a named file Money in flight does not track (new TW at a mixed dealer) opens that file
+        // with the short "money in flight isme nahi dikhta" line, instead of "not on this list".
+        if (navRef.isReady()) {
+          const hy = hybridMoneyAnswer(mq, getStatusVoiceContext());
+          if (hy) { voiceMetrics.mark(t.metric, 'action'); voiceMetrics.tag(t.metric, { note: 'mif:hybrid' }); presentStatus(hy, command.transcript); return; }
+        }
+        const ans = answerMoneyQuery(mq, mctx);
+        voiceMetrics.mark(t.metric, 'action');
+        // v1.4.9: money questions are status answers → always spoken (Gaurav #1); a query request keeps the flag.
+        const isStatusAsk = mq.kind !== 'query';
+        if (ans.kind === 'gated') {
+          // Spec (e): stay on the current screen; a warning VoiceAnswerCard shows the same line.
+          t.stage = 'nothing';
+          statusUi.show({ kind: 'card', question: maskSpoken(command.transcript.trim()).text, say: ans.say, tone: 'warning' });
+          statusRespond(ans.say, t.metric);
+          voiceMetrics.end(t.metric, { outcome: 'retry' });
+          logDelivered(t, command, how.path, false);
+          return;
+        }
+        const names = navRef.isReady() ? (navRef.getRootState()?.routeNames as string[] | undefined) : undefined;
+        if (!navRef.isReady() || (names && !names.includes(MIF_ROUTE))) {
+          t.stage = 'nothing';
+          setInfo('Sign in first, then try that again.');
+          voiceRespond({ text: 'Sign in first, then try that again.', cue: cueKindFor({ kind: 'nothing' }), metric: t.metric });
+          voiceMetrics.end(t.metric, { outcome: 'retry' });
+          logDelivered(t, command, how.path, false);
+          return;
+        }
+        const record = captureUndo(['customer'], t.ctx.screen !== MIF_ROUTE);
+        navRef.navigate('MoneyInFlight', { ...ans.params, at: Date.now() });
+        const tid = Date.now();
+        undoRef.current = { id: tid, record };
+        altRef.current = null;
+        t.stage = 'acted';
+        t.toastId = tid;
+        setToast({ id: tid, text: ans.toast, icon: 'navigate' });
+        setInfo(ans.say);
+        haptic.success();
+        if (isStatusAsk) statusRespond(ans.say, t.metric);
+        else voiceRespond({ text: ans.say, cue: cueKindFor({ didAct: true, status: 'ok', hasCandidates: false, kind: 'acted' }), metric: t.metric, haptic: false });
+        voiceMetrics.end(t.metric, { outcome: 'auto' });
+        logDelivered(t, command, how.path, true);
+        return;
+      }
+    }
     t.result = command;
     expectNextRef.current = command.expectNext ? { expect: command.expectNext, screen: t.ctx.screen, at: Date.now() } : null;
     setThinking(false);
@@ -436,6 +650,15 @@ export function useVoiceCommand({ readOut }: {
     if (stage === 'preview' && previewTurn.current !== id) stage = 'gone';
     if (stage === 'acted' && toastRef.current?.id !== t.toastId) stage = 'confirmed';
     if (!device) return;
+    // v1.4.6: the phone answered a Money-in-flight question and Whisper heard one too (an older server may name another intent).
+    if (moneyQueryFor(device) && moneyQueryFor(server)) return;
+    // v1.4.7: same for an alerts request (an older server names another intent for "alerts dikhao").
+    if (alertsQueryFor(device) && alertsQueryFor(server)) return;
+    // v1.4.8: same for a payout-statement request (an older server names OPEN_PAYOUTS / MIF for "short payment kahan hai").
+    if (payoutQueryFor(device, t.ctx.screen === PAYOUTS_ROUTE) && payoutQueryFor(server, t.ctx.screen === PAYOUTS_ROUTE)) return;
+    // v1.4.9: same for a status question (an older server names SHOW_FILE_MONEY_STATUS / Cases for "Ramesh ka loan kahan tak pahuncha").
+    if (statusQueryFor(device) && statusQueryFor(server)) return;
+    if (device.intent === 'SHOW_FILE_STATUS' && statusUi.get()?.kind === 'file') return; // a ClarifySheet pick already answered
     const r = reconcile(device, server, stage);
     if (r.kind === 'keep') return;
     voiceMetrics.tag(t.metric, { note: `whisper:${r.kind}` });
@@ -544,6 +767,31 @@ export function useVoiceCommand({ readOut }: {
       const adv = resolveAdvance(text, getVoiceStep(ctx.screen));
       if (adv) { voiceMetrics.tag(t.metric, { note: 'advance:local' }); deliver(id, adv, { path: via === 'typed' ? 'device+text' : 'device', matcher: 'keyword' }); return; }
     }
+    // v1.4.9 ClarifySheet open: "Swift wala" / "Ramesh Kale" / "184210" picks the row, on the phone at once.
+    if (!t.otp) {
+      const cl = statusUi.clarifyOpen();
+      if (cl && chooseClarify(text, cl.options)) { voiceMetrics.tag(t.metric, { note: 'status:local' }); deliver(id, statusLocalCommand(text, { kind: 'file', intent: 'SHOW_FILE_STATUS' }), { path: via === 'typed' ? 'device+text' : 'device', matcher: 'keyword' }); return; }
+    }
+    // v1.4.8 payout statement: decided on the phone at once (before Money in flight: "short payment kahan hai").
+    if (!t.otp) {
+      const pq = parsePayoutQuery(text, ctx.screen === PAYOUTS_ROUTE);
+      if (pq) { voiceMetrics.tag(t.metric, { note: 'payout:local' }); deliver(id, payoutLocalCommand(text, pq), { path: via === 'typed' ? 'device+text' : 'device', matcher: 'keyword' }); return; }
+    }
+    // v1.4.7 alerts: decided on the phone at once (offline too, and with an older server command list).
+    if (!t.otp) {
+      const aq = parseAlertsQuery(text);
+      if (aq) { voiceMetrics.tag(t.metric, { note: 'alerts:local' }); deliver(id, alertsLocalCommand(text, aq), { path: via === 'typed' ? 'device+text' : 'device', matcher: 'keyword' }); return; }
+    }
+    // v1.4.9 status checks: decided on the phone at once (before Money in flight: "Ramesh ka loan kahan tak pahuncha").
+    if (!t.otp) {
+      const sq = parseStatusQuery(text);
+      if (sq) { voiceMetrics.tag(t.metric, { note: 'status:local' }); deliver(id, statusLocalCommand(text, sq), { path: via === 'typed' ? 'device+text' : 'device', matcher: 'keyword' }); return; }
+    }
+    // v1.4.6 Money in flight: decided on the phone at once (offline too, and with an older server command list).
+    if (!t.otp) {
+      const mq = parseMoneyQuery(text);
+      if (mq) { voiceMetrics.tag(t.metric, { note: 'mif:local' }); deliver(id, mifLocalCommand(text, mq), { path: via === 'typed' ? 'device+text' : 'device', matcher: 'keyword' }); return; }
+    }
     const local = opts.local ?? localCommand(text, matchCommand(text), confidence);
     const matcher = (local.matcher === 'keyword' ? 'keyword' : local.matcher === 'fuzzy' ? 'fuzzy' : 'none') as TurnMatcher;
     const serverText = needsServerText(text, ctx) || local.status === 'retry';
@@ -635,6 +883,11 @@ export function useVoiceCommand({ readOut }: {
     if (answerTurn(id, text)) return;
     // The matcher saw 0.8 for "unknown" before v1.4.2; keep that so its behaviour is unchanged.
     const matcherConf = conf ?? 0.8;
+    // v1.4.6: a Money-in-flight question is read on the phone (handleText) — never held by the gate or lost offline.
+    if (!t.otp && parsePayoutQuery(text, t.ctx.screen === PAYOUTS_ROUTE)) { t.gate = 'done'; void handleText(id, text, matcherConf, 'device'); startCheck(id); return; }
+    if (!t.otp && parseAlertsQuery(text)) { t.gate = 'done'; void handleText(id, text, matcherConf, 'device'); startCheck(id); return; }
+    if (!t.otp && (parseStatusQuery(text) || (statusUi.clarifyOpen() && chooseClarify(text, statusUi.clarifyOpen()!.options)))) { t.gate = 'done'; void handleText(id, text, matcherConf, 'device'); startCheck(id); return; }
+    if (!t.otp && parseMoneyQuery(text)) { t.gate = 'done'; void handleText(id, text, matcherConf, 'device'); startCheck(id); return; }
     if (needsServerText(text, t.ctx)) {
       // Slots / numbers / OTP / options: the server's text path decides (OTP never auto-verifies anyway). Not gated.
       updateAsrDiag({ gate: 'not gated (server text)' });

@@ -29,7 +29,7 @@ export default function ProfileScreen() {
   // Every row with a chevron opens a real screen (tutorials, FAQs, Privacy) or an honest coming-soon screen.
   const rows: { icon: IconName; label: string; go: () => void }[] = [
     { icon: 'account-group-outline', label: 'Manage staff logins', go: () => nav.navigate('ComingSoon', { kind: 'staff' }) },
-    { icon: 'bell-outline', label: 'Notification settings', go: () => nav.navigate('ComingSoon', { kind: 'notifications' }) },
+    { icon: 'bell-outline', label: 'Notification settings', go: () => nav.navigate('AlertSettings') },
     { icon: 'play-box-multiple-outline', label: 'Help & tutorials', go: () => nav.navigate('Help') },
     { icon: 'lifebuoy', label: 'FAQs & support', go: () => nav.navigate('HelpSupport') },
     { icon: 'shield-lock-outline', label: 'Privacy & terms', go: () => nav.navigate('PrivacyTerms') },

@@ -7,7 +7,7 @@ import { zippyDock } from '../components/assistant/zippyStore';
 import { useKeyboardLift } from '../components/keyboard';
 import { Icon, Text } from '../components/ui';
 import { colors, elevation, gutter, radius, space, touch } from '../theme/tokens';
-import { planCommand, ROUTE_LABEL, VOICE_EXAMPLES } from './applyCommand';
+import { planCommand, ROUTE_LABEL, STATUS_EXAMPLES_LINE, VOICE_EXAMPLES } from './applyCommand';
 import { chooseCandidate } from './intentMatcher';
 import { aboveMic, MIC_EDGE, MIC_GAP, micDock, micPlacement } from './micDock';
 import type { AssistantActionName, CommandResponse, IntentCandidate } from './types';
@@ -22,6 +22,7 @@ import { bubbleFor, micView, nextLiveSince } from './micFlow';
 import { installVoiceDemo } from './voiceDemo';
 import { preloadCueSounds } from './playVoiceCue';
 import { VoicePreviewSheet } from './VoicePreviewSheet';
+import { StatusVoiceLayer } from './StatusVoiceLayer';
 import { useVoiceSession, voiceSession } from './voiceSession';
 import { loadVoiceSettings, useVoiceSettings } from './voiceSettings';
 import { setNudgeSuppressed } from '../tutorial/tutorialStore';
@@ -68,7 +69,7 @@ export function VoiceHost({ route }: { route?: string }) {
     // mic itself). Everything else is spoken by Piper and shown as a banner here.
     if (action === 'open') { zippyDock.requestSheet(); return null; }
     const tip = TIPS[ROUTE_CONTEXT[routeRef.current ?? ''] ?? 'home'];
-    const text = action === 'list_commands' ? `You can say things like: ${VOICE_EXAMPLES.join(', ')}.`
+    const text = action === 'list_commands' ? `You can say things like: ${VOICE_EXAMPLES.join(', ')}. ${STATUS_EXAMPLES_LINE}`
       : action === 'repeat' ? lastSpoken.current ?? tip
       : tip;
     lastSpoken.current = text;
@@ -226,6 +227,8 @@ export function VoiceHost({ route }: { route?: string }) {
       {banner && !status && !showPreview && debugCaption && (
         <View pointerEvents="none" style={{ position: 'absolute', top: top + bannerH, left: gutter.screen, right: gutter.screen, alignItems: 'center', zIndex: 85 }}>{debugCaption}</View>
       )}
+      {/* v1.4.9 status answers: VoiceAnswerCard / ClarifySheet / file sheet (under the toast, preview and the mic). */}
+      <StatusVoiceLayer route={route} top={top} toastUp={!!voice.toast} />
       {voice.toast && (
         <View key={voice.toast.id} accessibilityRole="alert" accessibilityLiveRegion="polite"
           style={[{ position: 'absolute', top: top + (banner && !status ? bannerH + space.xs : 0) + (debugUp ? 40 : 0), left: gutter.screen, right: gutter.screen, zIndex: 86, flexDirection: 'row', alignItems: 'center', gap: space.xs,

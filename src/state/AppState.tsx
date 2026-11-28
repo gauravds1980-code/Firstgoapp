@@ -61,8 +61,10 @@ const oemOf = (p: DealerProfile | null | undefined) => (p && p.type !== 'multiBr
  */
 function withProfile(s: DealerSession): DealerSession {
   if (!s.profile || !('hasTaInf' in s.profile)) return { ...s, profile: mockDealerProfile(s.mobile).profile };
-  const profile: DealerProfile = s.profile;
-  if (profile.facilityType !== undefined) return s;
+  let profile: DealerProfile = s.profile;
+  // v1.4.6: sessions saved before Money in flight have no dealer segments.
+  if (!profile.segments) profile = { ...profile, segments: mockDealerProfile(s.mobile).profile.segments };
+  if (profile.facilityType !== undefined) return profile === s.profile ? s : { ...s, profile };
   const facilityType = mockDealerProfile(s.mobile).profile.facilityType;
   return { ...s, profile: { ...profile, facilityType, hasTaInf: facilityType != null } };
 }

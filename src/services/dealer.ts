@@ -1,6 +1,7 @@
 /** Dealer profile + dashboard data (mock). */
 import { DEALER_PRODUCTS, DealerProduct, PRODUCT_IDS, ProductId, Condition } from '../config/products';
 import { delay } from './mock';
+import type { DealerSegment } from './moneyInFlight';
 
 /* ---------------- Dealer profile ---------------- */
 export type DealerType = 'dealer' | 'subDealer' | 'multiBrand';
@@ -24,6 +25,12 @@ export interface DealerProfile {
   hasTaInf: boolean;
   /** The ONE facility the dealer has: TA (dealer draws down) or INF (OEM draws on invoice), never both. */
   facilityType: 'TA' | 'INF' | null;
+  /**
+   * v1.4.6: vehicle segments the dealer is empanelled for in the dealer master (post-sanction tracking scope).
+   * Money in flight is shown only when the dealer has a segment other than NEW_TW (isMoneyInFlightEnabled).
+   * Optional: sessions saved before v1.4.6 have none (backfilled from the mock master / products).
+   */
+  segments?: DealerSegment[];
 }
 
 /**
@@ -32,16 +39,18 @@ export interface DealerProfile {
  *   ends 2222 → Sub-dealer · Maruti Suzuki · New Car only · no TA / INF
  *   ends 3333 → Dealer · Tata Motors · New Commercial Vehicle only · Inventory Funding ("Tata CV Hub", v1.2.2)
  *   anything else → Dealer · Hero MotoCorp · New TW only · Trade Advance (default, "ABC Motors")
+ * v1.4.6 segments: 1111 new + used TW and car · 2222 new + used car · 3333 new + used CV · default NEW_TW only.
  */
 export function mockDealerProfile(mobile: string): { dealerId: string; name: string; profile: DealerProfile } {
+  // v1.4.6 `segments` (dealer master): Money in flight shows for every segment except new two-wheeler only.
   if (mobile.endsWith('1111'))
-    return { dealerId: 'DLR-PUN-0918', name: 'Shree Auto Mall', profile: { type: 'multiBrand', products: ['newTw', 'newCar'], branch: 'Baner, Pune', hasTaInf: true, facilityType: 'TA' } };
+    return { dealerId: 'DLR-PUN-0918', name: 'Shree Auto Mall', profile: { type: 'multiBrand', products: ['newTw', 'newCar'], branch: 'Baner, Pune', hasTaInf: true, facilityType: 'TA', segments: ['NEW_TW', 'USED_TW', 'NEW_CAR', 'USED_CAR'] } };
   if (mobile.endsWith('2222'))
-    return { dealerId: 'DLR-THN-1203', name: 'Sai Motors', profile: { type: 'subDealer', oem: 'Maruti Suzuki', products: ['newCar'], branch: 'Thane West', hasTaInf: false, facilityType: null } };
+    return { dealerId: 'DLR-THN-1203', name: 'Sai Motors', profile: { type: 'subDealer', oem: 'Maruti Suzuki', products: ['newCar'], branch: 'Thane West', hasTaInf: false, facilityType: null, segments: ['NEW_CAR', 'USED_CAR'] } };
   if (mobile.endsWith('3333'))
     // CV dealers stock fleets on inventory funding: Tata Motors draws it on invoice.
-    return { dealerId: 'DLR-PUN-3307', name: 'Tata CV Hub', profile: { type: 'dealer', oem: 'Tata Motors', products: ['newCv'], branch: 'Chakan, Pune', hasTaInf: true, facilityType: 'INF' } };
-  return { dealerId: 'DLR-MUM-0457', name: 'ABC Motors', profile: { type: 'dealer', oem: 'Hero MotoCorp', products: ['newTw'], branch: 'Andheri East', hasTaInf: true, facilityType: 'TA' } };
+    return { dealerId: 'DLR-PUN-3307', name: 'Tata CV Hub', profile: { type: 'dealer', oem: 'Tata Motors', products: ['newCv'], branch: 'Chakan, Pune', hasTaInf: true, facilityType: 'INF', segments: ['NEW_CV', 'USED_CV'] } };
+  return { dealerId: 'DLR-MUM-0457', name: 'ABC Motors', profile: { type: 'dealer', oem: 'Hero MotoCorp', products: ['newTw'], branch: 'Andheri East', hasTaInf: true, facilityType: 'TA', segments: ['NEW_TW'] } };
 }
 
 /** Product categories (2W / Car / CV) the dealer can originate, in display order. */

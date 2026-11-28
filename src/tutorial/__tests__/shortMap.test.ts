@@ -29,7 +29,7 @@ const ROUTES: Record<keyof RootStackParamList, true> = {
   DealerLogin: true, DealerOtp: true, Home: true, Profile: true, HelpSupport: true, PrivacyTerms: true, ComingSoon: true,
   QuickList: true, ScanQr: true, SearchMobile: true, Offer: true, OfferReveal: true, Asset: true, FaceKyc: true, Mandate: true,
   Esign: true, Docs: true, Disbursal: true, Payouts: true, Portfolio: true, Cases: true, RcPendency: true, TaInf: true,
-  Help: true, ShortsFeed: true,
+  Help: true, ShortsFeed: true, MoneyInFlight: true, Alerts: true, AlertSettings: true,
 };
 
 test('SCREEN_SHORT lists every route, including the logo-fix ones', () => {

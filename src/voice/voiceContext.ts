@@ -3,6 +3,7 @@ import type { CommandContext } from './types';
 import { expectFor } from './voiceLogic';
 import { getVoiceFields, getVoiceOptions } from './voiceOptions';
 import { getVoiceStep, stepContext } from './voiceStep';
+import { getMifVoiceContext } from './moneyVoice';
 
 function makeId(): string {
   const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
@@ -29,7 +30,8 @@ export function currentCommandContext(): CommandContext {
   const reg = !expect && step.sheet === 'rc-entry' ? 'reg' as const : undefined;
   return {
     sessionId: VOICE_SESSION_ID,
-    ...(name ? { screen: name, context: { route: name, ...step } } : {}),
+    // v1.4.6: mifEnabled = this dealer has Money in flight (false → the server answers MIF questions with the not-available line).
+    ...(name ? { screen: name, context: { route: name, ...step, mifEnabled: getMifVoiceContext().enabled } } : {}),
     ...(expect || reg ? { expect: expect ?? reg } : {}),
     ...(options.length ? { options } : {}),
     ...(fields.length ? { fields } : {}),

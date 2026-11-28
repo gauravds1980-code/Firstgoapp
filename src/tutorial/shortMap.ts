@@ -64,6 +64,11 @@ export const SCREEN_SHORT = {
   Cases: 'portfolio-cases-rc',
   RcPendency: 'portfolio-cases-rc',
   TaInf: 'tainf',
+  // v1.4.6 Money in flight: no how-to short yet.
+  MoneyInFlight: null,
+  // v1.4.7 Alerts inbox and Notification settings: no how-to short yet.
+  Alerts: null,
+  AlertSettings: null,
   // The tutorials screen and the shorts feed themselves have nothing to offer.
   Help: null,
   ShortsFeed: null,

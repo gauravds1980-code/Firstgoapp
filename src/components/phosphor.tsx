@@ -20,6 +20,7 @@ import { PlayCircleIcon } from 'phosphor-react-native/src/icons/PlayCircle';
 import { MotorcycleIcon } from 'phosphor-react-native/src/icons/Motorcycle';
 import { CarProfileIcon } from 'phosphor-react-native/src/icons/CarProfile';
 import { TruckIcon } from 'phosphor-react-native/src/icons/Truck';
+import { CurrencyInrIcon } from 'phosphor-react-native/src/icons/CurrencyInr';
 import { radius } from '../theme/tokens';
 import { wellGlyph } from '../theme/contrast';
 
@@ -35,6 +36,8 @@ const GLYPHS = {
   twoWheeler: MotorcycleIcon,
   car: CarProfileIcon,
   cv: TruckIcon,
+  // v1.4.6 design library: Money in flight (well colors.tileNavy).
+  moneyInFlight: CurrencyInrIcon,
 } as const satisfies Record<string, React.FC<IconProps>>;
 
 export type PhosphorName = keyof typeof GLYPHS;

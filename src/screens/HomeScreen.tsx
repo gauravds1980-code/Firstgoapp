@@ -3,12 +3,13 @@ import { Platform, RefreshControl, ScrollView, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ADVANCE_MIN, availableOf, casesFor, invoicesFor, rcCasesFor, taInfFor } from '../services/business';
+import { ADVANCE_MIN, availableOf, casesFor, rcCasesFor, taInfFor } from '../services/business';
+import { homePayoutCard, statementInvoicesFor } from '../services/payoutStatement';
 import { inRange, useAdvance, useDateRange, useInvoices, useRcCases, useTaInf, useWcApplication } from '../state/stores';
 import { inrShort } from '../components/business';
 import type { RootStackParamList } from '../navigation/types';
-import { Badge, ButtonLabel, Card, EmptyState, ErrorState, Icon, IconName, Pill, PressableScale, Segmented, Skeleton, Text } from '../components/ui';
-import { reportFooterHeight, useSectionTracker } from '../components/assistant/zippySection';
+import { ButtonLabel, Card, EmptyState, ErrorState, Icon, IconName, Pill, PressableScale, Segmented, Skeleton, Text } from '../components/ui';
+import { reportFooterHeight, useSectionTracker, useZippyPending } from '../components/assistant/zippySection';
 import { scrollZippyAvoid, ZippyAvoid } from '../components/assistant/zippyAvoid';
 import { Condition, CONDITION_LABEL, PRODUCTS, ProductId } from '../config/products';
 import { dealerTagline, fetchDealerHome, initials, RecentApp } from '../services/dealer';
@@ -21,12 +22,18 @@ import { HeaderDockSlot } from '../components/assistant/HeaderDockSlot';
 import { alignedMicBottom } from '../voice/micDock';
 import { useVoiceMicAnchor } from '../voice/VoiceMic';
 import { ZIPPY_SAFE_GUTTER } from '../components/assistant/ZippyBubble';
-import { HeaderCircleButton } from '../components/Screen';
 import { BrandLockup } from '../components/BrandMarks';
 import { ZippyTipSlot } from '../components/assistant/ZippyTipSlot';
 import { SHOW_DEV_UI } from '../config/devFlags';
 import { copyUtr, ToastView, useToast } from '../components/Toast';
 import { IconWell, PhosphorName } from '../components/phosphor';
+import { AlertCard, BellBadge, HomeSummaryCard, InFlightRow, type SummaryLine } from '../components/library';
+import { readoutAllowed, unreadOf } from '../services/alerts';
+import { useAlerts } from '../state/useAlerts';
+import { isMoneyInFlightEnabled, mifAlerts, mifFilesFor, mifTotals, applyFilter, sortFiles, fmtTime } from '../services/moneyInFlight';
+import { statusFilesFor, todayActivity, todayCounts } from '../services/loanStatus';
+import { useMifLocal } from '../state/stores';
+import { inFlightRowModel } from './MoneyInFlightScreen';
 
 type HomeData = Awaited<ReturnType<typeof fetchDealerHome>>;
 
@@ -60,7 +67,8 @@ export default function HomeScreen() {
   // Same stores as the Payouts / RC screens, so a claim or RC submit updates these tiles immediately.
   const cases = React.useMemo(() => casesFor(profile), [profile]);
   const rcSeed = React.useMemo(() => rcCasesFor(cases), [cases]);
-  const invSeed = React.useMemo(() => invoicesFor(cases), [cases]);
+  // v1.4.8: the commission statement is the payout seed (same as the Payouts screen, the advance limit and the alerts).
+  const invSeed = React.useMemo(() => statementInvoicesFor(session?.mobile, profile), [session?.mobile, profile]);
   const [rc] = useRcCases(dealerId, rcSeed);
   const invoices = useInvoices(dealerId, invSeed);
   // Live TA / INF balances from the shared store (same source as the TA / INF screen).
@@ -73,9 +81,32 @@ export default function HomeScreen() {
   // so a tile never says 72 when the screen behind it says 21.
   const [range] = useDateRange();
   // Section-aware Zippy help: which Home block is in view.
-  const sec = useSectionTracker<'start' | 'today' | 'loans' | 'actions' | 'payouts'>('start');
+  const sec = useSectionTracker<'start' | 'today' | 'money' | 'loans' | 'actions' | 'payouts'>('start');
+  // v1.4.6 Money in flight (gated: never for new-two-wheeler-only dealers). Where it is on, today's LOAN credits live on
+  // its card and the Payouts tile / block show dealer COMMISSION only; where it is off, Home keeps the old Payouts block.
+  const mifOn = isMoneyInFlightEnabled(profile);
+  const mifFiles = React.useMemo(() => mifFilesFor(session?.mobile, profile), [session?.mobile, profile]);
+  const mifLocal = useMifLocal(dealerId);
+  const mif = React.useMemo(() => mifTotals(mifFiles), [mifFiles]);
+  const mifEvents = React.useMemo(() => mifAlerts(mifFiles), [mifFiles]);
+  const openMoney = (p: RootStackParamList['MoneyInFlight']) => nav.navigate('MoneyInFlight', { ...p, at: Date.now() });
+  // v1.4.7 alerts: live unread count on the bell (shared inbox per dealer id), and a Zippy nudge for unread alerts —
+  // never inside quiet hours (IST, from the clock, not the phone's timezone).
+  const alerts = useAlerts();
+  const unreadAlerts = React.useMemo(() => unreadOf(alerts.events, alerts.inbox), [alerts.events, alerts.inbox]);
+  const alertNudge = unreadAlerts.length && readoutAllowed(Date.now(), alerts.prefs.quiet)
+    ? [{ id: 'alerts-unread', label: `${unreadAlerts.length} new alert${unreadAlerts.length === 1 ? '' : 's'}`, detail: unreadAlerts[0]!.title, actionLabel: 'Open alerts', onAction: () => nav.navigate('Alerts', { at: Date.now() }) }]
+    : [];
+  useZippyPending([...alertNudge, ...(mifOn ? mifEvents.map((e) => ({ id: e.id, label: e.title, detail: e.caption, actionLabel: e.tone === 'success' ? 'Open credit' : 'Show overdue', onAction: () => openMoney(e.tone === 'success' ? { lan: e.lan } : { filter: 'overdue' }) })) : [])]);
   // Only this dealer's products (a CV-only dealer never sees two-wheeler rows).
-  const recent = data ? data.recent.filter((r) => categories.includes(r.product)) : null;
+  // v1.4.9: today's applications / approvals / disbursals come from the SAME per-dealer list the voice status answers
+  // use (services/loanStatus.ts), so "aaj kitne approve hue" always says what the Today tiles show.
+  const statusFiles = React.useMemo(() => statusFilesFor(session?.mobile, profile), [session?.mobile, profile]);
+  const statusToday = React.useMemo(() => (statusFiles.length ? todayCounts(statusFiles) : null), [statusFiles]);
+  const statusRows = React.useMemo<RecentApp[]>(() => todayActivity(statusFiles).map((r) => ({
+    id: r.id, when: `Today, ${fmtTime(r.at).replace(' ', '\u00A0')}`, status: r.status, amount: r.amount, product: r.product,
+  })), [statusFiles]);
+  const recent = data ? (statusToday ? statusRows : data.recent).filter((r) => categories.includes(r.product)) : null;
   const payouts = data ? data.payouts.filter((po) => categories.includes(po.product)) : null;
   const payoutsToday = payouts ? payouts.reduce((t, po) => t + po.amount, 0) : 0;
   // design-a (Proposal B): each tile leads with ONE live figure from the same source as the screen behind it.
@@ -84,11 +115,16 @@ export default function HomeScreen() {
     const cs = cases.filter((c) => inRange(c.disbursedOn, range));
     const inv = invoices.filter((i) => inRange(i.date, range));
     const unclaimed = inv.filter((i) => i.status === 'Not claimed');
-    const when = range.preset === 'thisMonth' ? 'this month' : range.preset === 'lastMonth' ? 'last month' : 'in range';
+    const when = range.preset === 'thisMonth' ? 'this month' : range.preset === 'lastMonth' ? 'last month' : range.preset === 'last3Months' ? 'last 3 months' : 'in range';
+    const toClaim = unclaimed.reduce((a, i) => a + i.amount, 0);
     const t: Tile[] = [
-      { route: 'Payouts', label: 'Payouts', icon: 'payouts', color: colors.tileMustard, count: unclaimed.length,
-        hero: payouts ? inrShort(payoutsToday) : undefined, heroNote: 'credited today',
-        sub: `${inrShort(unclaimed.reduce((a, i) => a + i.amount, 0))} to claim`, sub2: advanceLine },
+      // v1.4.6: with Money in flight the Payouts tile is dealer commission only (loan credits moved to the MIF card).
+      mifOn
+        ? { route: 'Payouts', label: 'Payouts', icon: 'payouts', color: colors.tileMustard, count: unclaimed.length,
+          hero: inrShort(toClaim), heroNote: 'commission to claim', sub: `${unclaimed.length} invoice${unclaimed.length === 1 ? '' : 's'} not claimed`, sub2: advanceLine }
+        : { route: 'Payouts', label: 'Payouts', icon: 'payouts', color: colors.tileMustard, count: unclaimed.length,
+          hero: payouts ? inrShort(payoutsToday) : undefined, heroNote: 'credited today',
+          sub: `${inrShort(toClaim)} to claim`, sub2: advanceLine },
       { route: 'Portfolio', label: 'Portfolio', icon: 'portfolio', color: colors.tileTeal, count: 0,
         hero: profile ? String(cs.filter((c) => c.pos > 0).length) : undefined, heroNote: 'active loans', sub: cap(when) },
       { route: 'Cases', label: 'Cases done', icon: 'cases', color: colors.tileNavy, count: 0,
@@ -109,11 +145,15 @@ export default function HomeScreen() {
         sub: wcApp ? `Application submitted · ${wcApp.facility}` : 'Apply for Trade Advance or INF', chip: wcApp ? 'Pending' : undefined });
     }
     return t;
-  }, [profile, cases, invoices, rc, range, advanceLine, facility, wcApp, payouts, payoutsToday]);
+  }, [profile, cases, invoices, rc, range, advanceLine, facility, wcApp, payouts, payoutsToday, mifOn]);
+  // Commission still to claim in the shared date range (the Payouts block when Money in flight is on).
+  // v1.4.8 statement: the latest short-pay (danger caption on the Payouts card; opens that line).
+  const payCard = React.useMemo(() => homePayoutCard(invoices), [invoices]);
+  const commissionToClaim = React.useMemo(() => invoices.filter((i) => inRange(i.date, range) && i.status === 'Not claimed').reduce((a, i) => a + i.amount, 0), [invoices, range]);
 
   // Today's three figures come from ONE list (today's applications), so "Approved" can never be 0 next
   // to a non-zero "Disbursed": a disbursed loan was approved first.
-  const today = recent ? {
+  const today = recent && statusToday ? { apps: statusToday.apps, approved: statusToday.approved, disbursed: statusToday.disbursed } : recent ? {
     apps: recent.length,
     approved: recent.filter((r) => r.status !== 'PENDING').length,
     disbursed: recent.filter((r) => r.status === 'DISBURSED').reduce((t, r) => t + r.amount, 0),
@@ -156,9 +196,8 @@ export default function HomeScreen() {
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.md, paddingTop: space.xs, minHeight: 64 }}>
         <BrandLockup markSize={36} style={{ flex: 1, marginRight: space.xxs }} />
         <HeaderDockSlot />
-        <HeaderCircleButton icon="bell-outline" label={`Notifications, ${data?.unread ?? 0} unread`}>
-          <Badge count={data?.unread ?? 0} style={{ position: 'absolute', top: 0, right: -2 }} />
-        </HeaderCircleButton>
+        {/* v1.4.7: live unread count from the alerts inbox (was a static 2); opens the inbox. */}
+        <BellBadge count={alerts.unread} onPress={() => nav.navigate('Alerts', { at: Date.now() })} />
         <PressableScale accessibilityRole="button" accessibilityLabel={`Profile and settings, ${session?.name ?? 'Dealer'}`} onPress={() => nav.navigate('Profile')} hitSlop={headerBtn.hitSlop} style={iconBtn}>
           <View style={{ width: headerBtn.disc, height: headerBtn.disc, borderRadius: headerBtn.disc / 2, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: colors.primary }}>
             <Text variant="label" color={colors.primary} maxFontSizeMultiplier={fontScaleCap.control}>{initials(session?.name ?? 'Dealer')}</Text>
@@ -232,6 +271,27 @@ export default function HomeScreen() {
           )}
         </Section>
 
+        {/* v1.4.6 Money in flight — after Today, before Loans (mockup 01-money-in-flight-home.png). Gated. */}
+        {mifOn && (
+          <View onLayout={sec.at('money')}>
+            <HomeSummaryCard overline="Money in flight" loading={!data}
+              onPress={() => openMoney({ filter: mif.overdueCount ? 'overdue' : 'all' })} onViewAll={() => openMoney({ filter: 'all' })}
+              empty={!mif.inFlightCount && !mif.creditedRecentCount ? 'No loan money in flight. Sanctioned files appear here until they are credited to your account.' : undefined}
+              hero={mif.inFlightCount ? `${inrShort(mif.inFlightAmount)} in flight · ${mif.inFlightCount} file${mif.inFlightCount === 1 ? '' : 's'}` : 'Nothing in flight'}
+              lines={[
+                mif.overdueCount ? { text: `${mif.overdueCount} overdue`, tone: 'overdue' } : { text: 'All on time', tone: 'calm' },
+                ...(mif.stuckCount ? [{ text: `${mif.stuckCount} stuck`, tone: 'calm' } as SummaryLine] : []),
+                ...(mif.creditedTodayAmount ? [{ text: `${inrShort(mif.creditedTodayAmount)} credited today`, tone: 'credited' } as SummaryLine] : []),
+              ]}
+              alert={mifEvents.filter((e) => e.tone === 'success').slice(0, 1).map((e) => (
+                <AlertCard key={e.id} tone="success" title={e.title} caption={e.caption} onPress={() => openMoney({ lan: e.lan })} />
+              ))[0]}
+              rows={sortFiles(applyFilter(mifFiles, 'all')).slice(0, 2).map((f, i, arr) => (
+                <InFlightRow key={f.lan} compact row={inFlightRowModel(f, !!mifLocal.rcUploaded[f.lan])} last={i === arr.length - 1} onPress={() => openMoney({ lan: f.lan })} />
+              ))} />
+          </View>
+        )}
+
         {/* Loans */}
         <Section title="Loans" link="View all" onLink={() => nav.navigate('QuickList', { kind: 'loans' })}
           onLayout={(e) => { sec.at('loans')(e); const y = e.nativeEvent.layout.y; setLoansAt((a) => (a.section === y ? a : { ...a, section: y })); }}>
@@ -266,8 +326,8 @@ export default function HomeScreen() {
                 <Icon name="bank-transfer-in" size={24} color={colors.success} />
               </View>
               <View style={{ flex: 1, minWidth: 0 }}>
-                <ZippyAvoid style={{ alignSelf: 'flex-start', maxWidth: '100%' }}><Text variant="caption" color={colors.textSecondary}>Credited today · settlement a/c ••4321</Text></ZippyAvoid>
-                {data ? <ZippyAvoid style={{ alignSelf: 'flex-start', maxWidth: '100%' }}><Text variant="display" color={colors.text} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} maxFontSizeMultiplier={fontScaleCap.compact}>{inr(payoutsToday)}</Text></ZippyAvoid> : <Skeleton w={120} h={32} />}
+                <ZippyAvoid style={{ alignSelf: 'flex-start', maxWidth: '100%' }}><Text variant="caption" color={colors.textSecondary}>{mifOn ? 'Commission to claim · dealer payouts' : 'Credited today · settlement a/c ••4321'}</Text></ZippyAvoid>
+                {data ? <ZippyAvoid style={{ alignSelf: 'flex-start', maxWidth: '100%' }}><Text variant="display" color={colors.text} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} maxFontSizeMultiplier={fontScaleCap.compact}>{inr(mifOn ? commissionToClaim : payoutsToday)}</Text></ZippyAvoid> : <Skeleton w={120} h={32} />}
               </View>
             </View>
             {/* Advance payout position, live from the shared advance store. */}
@@ -281,11 +341,20 @@ export default function HomeScreen() {
               </View>
               <ZippyAvoid><Icon name="chevron-right" size={22} color={colors.textSecondary} /></ZippyAvoid>
             </PressableScale>
-            {payouts && payouts.length === 0 && (
+            {payCard.caption && payCard.short ? (
+              <PressableScale onPress={() => nav.navigate('Payouts', { invoice: payCard.short!.invoice, lan: payCard.short!.lan, at: Date.now() })} accessibilityRole="button"
+                accessibilityLabel={`${payCard.caption}. ${payCard.short.customer}. Open the statement line`} style={{ minHeight: touch.min, justifyContent: 'center' }}>
+                <Text variant="label" color={colors.danger}>{payCard.caption}</Text>
+              </PressableScale>
+            ) : null}
+            {mifOn && (
+              <Text variant="caption" color={colors.textSecondary}>Commission only. Loan amounts credited today are under Money in flight.</Text>
+            )}
+            {!mifOn && payouts && payouts.length === 0 && (
               <Text variant="caption" color={colors.textSecondary}>No credits yet today. Payouts land here minutes after each disbursal.</Text>
             )}
             </View>
-            {payouts?.slice(0, creditRows).map((po, i) => (
+            {(mifOn ? [] : payouts ?? []).slice(0, creditRows).map((po, i) => (
               <View key={po.utr} onLayout={i === 0 ? (e) => { const h = Math.ceil(e.nativeEvent.layout.height); setCreditRowH((v) => (v === h ? v : h)); } : undefined}
                 style={{ flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: colors.border, paddingTop: space.sm, gap: space.sm }}>
                 <View style={{ flex: 1, minWidth: 0 }}>

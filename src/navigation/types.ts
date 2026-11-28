@@ -1,4 +1,7 @@
 import type { ListKind } from '../services/dealer';
+import type { MifRouteParams } from '../voice/moneyVoice';
+import type { AlertFilter } from '../services/alerts';
+import type { StatementFilter } from '../services/payoutStatement';
 
 export type RootStackParamList = {
   // Auth stack (no session)
@@ -24,11 +27,22 @@ export type RootStackParamList = {
   Docs: undefined;
   Disbursal: undefined;
   // Home actions (example data)
-  Payouts: undefined;
+  /** v1.4.7: `invoice` expands that invoice (alert / push tap); `lan` highlights a short-paid line; `at` = a fresh request. */
+  /**
+   * v1.4.7 alert deep links (`invoice`, `lan`); v1.4.8 statement: `invoice` + `lan` opens that line sheet on the period
+   * holding it; `period` (preset, or `month` 0-11 for "October ka statement"), `filter` chip, `query` = open QuerySheet.
+   */
+  Payouts: { invoice?: string; lan?: string; period?: 'thisMonth' | 'lastMonth' | 'last3Months'; month?: number; filter?: StatementFilter; query?: boolean; at?: number } | undefined;
   Portfolio: undefined;
   Cases: undefined;
   RcPendency: undefined;
   TaInf: undefined;
+  /** v1.4.6 Money in flight (boom://money). `filter` chip, `lan` opens that file's sheet, `q` search, `query` opens QuerySheet; `at` = a fresh voice / alert request. */
+  MoneyInFlight: MifRouteParams | undefined;
+  /** v1.4.7 Credit and payout alerts inbox (boom://alerts). `filter` chip; `at` = fresh request. */
+  Alerts: { filter?: AlertFilter; at?: number } | undefined;
+  /** v1.4.7 Notification settings (boom://alerts/settings). `focus` = scroll hint from "alerts band karo". */
+  AlertSettings: { focus?: 'push'; at?: number } | undefined;
   /** v1.3.0: Help & tutorials. `focus` = a short id to open straight away (e.g. /help?focus=mandate). */
   Help: { focus?: string } | undefined;
   /** v1.3.0: Reels-style vertical shorts feed (full-screen), opened at `startId` (deep link /shorts/:startId). */
@@ -36,7 +50,7 @@ export type RootStackParamList = {
 };
 
 export type JourneyStep = 'offer' | 'asset' | 'kyc' | 'mandate' | 'esign' | 'docs' | 'disbursal';
-export type AssistantContext = JourneyStep | 'search' | 'scan' | 'home' | 'login' | 'payouts' | 'portfolio' | 'cases' | 'rc' | 'tainf' | 'profile' | 'help';
+export type AssistantContext = JourneyStep | 'search' | 'scan' | 'home' | 'login' | 'payouts' | 'portfolio' | 'cases' | 'rc' | 'tainf' | 'profile' | 'help' | 'money' | 'alerts';
 
 /** Non-breaking hyphen (U+2011): "e‑sign" never splits across lines. */
 export const NB_HYPHEN = '\u2011';

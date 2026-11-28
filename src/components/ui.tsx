@@ -134,10 +134,13 @@ export function Badge({ count, style }: { count: number; style?: StyleProp<ViewS
  * truncated: it does not shrink, so a tight row squeezes the text beside it instead. Where a row is too
  * narrow, put the pill on its own line under the amount.
  */
-export function Pill({ label, tone = 'neutral' }: { label: string; tone?: 'neutral' | 'success' | 'warning' | 'danger' | 'brand' | 'info' }) {
+export type PillTone = 'neutral' | 'success' | 'warning' | 'danger' | 'brand' | 'info' | 'cta';
+export function Pill({ label, tone = 'neutral' }: { label: string; tone?: PillTone }) {
+  // v1.4.6: `cta` (gold wash + gold-dark label) for "Disbursal initiated"; `info` now reads colors.info / infoSoft.
   const map = {
     neutral: [colors.surfaceMuted, colors.textSecondary], success: [colors.successSoft, colors.success],
-    warning: [colors.warningSoft, colors.warning], danger: [colors.dangerSoft, colors.danger], brand: [colors.primarySoft, colors.primary], info: ['#E7F3F8', '#1A5E86'],
+    warning: [colors.warningSoft, colors.warning], danger: [colors.dangerSoft, colors.danger], brand: [colors.primarySoft, colors.primary], info: [colors.infoSoft, colors.info],
+    cta: [colors.ctaTint, colors.ctaDark],
   } as const;
   const [bg, fg] = map[tone];
   return (
@@ -203,13 +206,15 @@ export function ErrorState({ title, body, onRetry }: { title: string; body: stri
   );
 }
 
-export function Field({ label, prefix, error, hint, right, ...input }: TextInputProps & { label: string; prefix?: string; error?: string; hint?: string; right?: React.ReactNode }) {
+export function Field({ label, prefix, error, hint, right, leading, hideLabel, ...input }: TextInputProps & { label: string; prefix?: string; error?: string; hint?: string; right?: React.ReactNode; leading?: React.ReactNode; hideLabel?: boolean }) {
   // v1.3.1: the enclosing form (Sheet / JourneyScreen / AuthScaffold) scrolls the whole field — label to hint — above the keyboard.
+  // v1.4.6 (SearchBar): `hideLabel` keeps the label as the accessibility name only; `leading` is an icon slot before the input.
   const reveal = useRevealOnFocus();
   return (
     <View ref={reveal.ref} collapsable={false} style={{ gap: space.xs }}>
-      <Text variant="label">{label}</Text>
-      <View style={[s.field, error ? { borderColor: colors.danger } : null]}>
+      {hideLabel ? null : <Text variant="label">{label}</Text>}
+      <View style={[s.field, error ? { borderColor: colors.danger } : null, leading ? { paddingLeft: space.md } : null]}>
+        {leading}
         {prefix && <Text variant="bodyStrong" color={colors.textSecondary} maxFontSizeMultiplier={fontScaleCap.compact} style={s.prefix}>{prefix}</Text>}
         <TextInput
           placeholderTextColor={colors.textMuted}

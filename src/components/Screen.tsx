@@ -31,7 +31,7 @@ import { KeyboardRevealProvider, useKeyboardForm } from './keyboard';
  * v1.3.0: `hideTitle` (screens whose page already opens with that name as an H1) shows the wordmark
  * alone. All trailing actions are the same 40dp circle (headerBtn), Home included.
  */
-export function BrandHeader({ showHome = true, title, subtitle, back = false, hideTitle = false }: { showHome?: boolean; title?: string; subtitle?: string; back?: boolean; hideTitle?: boolean }) {
+export function BrandHeader({ showHome = true, title, subtitle, back = false, hideTitle = false, action }: { showHome?: boolean; title?: string; subtitle?: string; back?: boolean; hideTitle?: boolean; action?: React.ReactNode }) {
   const nav = useNavigation();
   const { product } = useApp();
   const heading = title ?? subtitle ?? PRODUCTS[product].headerSubtitle;
@@ -52,6 +52,8 @@ export function BrandHeader({ showHome = true, title, subtitle, back = false, hi
         </View>
       </View>
       {/* Zippy docks here (fixed footprint, so the header never shifts). The mic is bottom-right (VoiceMic). */}
+      {/* v1.4.7: one screen action in the same 40dp circle (the Alerts inbox's settings gear), before Zippy's dock. */}
+      {action}
       <HeaderDockSlot />
       {showHome && <HeaderCircleButton icon="home-outline" label="Go to home" onPress={() => nav.navigate('Home')} />}
     </View>
@@ -86,9 +88,13 @@ export function HeaderCircleButton({ icon, label, onPress, children }: { icon?: 
  * v1.3.1: the body + sticky footer lift above the keyboard (padding by its height, every platform), and a
  * focused Field / OtpInput scrolls into view above the footer.
  */
-export function JourneyScreen({ step, title, titleInBody = false, interstitial, back, assistant, children, footer, showTerms = true, onScroll, toast, toastTone }: {
+export function JourneyScreen({ step, title, titleInBody = false, interstitial, back, assistant, children, footer, showTerms = true, onScroll, toast, toastTone, refreshControl, headerAction }: {
   step?: JourneyStep; title?: string; titleInBody?: boolean; interstitial?: string; back?: boolean; assistant: AssistantContext; children: React.ReactNode; footer?: React.ReactNode; showTerms?: boolean;
   onScroll?: (e: NativeSyntheticEvent<NativeScrollEvent>) => void; toast?: string | null; toastTone?: ToastTone;
+  /** v1.4.6: pull to refresh (Money in flight). */
+  refreshControl?: React.ComponentProps<typeof ScrollView>['refreshControl'];
+  /** v1.4.7: a header action (HeaderCircleButton), e.g. the Alerts inbox's settings gear. */
+  headerAction?: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
   const route = useRoute().name;
@@ -103,12 +109,12 @@ export function JourneyScreen({ step, title, titleInBody = false, interstitial, 
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }}>
       <View style={{ backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border }}>
         {/* Non-journey screens get a back chevron instead of the Home button (they open from Home). */}
-        <BrandHeader title={step || interstitial ? undefined : title} hideTitle={titleInBody && !step && !interstitial} back={showBack} showHome={!showBack} />
+        <BrandHeader title={step || interstitial ? undefined : title} hideTitle={titleInBody && !step && !interstitial} back={showBack} showHome={!showBack} action={headerAction} />
         {step && <StepProgress step={step} interstitial={interstitial} />}
       </View>
       <View style={{ flex: 1, paddingBottom: kb.lift }}>
         <View style={{ flex: 1 }}>
-        <ScrollView ref={kb.scrollRef} style={{ flex: 1, width: '100%' }} contentContainerStyle={{ padding: gutter.screen, gap: space.lg, paddingBottom: ZIPPY_SAFE_GUTTER }} keyboardShouldPersistTaps="handled"
+        <ScrollView ref={kb.scrollRef} refreshControl={refreshControl} style={{ flex: 1, width: '100%' }} contentContainerStyle={{ padding: gutter.screen, gap: space.lg, paddingBottom: ZIPPY_SAFE_GUTTER }} keyboardShouldPersistTaps="handled"
           onScroll={(e) => { kb.onScroll(e); onScroll?.(e); scrollZippyAvoid(); }} scrollEventThrottle={64}>
           <KeyboardRevealProvider value={kb.api}>{children}</KeyboardRevealProvider>
         </ScrollView>

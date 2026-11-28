@@ -1,8 +1,9 @@
-import { fmtDayMonth } from '../services/business';
 /** Tiny shared stores (no extra deps): date filter shared by Payouts / Portfolio / Cases, and RC pendency state for the Home badge. */
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { advancePosition, Invoice, InvoiceStatus, Limit, RcCase, TODAY, Tranche, trancheStatus, WcApplication } from '../services/business';
 import { secureStorage } from '../utils/secureStorage';
+import { defaultRange, type DateRange } from '../services/period';
+import { EMPTY_INBOX, reviveInbox, revivePrefs, type AlertPrefs, type InboxState } from '../services/alerts';
 
 function createStore<T>(initial: T) {
   let value = initial; const subs = new Set<() => void>();
@@ -13,23 +14,13 @@ function createStore<T>(initial: T) {
   };
 }
 
-/* Date range */
-export type Preset = 'thisMonth' | 'lastMonth' | 'custom';
-export interface DateRange { preset: Preset; from: Date; to: Date }
-export function presetRange(p: Exclude<Preset, 'custom'>): DateRange {
-  const y = TODAY.getFullYear(); const m = TODAY.getMonth();
-  return p === 'thisMonth' ? { preset: p, from: new Date(y, m, 1), to: new Date(TODAY) } : { preset: p, from: new Date(y, m - 1, 1), to: new Date(y, m, 0) };
-}
-export const dateRangeStore = createStore<DateRange>(presetRange('thisMonth'));
+/* Date range — pure helpers live in services/period.ts (v1.4.8: Last 3 months; default period = This month). */
+export { inRange, presetRange, rangeLabel, type DateRange, type Preset } from '../services/period';
+export const dateRangeStore = createStore<DateRange>(defaultRange());
 export function useDateRange(): [DateRange, (r: DateRange) => void] {
   const v = useSyncExternalStore(dateRangeStore.subscribe, dateRangeStore.get, dateRangeStore.get);
   return [v, dateRangeStore.set];
 }
-export const inRange = (d: Date, r: DateRange) => d >= new Date(r.from.getFullYear(), r.from.getMonth(), r.from.getDate()) && d <= new Date(r.to.getFullYear(), r.to.getMonth(), r.to.getDate(), 23, 59, 59);
-export const rangeLabel = (r: DateRange) => {
-  const f = fmtDayMonth;
-  return r.preset === 'thisMonth' ? `This month · ${f(r.from)} – ${f(r.to)}` : r.preset === 'lastMonth' ? `Last month · ${f(r.from)} – ${f(r.to)}` : `${f(r.from)} – ${f(r.to)} ${r.to.getFullYear()}`;
-};
 
 /* ---------------- Per-dealer payout claims + RC submissions ----------------
  * The mock generators (invoicesFor / rcCasesFor) stay the seed; the stores hold only what the dealer
@@ -73,8 +64,8 @@ export function hydrateDealerStores(dealerId: string): Promise<void> {
     const raw = (key: string) => secureStorage.get(key).catch(() => null);
     p = Promise.all([
       load<InvoiceClaim>(keyFor(CLAIMS_KEY, dealerId)), load<RcSubmission>(keyFor(RC_KEY, dealerId)), load<AdvanceRecord>(keyFor(ADVANCE_KEY, dealerId)),
-      raw(TAINF_KEY(dealerId)), raw(WC_KEY(dealerId)),
-    ]).then(([claims, rcs, adv, tainf, wc]) => {
+      raw(TAINF_KEY(dealerId)), raw(WC_KEY(dealerId)), raw(ALERTS_KEY(dealerId)), raw(ALERT_PREFS_KEY(dealerId)),
+    ]).then(([claims, rcs, adv, tainf, wc, inbox, prefs]) => {
       // Anything changed in memory meanwhile wins over the saved copy.
       invoiceStore.set((o) => ({ ...o, [dealerId]: { ...claims, ...o[dealerId] } }));
       rcStore.set((o) => ({ ...o, [dealerId]: { ...rcs, ...o[dealerId] } }));
@@ -83,6 +74,9 @@ export function hydrateDealerStores(dealerId: string): Promise<void> {
       if (limit) taInfStore.set((o) => (o[dealerId] ? o : { ...o, [dealerId]: limit }));
       const app = parseApplication(wc);
       wcApplyStore.set((o) => (o[dealerId] ? o : { ...o, [dealerId]: app }));
+      // v1.4.7 alerts: the dealer's shared inbox read state + arrived rows, and notification settings.
+      if (inbox) alertsStore.set((o) => (o[dealerId] ? o : { ...o, [dealerId]: reviveInbox(inbox) }));
+      if (prefs) alertPrefsStore.set((o) => (o[dealerId] ? o : { ...o, [dealerId]: revivePrefs(prefs) }));
     });
     hydrated.set(dealerId, p);
   }
@@ -92,14 +86,18 @@ export function hydrateDealerStores(dealerId: string): Promise<void> {
 const STATUS_RANK: Record<InvoiceStatus, number> = { 'Not claimed': 0, Claimed: 1, Paid: 2 };
 const EMPTY: Record<string, never> = {};
 
+/** Seed with claims applied (pure). A seed that has since moved to Paid stays Paid. */
+export const withClaims = (seed: readonly Invoice[], claims: Record<string, InvoiceClaim>): Invoice[] => seed.map((i) => {
+  const c = claims[i.id];
+  return c && STATUS_RANK[c.status] > STATUS_RANK[i.status] ? { ...i, status: c.status } : i;
+});
+/** The dealer's invoices right now (seed + saved claims), outside React (voice answers). */
+export const invoicesNow = (dealerId: string | undefined, seed: readonly Invoice[]): Invoice[] => withClaims(seed, invoiceStore.get()[dealerId ?? 'anon'] ?? EMPTY);
 /** Seeded invoices with this dealer's claims applied (a seed that has since moved to Paid stays Paid). */
 export function useInvoices(dealerId: string, seed: Invoice[]): Invoice[] {
   const all = useSyncExternalStore(invoiceStore.subscribe, invoiceStore.get, invoiceStore.get);
   const claims = all[dealerId] ?? EMPTY;
-  return useMemo(() => seed.map((i) => {
-    const c = claims[i.id];
-    return c && STATUS_RANK[c.status] > STATUS_RANK[i.status] ? { ...i, status: c.status } : i;
-  }), [seed, claims]);
+  return useMemo(() => withClaims(seed, claims), [seed, claims]);
 }
 export function markInvoiceClaimed(dealerId: string, id: string, ref?: string) {
   invoiceStore.set((o) => ({ ...o, [dealerId]: { ...o[dealerId], [id]: { status: 'Claimed', ref, claimedOn: new Date().toISOString() } } }));
@@ -227,4 +225,84 @@ export function saveWcApplication(dealerId: string | undefined, a: WcApplication
   const id = dealerId ?? 'anon';
   wcApplyStore.set((p) => ({ ...p, [id]: a }));
   if (persistable(id)) secureStorage.set(WC_KEY(id), JSON.stringify(a)).catch(() => {});
+}
+
+/*
+ * v1.4.6 Money in flight: what the dealer did on a file this session (raised a query, uploaded an RC copy), keyed by
+ * dealer id then LAN. Memory only (demo): the mock feed is the seed, this is the overlay. One open query per file.
+ */
+export interface MifQuery { ticketId: string; reasonId: string; reasonLabel: string; note?: string; raisedAt: string }
+export interface MifLocal { queries: Record<string, MifQuery>; rcUploaded: Record<string, string> }
+const MIF_EMPTY: MifLocal = { queries: {}, rcUploaded: {} };
+export const mifStore = createStore<Record<string, MifLocal>>({});
+export function useMifLocal(dealerId: string): MifLocal {
+  const all = useSyncExternalStore(mifStore.subscribe, mifStore.get, mifStore.get);
+  return all[dealerId] ?? MIF_EMPTY;
+}
+export function recordMifQuery(dealerId: string, lan: string, q: MifQuery) {
+  mifStore.set((o) => { const cur = o[dealerId] ?? MIF_EMPTY; return { ...o, [dealerId]: { ...cur, queries: { ...cur.queries, [lan]: q } } }; });
+}
+export function recordMifRcUpload(dealerId: string, lan: string) {
+  mifStore.set((o) => { const cur = o[dealerId] ?? MIF_EMPTY; return { ...o, [dealerId]: { ...cur, rcUploaded: { ...cur.rcUploaded, [lan]: new Date().toISOString() } } }; });
+}
+
+/*
+ * v1.4.8 payout statement: queries raised on a statement line (payout-ops queue, PAY-…), keyed by dealer id then
+ * `invoice#LAN`. Memory only (demo), like the Money-in-flight overlay. One open query per line.
+ */
+export type PayoutQuery = MifQuery;
+const PAYQ_EMPTY: Record<string, PayoutQuery> = {};
+export const payoutQueryStore = createStore<Record<string, Record<string, PayoutQuery>>>({});
+export function usePayoutQueries(dealerId: string): Record<string, PayoutQuery> {
+  const all = useSyncExternalStore(payoutQueryStore.subscribe, payoutQueryStore.get, payoutQueryStore.get);
+  return all[dealerId] ?? PAYQ_EMPTY;
+}
+export const getPayoutQueries = (dealerId: string | undefined): Record<string, PayoutQuery> => payoutQueryStore.get()[dealerId ?? 'anon'] ?? PAYQ_EMPTY;
+export function recordPayoutQuery(dealerId: string, key: string, q: PayoutQuery) {
+  payoutQueryStore.set((o) => ({ ...o, [dealerId]: { ...(o[dealerId] ?? PAYQ_EMPTY), [key]: q } }));
+}
+
+/*
+ * v1.4.7 Credit and payout alerts. ONE shared inbox per dealer id (approved): every login / device of the dealer reads
+ * the same read marks and arrived rows. Seeds come from services/alerts (mock feed); this holds only what changed.
+ * Notification settings (push, quiet hours, per-type switches, promotional consent + timestamp) are per dealer id too.
+ * Both are persisted (secureStorage) and hydrated in hydrateDealerStores.
+ */
+export const alertsStore = createStore<Record<string, InboxState>>({});
+export const alertPrefsStore = createStore<Record<string, AlertPrefs>>({});
+const ALERTS_KEY = (dealerId: string) => `firstgo.alerts.${safeKey(dealerId)}`;
+const ALERT_PREFS_KEY = (dealerId: string) => `firstgo.alertprefs.${safeKey(dealerId)}`;
+let defaultPrefsCache: AlertPrefs | null = null;
+const fallbackPrefs = () => (defaultPrefsCache ??= revivePrefs(null));
+
+export function useInboxState(dealerId: string | undefined): InboxState {
+  const all = useSyncExternalStore(alertsStore.subscribe, alertsStore.get, alertsStore.get);
+  return all[dealerId ?? 'anon'] ?? EMPTY_INBOX;
+}
+export const getInboxState = (dealerId: string | undefined): InboxState => alertsStore.get()[dealerId ?? 'anon'] ?? EMPTY_INBOX;
+export function updateInbox(dealerId: string | undefined, fn: (s: InboxState) => InboxState) {
+  const id = dealerId ?? 'anon';
+  const cur = alertsStore.get()[id] ?? EMPTY_INBOX;
+  const next = fn(cur);
+  if (next === cur) return;
+  alertsStore.set((p) => ({ ...p, [id]: next }));
+  if (persistable(id)) secureStorage.set(ALERTS_KEY(id), JSON.stringify(next)).catch(() => {});
+}
+export function useAlertPrefs(dealerId: string | undefined): AlertPrefs {
+  const all = useSyncExternalStore(alertPrefsStore.subscribe, alertPrefsStore.get, alertPrefsStore.get);
+  return all[dealerId ?? 'anon'] ?? fallbackPrefs();
+}
+export const getAlertPrefs = (dealerId: string | undefined): AlertPrefs => alertPrefsStore.get()[dealerId ?? 'anon'] ?? fallbackPrefs();
+export function updateAlertPrefs(dealerId: string | undefined, fn: (p: AlertPrefs) => AlertPrefs) {
+  const id = dealerId ?? 'anon';
+  const cur = getAlertPrefs(id);
+  const next = fn(cur);
+  if (next === cur) return;
+  alertPrefsStore.set((p) => ({ ...p, [id]: next }));
+  if (persistable(id)) secureStorage.set(ALERT_PREFS_KEY(id), JSON.stringify(next)).catch(() => {});
+}
+/** Demo: a commission payout "arrives" as Paid, so Payouts agrees with the new alert. */
+export function markInvoicePaid(dealerId: string, id: string) {
+  invoiceStore.set((o) => ({ ...o, [dealerId]: { ...o[dealerId], [id]: { status: 'Paid', claimedOn: new Date().toISOString() } } }));
+  if (persistable(dealerId)) save(keyFor(CLAIMS_KEY, dealerId), invoiceStore.get()[dealerId] ?? {});
 }

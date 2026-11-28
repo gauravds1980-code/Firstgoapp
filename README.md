@@ -2,15 +2,24 @@
 
 Dealer first go app.
 
-**Current version: v1.4.5** (versionCode 22). [Release](https://github.com/gauravds1980-code/Firstgoapp/releases/tag/v1.4.5) · [APK](https://github.com/gauravds1980-code/Firstgoapp/releases/download/v1.4.5/FIRSTgo-v1.4.5.apk).
+**Current version: v1.4.9** (versionCode 26, ios.buildNumber 26). No new Android APK has been built for v1.4.9 yet; the latest signed APK is [v1.4.5](https://github.com/gauravds1980-code/Firstgoapp/releases/tag/v1.4.5). To try v1.4.9 on a phone, open the running Metro URL and reload.
 
-FIRSTgo v1.4.5 is the IDFC FIRST Bank dealer-side vehicle loan origination prototype for the bank's wheels business (two-wheeler, car and commercial vehicle). Dealers log in, pull a pre-qualified offer (scan the customer’s QR or search by mobile), and walk a new-vehicle journey through KYC, mandate, agreement, and disbursal. All data is mock. There are no real bank APIs — the integrations in `src/services/` are typed stubs.
+FIRSTgo is the IDFC FIRST Bank dealer-side vehicle loan origination prototype for the bank's wheels business (two-wheeler, car and commercial vehicle). Dealers log in, pull a pre-qualified offer (scan the customer’s QR or search by mobile), and walk a new-vehicle journey through KYC, mandate, agreement, and disbursal. All data is mock. There are no real bank APIs — the integrations in `src/services/` are typed stubs.
 
 ## Download the Android APK
 
-[FIRSTgo v1.4.5 release](https://github.com/gauravds1980-code/Firstgoapp/releases/tag/v1.4.5) · [FIRSTgo-v1.4.5.apk](https://github.com/gauravds1980-code/Firstgoapp/releases/download/v1.4.5/FIRSTgo-v1.4.5.apk) (arm64, v1.4.5, versionCode 22).
+Latest signed APK: [FIRSTgo v1.4.5 release](https://github.com/gauravds1980-code/Firstgoapp/releases/tag/v1.4.5) · [FIRSTgo-v1.4.5.apk](https://github.com/gauravds1980-code/Firstgoapp/releases/download/v1.4.5/FIRSTgo-v1.4.5.apk) (arm64, v1.4.5, versionCode 22). v1.4.9 is source + Metro only for now.
 
 Direct link: https://github.com/gauravds1980-code/Firstgoapp/raw/main/releases/FIRSTgo-v1.4.5.apk
+
+What's new in v1.4.9 (v1.4.6–v1.4.9):
+
+- **Money in flight** (v1.4.6): track sanctioned loans until the amount is credited to the dealer's account, with stage, named blocker, ageing (on time 0–1 day, ageing 2–3, overdue 4+), a Raise a query ticket, and voice ("mera paisa kahan hai", "Ramesh ka paisa aaya?", "kaunsi file atki hai"). Shown only for new/used car, new/used CV and used two-wheeler dealers. Hidden for new two-wheeler-only dealers (default Hero login), who keep the old Home Payouts loan-credit block. Login 1111 uses used-TW and car files (₹22.9L, 5 files, 2 overdue). Today's loan credits move under Money in flight; Payouts is commission only.
+- **Credit and payout alerts** (v1.4.7): in-app inbox, Home bell badge, notification settings, Zippy + Piper readout. Quiet hours 9:00 PM–8:00 AM IST hold every alert until 8:00 AM (no breakthrough). One inbox per dealer id. Promo consent is an in-app checkbox with a stored timestamp. New two-wheeler dealers get commission alerts only. No native push in this version.
+- **Payout statement** (v1.4.8): commission statement defaulting to This month, short-pay flagged only when the difference is ₹100 or more, expected deductions (for example a ₹4,200 advance recovery) itemised rather than marked short-pay, and one genuine October ₹1,150 scheme-cap short-pay on login 1111. Payout queries use a PAY- ticket prefix (Money in flight stays QRY-). PDF download is visible but disabled.
+- **Hinglish voice status checks** (v1.4.9): "Ramesh ka loan kahan tak pahuncha", "aaj kitne approve hue", "aaj kitna disburse hua", "mera commission kab aayega" (Hinglish, English and Devanagari). Status answers are always spoken with Piper. Count questions only speak and stay on Home. No notice for the Google STT fallback. Google TTS is never used.
+
+versionCode 26. ios.buildNumber is "26". No new native iOS plugins. No new APK.
 
 What's new in v1.4.5:
 

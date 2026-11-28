@@ -26,6 +26,16 @@ const canOpenHelp = () => navRef.isReady() && ((navRef.getRootState()?.routeName
  * Canned, context-aware suggestions only. Wire to the real assistant backend later.
  */
 const SUGGESTIONS: Record<AssistantContext, { q: string; a: string }[]> = {
+  alerts: [
+    { q: 'Why no alert on my lock screen?', a: 'Live push needs a development build. The inbox in the app still updates.' },
+    { q: 'What are quiet hours?', a: 'From 9:00 PM to 8:00 AM pushes wait until morning. The inbox still updates, and Zippy stays quiet.' },
+    { q: 'Will I get offers here?', a: 'Only if you tick the promotional consent box in Notification settings. Loan and payout updates never need it.' },
+  ],
+  money: [
+    { q: 'Is this my payout?', a: 'No. This is the customer’s loan amount on its way to your settlement account. Your commission stays on Payouts.' },
+    { q: 'What does Overdue mean?', a: 'The file has been in the same stage for 4 days or more. Open it to see the blocker, and fix it if it is yours.' },
+    { q: 'How long do credited files stay?', a: 'Three days. After that the loan is in Cases done, with its UTR.' },
+  ],
   login: [
     { q: 'I didn’t get the OTP', a: 'Give it 30 seconds, then tap Resend. Make sure it’s the mobile registered with your relationship manager.' },
     { q: 'Who can sign in?', a: 'Dealer owners and staff registered with IDFC FIRST Bank for your dealership code.' },
@@ -110,7 +120,7 @@ type Msg = { from: 'bot' | 'user'; text: string };
 const CONTEXT_LABEL: Record<AssistantContext, string> = {
   login: 'sign-in', home: 'Home', profile: 'Profile', scan: 'Scan QR', search: 'search', offer: 'the offer', asset: 'Vehicle & EMI',
   kyc: 'Face KYC', mandate: 'Mandate', esign: 'e\u2011sign', docs: 'Documents', disbursal: 'Disbursal',
-  payouts: 'Payouts', portfolio: 'Portfolio', cases: 'Cases done', rc: 'RC pendency', tainf: 'TA / INF', help: 'tutorials',
+  payouts: 'Payouts', portfolio: 'Portfolio', cases: 'Cases done', rc: 'RC pendency', tainf: 'TA / INF', help: 'tutorials', money: 'Money in flight', alerts: 'Alerts',
 };
 
 /**
